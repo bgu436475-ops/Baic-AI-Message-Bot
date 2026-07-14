@@ -15,7 +15,7 @@ const COPY = {
   zh: {
     brandAria: "AI Signal 首页",
     title: "AI 每日情报",
-    update: "持续跟踪 · 每日 09:00 精选",
+    update: "每日重查全球信源 · 09:00 精选",
     headlineA: "让重要的 AI 进展，",
     headlineB: "先于噪音抵达。",
     intro: "实时跟进全球官方发布、开发者社区与开源生态；当天没有可靠新进展时，回看最近 7 天最重要的信息。",
@@ -56,13 +56,13 @@ const COPY = {
     rank: "排序",
     rankText: "按新鲜度、影响力、实用性与信源质量综合评分。",
     footer: "信息应该帮助判断，而不是制造焦虑。",
-    next: "持续监测 · 明日 09:00 再精选",
+    next: "下一次自动检查 · 明日 09:00",
     langAria: "切换到英文",
   },
   en: {
     brandAria: "AI Signal home",
     title: "DAILY AI INTELLIGENCE",
-    update: "Always monitoring · Curated daily at 09:00",
+    update: "Global sources rechecked daily · Curated at 09:00",
     headlineA: "Important AI progress,",
     headlineB: "ahead of the noise.",
     intro: "Tracking official releases, developer communities, and open-source ecosystems worldwide. When there is no reliable update today, we surface the most important signals from the past seven days.",
@@ -103,7 +103,7 @@ const COPY = {
     rank: "Rank",
     rankText: "Score freshness, impact, utility, and source quality.",
     footer: "Information should improve judgment, not create anxiety.",
-    next: "Monitoring continuously · Next curation at 09:00",
+    next: "Next automatic check · Tomorrow at 09:00",
     langAria: "切换到中文",
   },
 };
