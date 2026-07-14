@@ -8,6 +8,7 @@ import {
   type Digest,
   type NewsItem,
 } from "./news-data";
+import { buildSummary, type SummaryPeriod } from "./summary";
 
 type Language = "zh" | "en";
 
@@ -58,6 +59,16 @@ const COPY = {
     footer: "信息应该帮助判断，而不是制造焦虑。",
     next: "下一次自动检查 · 明日 09:00",
     langAria: "切换到英文",
+    summaryButton: "一键总结",
+    summaryAria: "打开 AI 新闻一键总结",
+    daily: "每日",
+    weekly: "每周",
+    closeSummary: "关闭总结",
+    fallback: "近 24 小时暂无可靠重大更新，以下为近期重要信号",
+    narrative: "重大叙事",
+    sourceLink: "查看原始信息",
+    shortcutHint: "桌面快捷方式与键盘快捷键：⌥ D 每日 · ⌥ W 每周",
+    feishuReady: "已预留飞书摘要通道",
   },
   en: {
     brandAria: "AI Signal home",
@@ -105,6 +116,16 @@ const COPY = {
     footer: "Information should improve judgment, not create anxiety.",
     next: "Next automatic check · Tomorrow at 09:00",
     langAria: "切换到中文",
+    summaryButton: "QUICK BRIEF",
+    summaryAria: "Open the AI news quick brief",
+    daily: "Daily",
+    weekly: "Weekly",
+    closeSummary: "Close summary",
+    fallback: "No reliable major update in the past 24 hours; showing recent important signals",
+    narrative: "KEY NARRATIVES",
+    sourceLink: "Original source",
+    shortcutHint: "Desktop and keyboard shortcuts: ⌥ D daily · ⌥ W weekly",
+    feishuReady: "Feishu summary channel reserved",
   },
 };
 
@@ -181,6 +202,8 @@ export function NewsDashboard({ initialDigest }: { initialDigest: Digest }) {
   const [activeCategory, setActiveCategory] = useState<Category>("all");
   const [query, setQuery] = useState("");
   const [methodOpen, setMethodOpen] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [summaryPeriod, setSummaryPeriod] = useState<SummaryPeriod>("daily");
   const copy = COPY[language];
   const labels = CATEGORY_LABELS[language];
 
@@ -202,6 +225,28 @@ export function NewsDashboard({ initialDigest }: { initialDigest: Digest }) {
     document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
     window.localStorage.setItem("ai-signal-language", language);
   }, [language]);
+
+  useEffect(() => {
+    const requestedPeriod = new URLSearchParams(window.location.search).get("summary");
+    if (requestedPeriod === "daily" || requestedPeriod === "weekly") {
+      window.requestAnimationFrame(() => {
+        setSummaryPeriod(requestedPeriod);
+        setSummaryOpen(true);
+      });
+    }
+
+    const handleShortcut = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSummaryOpen(false);
+      if (!event.altKey) return;
+      const key = event.key.toLowerCase();
+      if (key !== "d" && key !== "w") return;
+      event.preventDefault();
+      setSummaryPeriod(key === "d" ? "daily" : "weekly");
+      setSummaryOpen(true);
+    };
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, []);
 
   const items = useMemo(() => {
     const keyword = query.trim().toLowerCase();
@@ -233,8 +278,26 @@ export function NewsDashboard({ initialDigest }: { initialDigest: Digest }) {
     };
   }, [currentDigest]);
 
+  const summary = useMemo(
+    () => buildSummary(currentDigest, summaryPeriod, language),
+    [currentDigest, language, summaryPeriod],
+  );
+
   const resetFilters = () => { setActiveCategory("all"); setQuery(""); };
   const toggleLanguage = () => setLanguage((current) => current === "zh" ? "en" : "zh");
+  const openSummary = (period: SummaryPeriod = summaryPeriod) => {
+    setSummaryPeriod(period);
+    setSummaryOpen(true);
+    const url = new URL(window.location.href);
+    url.searchParams.set("summary", period);
+    window.history.replaceState({}, "", url);
+  };
+  const closeSummary = () => {
+    setSummaryOpen(false);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("summary");
+    window.history.replaceState({}, "", url);
+  };
 
   return (
     <main>
@@ -248,7 +311,12 @@ export function NewsDashboard({ initialDigest }: { initialDigest: Digest }) {
           </button>
         </div>
         <div className="header-center">{copy.title}</div>
-        <div className="header-status"><span /> {copy.update}</div>
+        <div className="header-actions">
+          <div className="header-status"><span /> {copy.update}</div>
+          <button className="summary-trigger" type="button" onClick={() => openSummary()} aria-label={copy.summaryAria}>
+            <span aria-hidden="true">✦</span>{copy.summaryButton}
+          </button>
+        </div>
       </header>
 
       <section className="hero" id="top">
@@ -343,6 +411,54 @@ export function NewsDashboard({ initialDigest }: { initialDigest: Digest }) {
       <footer>
         <div><span className="brand-mark">A/</span><strong>AI SIGNAL</strong></div><p>{copy.footer}</p><span>{copy.next}</span>
       </footer>
+
+      {summaryOpen && <>
+        <button className="summary-backdrop" type="button" onClick={closeSummary} aria-label={copy.closeSummary} />
+        <aside className="summary-drawer" role="dialog" aria-modal="true" aria-labelledby="summary-title">
+          <div className="summary-head">
+            <div>
+              <span className="summary-kicker">AI SIGNAL · {summary.period.toUpperCase()}</span>
+              <h2 id="summary-title">{summary.headline}</h2>
+            </div>
+            <button className="summary-close" type="button" onClick={closeSummary} aria-label={copy.closeSummary}>×</button>
+          </div>
+
+          <div className="summary-tabs" aria-label={language === "zh" ? "选择总结周期" : "Choose summary period"}>
+            {(["daily", "weekly"] as SummaryPeriod[]).map((period) => (
+              <button
+                type="button"
+                className={summaryPeriod === period ? "active" : ""}
+                aria-pressed={summaryPeriod === period}
+                onClick={() => openSummary(period)}
+                key={period}
+              >
+                {period === "daily" ? copy.daily : copy.weekly}
+              </button>
+            ))}
+          </div>
+
+          {summary.fallback_used && <div className="summary-fallback"><span />{copy.fallback}</div>}
+          <p className="summary-overview">{summary.overview}</p>
+          <div className="summary-section-label">{copy.narrative} · {summary.narratives.length}</div>
+          <ol className="summary-narratives">
+            {summary.narratives.map((narrative, index) => (
+              <li key={narrative.url}>
+                <span className="summary-number">{String(index + 1).padStart(2, "0")}</span>
+                <div>
+                  <div className="summary-meta"><span>{narrative.category}</span> / {narrative.source} / {formatDate(narrative.published_at, language)}</div>
+                  <h3>{narrative.title}</h3>
+                  <p>{narrative.summary}</p>
+                  <a href={narrative.url} target="_blank" rel="noreferrer">{copy.sourceLink} ↗</a>
+                </div>
+              </li>
+            ))}
+          </ol>
+          <div className="summary-channel">
+            <span>{copy.feishuReady}</span>
+            <small>{copy.shortcutHint}</small>
+          </div>
+        </aside>
+      </>}
     </main>
   );
 }
