@@ -114,6 +114,17 @@ ai-news-bot --dry-run --web-output web/public/data/latest.json
 
 飞书 webhook 会把消息固定发到创建该机器人的群，因此无需在代码中保存群 ID 或群名。消息使用飞书 V2 卡片，每条包含中文标题、简短摘要、分类、来源、重要性和可点击原始链接。
 
+### 预留的一键总结通道
+
+网页提供只读摘要接口，后续飞书机器人可直接读取统一格式，不需要从页面中抓取文字：
+
+```text
+GET /api/summary?period=daily&lang=zh
+GET /api/summary?period=weekly&lang=zh
+```
+
+接口格式版本为 `ai-signal.summary.v1`，包含摘要周期、生成时间、重大叙事、原始链接和是否启用回看提示。它目前不会主动发送消息，也不会在网页中保存飞书 webhook；正式接入时仍通过 `FEISHU_WEBHOOK_URL` 安全发送到指定群。
+
 ## 每天 9:00 自动发送
 
 `.github/workflows/daily-ai-news.yml` 已配置：
