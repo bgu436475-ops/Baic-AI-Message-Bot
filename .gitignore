@@ -2,9 +2,9 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .venv/
+.pnpm-store/
 .env
 .state/
 dist/
 build/
 *.egg-info/
-
