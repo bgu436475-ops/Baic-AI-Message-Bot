@@ -54,7 +54,7 @@ AI_KEYWORDS = (
 )
 
 
-def _entry_datetime(entry: Any, now: datetime) -> datetime:
+def _entry_datetime(entry: Any, now: datetime) -> datetime | None:
     for attr in ("published_parsed", "updated_parsed", "created_parsed"):
         value = entry.get(attr)
         if value:
@@ -70,7 +70,7 @@ def _entry_datetime(entry: Any, now: datetime) -> datetime:
             return parsed.astimezone(UTC)
         except (TypeError, ValueError, OverflowError):
             continue
-    return now
+    return None
 
 
 def _looks_ai_related(title: str, summary: str) -> bool:
@@ -124,6 +124,9 @@ class RSSCollector:
             if not url or not title:
                 continue
             published = _entry_datetime(entry, now)
+            if published is None:
+                LOGGER.debug("%s: skipped undated entry %s", source.name, title)
+                continue
             if published < cutoff or published > now + timedelta(hours=6):
                 continue
             summary = clean_html(
