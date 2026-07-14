@@ -59,8 +59,21 @@ jobs:
             git push
           fi
 
+      - name: Publish latest digest to private dashboard
+        env:
+          SITE_DIGEST_ENDPOINT: ${{ secrets.SITE_DIGEST_ENDPOINT }}
+          SITE_BYPASS_TOKEN: ${{ secrets.SITE_BYPASS_TOKEN }}
+          SITE_DIGEST_UPDATE_SECRET: ${{ secrets.SITE_DIGEST_UPDATE_SECRET }}
+        run: |
+          curl --fail-with-body --retry 3 \
+            -H "OAI-Sites-Authorization: Bearer $SITE_BYPASS_TOKEN" \
+            -H "Authorization: Bearer $SITE_DIGEST_UPDATE_SECRET" \
+            -H "Content-Type: application/json" \
+            --data-binary @web/public/data/latest.json \
+            "$SITE_DIGEST_ENDPOINT"
+
       - name: Save sent-news history
-        if: success() && hashFiles('.state/history.json') != ''
+        if: always() && hashFiles('.state/history.json') != ''
         uses: actions/cache/save@v4
         with:
           path: .state/history.json

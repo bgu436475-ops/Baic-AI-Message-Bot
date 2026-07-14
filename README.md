@@ -107,9 +107,12 @@ ai-news-bot --dry-run --web-output web/public/data/latest.json
 1. 在该群的设置中添加“自定义机器人”，推荐使用 V2 webhook。
 2. 开启关键词或签名安全校验；若使用签名校验，复制签名密钥。
 3. 不要把 webhook 或密钥提交到仓库。将它们写入 GitHub 仓库的 `Settings → Secrets and variables → Actions`：
-   - `OPENAI_API_KEY`
    - `FEISHU_WEBHOOK_URL`
    - `FEISHU_SIGNING_SECRET`（未启用签名时可不创建）
+   - `SITE_DIGEST_ENDPOINT`：网页的数据更新接口地址
+   - `SITE_BYPASS_TOKEN`：私有网页访问令牌
+   - `SITE_DIGEST_UPDATE_SECRET`：网页数据写入密钥
+   - `OPENAI_API_KEY`（可选；未配置时自动使用 GitHub Models）
 4. 可在 Actions 页面手动运行 `Daily AI News` 做首次验证。
 
 飞书 webhook 会把消息固定发到创建该机器人的群，因此无需在代码中保存群 ID 或群名。消息使用飞书 V2 卡片，每条包含中文标题、简短摘要、分类、来源、重要性和可点击原始链接。
@@ -135,7 +138,7 @@ schedule:
     timezone: "Asia/Shanghai"
 ```
 
-工作流只会在默认分支执行。GitHub Actions 在平台高负载时可能有几分钟延迟；若业务要求严格准点，可把同一命令部署到云函数或常驻服务器的 cron。
+工作流只会在默认分支执行。每天运行时会采集和筛选新闻、发送飞书卡片、更新仓库中的简报文件，并把同一份内容发布到网页。GitHub Actions 在平台高负载时可能有几分钟延迟；若业务要求严格准点，可把同一命令部署到云函数或常驻服务器的 cron。
 
 ## 调整筛选
 
