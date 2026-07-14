@@ -10,6 +10,7 @@ from .curator import build_digest, select_with_openai, select_without_ai
 from .dedupe import hard_dedupe
 from .feishu import digest_markdown, send_to_feishu
 from .history import HistoryStore
+from .web_export import export_digest_for_web
 
 LOGGER = logging.getLogger(__name__)
 
@@ -25,6 +26,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--target-count", type=int, default=None)
     parser.add_argument("--lookback-hours", type=int, default=None)
+    parser.add_argument(
+        "--web-output",
+        type=Path,
+        default=Path("web/public/data/latest.json"),
+        help="Write the digest JSON consumed by the website",
+    )
     parser.add_argument("--log-level", default="INFO")
     return parser.parse_args()
 
@@ -80,6 +87,7 @@ def run(args: argparse.Namespace) -> int:
     latest_path = settings.state_path.parent / "latest_digest.json"
     latest_path.parent.mkdir(parents=True, exist_ok=True)
     latest_path.write_text(digest.model_dump_json(indent=2), encoding="utf-8")
+    export_digest_for_web(digest, args.web_output)
     print(digest_markdown(digest))
 
     if args.dry_run:

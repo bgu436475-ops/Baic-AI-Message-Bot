@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CATEGORY_LABELS,
   categories,
@@ -55,13 +55,28 @@ function StoryCard({ item, index }: { item: NewsItem; index: number }) {
 }
 
 export function NewsDashboard({ initialDigest }: { initialDigest: Digest }) {
+  const [currentDigest, setCurrentDigest] = useState(initialDigest);
   const [activeCategory, setActiveCategory] = useState<Category>("all");
   const [query, setQuery] = useState("");
   const [methodOpen, setMethodOpen] = useState(false);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/data/latest.json", { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error("Latest digest is unavailable");
+        return response.json() as Promise<Digest>;
+      })
+      .then((latest) => {
+        if (Array.isArray(latest.items) && latest.items.length) setCurrentDigest(latest);
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+
   const items = useMemo(() => {
     const keyword = query.trim().toLowerCase();
-    return initialDigest.items.filter((item) => {
+    return currentDigest.items.filter((item) => {
       const matchesCategory =
         activeCategory === "all" ||
         item.category === activeCategory ||
@@ -71,15 +86,15 @@ export function NewsDashboard({ initialDigest }: { initialDigest: Digest }) {
         `${item.title_zh} ${item.summary_zh} ${item.source}`.toLowerCase().includes(keyword);
       return matchesCategory && matchesQuery;
     });
-  }, [activeCategory, initialDigest.items, query]);
+  }, [activeCategory, currentDigest.items, query]);
 
   const categoryCounts = useMemo(() => {
     const counts: Partial<Record<Category, number>> = {};
-    for (const item of initialDigest.items) {
+    for (const item of currentDigest.items) {
       counts[item.category] = (counts[item.category] ?? 0) + 1;
     }
     return counts;
-  }, [initialDigest.items]);
+  }, [currentDigest.items]);
 
   const resetFilters = () => {
     setActiveCategory("all");
@@ -98,14 +113,14 @@ export function NewsDashboard({ initialDigest }: { initialDigest: Digest }) {
       </header>
 
       <section className="hero" id="top">
-        <div className="hero-kicker">DAILY BRIEFING · {formatDate(initialDigest.generated_at, true)}</div>
+        <div className="hero-kicker">DAILY BRIEFING · {formatDate(currentDigest.generated_at, true)}</div>
         <h1>让重要的 AI 进展，<br /><em>先于噪音抵达。</em></h1>
         <div className="hero-bottom">
           <p>从官方发布、开发者社区和开源项目中筛出真正值得关注的信息。每天约 10 条，中文摘要直达原始信源。</p>
           <div className="hero-stats" aria-label="今日简报统计">
-            <div><strong>{initialDigest.items.length}</strong><span>今日精选</span></div>
-            <div><strong>{initialDigest.candidate_count}</strong><span>候选信息</span></div>
-            <div><strong>{initialDigest.source_count}</strong><span>信源覆盖</span></div>
+            <div><strong>{currentDigest.items.length}</strong><span>今日精选</span></div>
+            <div><strong>{currentDigest.candidate_count}</strong><span>候选信息</span></div>
+            <div><strong>{currentDigest.source_count}</strong><span>信源覆盖</span></div>
           </div>
         </div>
       </section>
@@ -139,7 +154,7 @@ export function NewsDashboard({ initialDigest }: { initialDigest: Digest }) {
           {items.length ? (
             <div className="story-list">
               {items.map((item) => (
-                <StoryCard item={item} index={initialDigest.items.indexOf(item)} key={item.url} />
+                <StoryCard item={item} index={currentDigest.items.indexOf(item)} key={item.url} />
               ))}
             </div>
           ) : (
@@ -160,7 +175,7 @@ export function NewsDashboard({ initialDigest }: { initialDigest: Digest }) {
               .map(([category, count]) => (
                 <button type="button" key={category} onClick={() => setActiveCategory(category as Category)}>
                   <span>{CATEGORY_LABELS[category as Category]}</span>
-                  <span className="distribution-bar"><i style={{ width: `${(count! / initialDigest.items.length) * 100}%` }} /></span>
+                  <span className="distribution-bar"><i style={{ width: `${(count! / currentDigest.items.length) * 100}%` }} /></span>
                   <strong>{count}</strong>
                 </button>
               ))}

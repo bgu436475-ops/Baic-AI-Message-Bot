@@ -1,0 +1,144 @@
+{
+  "generated_at": "2026-07-13T08:49:07.888378Z",
+  "candidate_count": 62,
+  "source_count": 7,
+  "items": [
+    {
+      "original_title": "mereyabdenbekuly-ctrl/clodex-ide",
+      "title_zh": "mereyabdenbekuly-ctrl/clodex-ide",
+      "summary_zh": "Local-first, zero-trust agentic IDE for verifiable autonomous software development. GitHub: 691 stars, 148 forks.",
+      "url": "https://github.com/mereyabdenbekuly-ctrl/clodex-ide",
+      "source": "GitHub · MCP 新项目",
+      "published_at": "2026-07-12T10:35:44Z",
+      "category": "mcp",
+      "extra_categories": [
+        "open_source"
+      ],
+      "importance": 92
+    },
+    {
+      "original_title": "William-Lu-stack/LuxyAI",
+      "title_zh": "William-Lu-stack/LuxyAI",
+      "summary_zh": "AgenticOps for Kubernetes and cloud infrastructure. GitHub: 425 stars, 14 forks.",
+      "url": "https://github.com/William-Lu-stack/LuxyAI",
+      "source": "GitHub · MCP 新项目",
+      "published_at": "2026-07-10T05:57:02Z",
+      "category": "mcp",
+      "extra_categories": [
+        "open_source"
+      ],
+      "importance": 80
+    },
+    {
+      "original_title": "OthmanAdi/plandeck",
+      "title_zh": "OthmanAdi/plandeck",
+      "summary_zh": "The visual Kanban for long-running AI agents. Watch your agent's plan organize itself: dependencies unlock into Ready, the critical path lights up, the one next move is obvious. Nobody wants to read a markdown plan. Git…",
+      "url": "https://github.com/OthmanAdi/plandeck",
+      "source": "GitHub · AI Skill 新项目",
+      "published_at": "2026-07-12T12:10:05Z",
+      "category": "skills",
+      "extra_categories": [
+        "agents",
+        "open_source"
+      ],
+      "importance": 73
+    },
+    {
+      "original_title": "Alisa0808/vox-director",
+      "title_zh": "Alisa0808/vox-director",
+      "summary_zh": "Turn one topic into a finished Vox-style paper-collage explainer/ad video — automated end to end on Atlas Cloud + ffmpeg. An agent skill. GitHub: 85 stars, 9 forks.",
+      "url": "https://github.com/Alisa0808/vox-director",
+      "source": "GitHub · 生成式 AI 新项目",
+      "published_at": "2026-07-10T15:32:05Z",
+      "category": "image_video",
+      "extra_categories": [
+        "open_source"
+      ],
+      "importance": 73
+    },
+    {
+      "original_title": "LiteRT.js, Google's high performance Web AI Inference",
+      "title_zh": "LiteRT.js, Google's high performance Web AI Inference",
+      "summary_zh": "We're excited to introduce LiteRT.js, the newest member of the LiteRT family! LiteRT.js is our powerful solution for running machine learning models directly in the browser, extending Google's cross-platform edge AI run…",
+      "url": "https://developers.googleblog.com/litertjs-googles-high-performance-web-ai-inference",
+      "source": "Google Developers Blog",
+      "published_at": "2026-07-13T08:48:45.837773Z",
+      "category": "new_models",
+      "extra_categories": [
+        "ai_coding",
+        "agents"
+      ],
+      "importance": 72
+    },
+    {
+      "original_title": "Bridging the Domain Gap: AI Race Coach built with Antigravity and Gemini",
+      "title_zh": "Bridging the Domain Gap: AI Race Coach built with Antigravity and Gemini",
+      "summary_zh": "On May 23, 2026, fresh off the stage at Google I/O, our Google Developer Experts (GDEs) converged on...",
+      "url": "https://developers.googleblog.com/bridging-the-domain-gap-ai-race-coach-built-with-antigravity-and-gemini",
+      "source": "Google Developers Blog",
+      "published_at": "2026-07-13T08:48:45.837773Z",
+      "category": "new_models",
+      "extra_categories": [
+        "ai_coding",
+        "agents"
+      ],
+      "importance": 72
+    },
+    {
+      "original_title": "We terminated a TPU mid-training and it recovered in seconds: Introduction to elastic training with MaxText",
+      "title_zh": "We terminated a TPU mid-training and it recovered in seconds: Introduction to e…",
+      "summary_zh": "Distributed AI training is notoriously fragile because losing a single machine typically crashes the entire multi-node job, forcing a time-consuming, full-workload infrastructure restart. To address this, Google’s JAX e…",
+      "url": "https://developers.googleblog.com/we-terminated-a-tpu-mid-training-and-it-recovered-in-seconds-introduction-to-elastic-training-with-maxtext",
+      "source": "Google Developers Blog",
+      "published_at": "2026-07-13T08:48:45.837773Z",
+      "category": "new_models",
+      "extra_categories": [
+        "ai_coding",
+        "agents"
+      ],
+      "importance": 72
+    },
+    {
+      "original_title": "Build agentic full-stack apps with Genkit",
+      "title_zh": "Build agentic full-stack apps with Genkit",
+      "summary_zh": "The open-source Genkit framework has introduced the Agents API, a full-stack tool designed to simplify the complex plumbing of conversational AI by packaging message history, tool loops, and streaming into a single inte…",
+      "url": "https://developers.googleblog.com/build-agentic-full-stack-apps-with-genkit",
+      "source": "Google Developers Blog",
+      "published_at": "2026-07-13T08:48:45.837773Z",
+      "category": "new_models",
+      "extra_categories": [
+        "ai_coding",
+        "agents"
+      ],
+      "importance": 72
+    },
+    {
+      "original_title": "Driving the Agent Quality Flywheel from Your Coding Agent",
+      "title_zh": "Driving the Agent Quality Flywheel from Your Coding Agent",
+      "summary_zh": "Building AI agents often leaves developers uncertain if prompt tweaks to fix single errors will accidentally cause widespread regressions in production. To bridge this gap, Google has introduced a new developer skill fo…",
+      "url": "https://developers.googleblog.com/driving-the-agent-quality-flywheel-from-your-coding-agent",
+      "source": "Google Developers Blog",
+      "published_at": "2026-07-13T08:48:45.837773Z",
+      "category": "new_models",
+      "extra_categories": [
+        "ai_coding",
+        "agents"
+      ],
+      "importance": 72
+    },
+    {
+      "original_title": "Build reliable multi-agent applications with ADK Go 2.0. Discover our new graph-based workflow engine, built-in human-in-the-loop, and dynamic orchestration",
+      "title_zh": "Build reliable multi-agent applications with ADK Go 2.0. Discover our new graph…",
+      "summary_zh": "The Agent Development Kit (ADK) for Go 2.0 has been released, introducing a first-class, graph-based workflow engine to help developers compose complex, multi-agent applications. This update adds built-in primitives for…",
+      "url": "https://developers.googleblog.com/announcing-adk-go-20",
+      "source": "Google Developers Blog",
+      "published_at": "2026-07-13T08:48:45.837773Z",
+      "category": "new_models",
+      "extra_categories": [
+        "ai_coding",
+        "agents"
+      ],
+      "importance": 72
+    }
+  ]
+}
