@@ -1,144 +1,141 @@
 {
-  "generated_at": "2026-07-13T08:49:07.888378Z",
-  "candidate_count": 62,
-  "source_count": 7,
+  "generated_at": "2026-07-14T01:27:16.737094Z",
+  "candidate_count": 80,
+  "source_count": 15,
+  "latest_published_at": "2026-07-12T22:27:40Z",
+  "fresh_count_24h": 0,
+  "lookback_hours": 168,
+  "fallback_used": true,
   "items": [
     {
+      "original_title": "CodeQL 2.26.0 adds Kotlin 2.4.0 support and AI prompt injection detection",
+      "title_en": "CodeQL 2.26.0 adds AI prompt injection detection",
+      "summary_en": "GitHub's latest CodeQL release adds a JavaScript and TypeScript query for system prompt injection, plus new prompt-injection sinks for OpenAI, Anthropic, and Google GenAI SDKs.",
+      "title_zh": "CodeQL 2.26.0 新增 AI 系统提示词注入检测",
+      "summary_zh": "GitHub 为 CodeQL 增加 JavaScript/TypeScript 系统提示词注入查询，并扩展对 OpenAI、Anthropic 与 Google GenAI SDK 的风险检测。AI 应用安全开始进入常规代码扫描体系。",
+      "url": "https://github.blog/changelog/2026-07-10-codeql-2-26-0-adds-kotlin-2-4-0-support-and-ai-prompt-injection-detection/",
+      "source": "GitHub Changelog",
+      "published_at": "2026-07-10T00:00:00Z",
+      "category": "ai_coding",
+      "extra_categories": ["agents", "industry_business"],
+      "importance": 94
+    },
+    {
+      "original_title": "GPT-5.6: Frontier intelligence that scales with your ambition",
+      "title_en": "OpenAI releases the GPT-5.6 model family",
+      "summary_en": "OpenAI made GPT-5.6 generally available in three variants: Sol for maximum capability, Terra as a balanced model, and Luna for cost-efficient workloads across ChatGPT, Codex, and the API.",
+      "title_zh": "OpenAI 正式发布 GPT-5.6 模型家族",
+      "summary_zh": "GPT-5.6 已在 ChatGPT、Codex 与 API 中全面可用，包含旗舰 Sol、均衡型 Terra 和高性价比 Luna 三个版本，重点提升复杂知识工作、编码与工具使用能力。",
+      "url": "https://openai.com/index/gpt-5-6/",
+      "source": "OpenAI",
+      "published_at": "2026-07-09T00:00:00Z",
+      "category": "new_models",
+      "extra_categories": ["ai_coding", "agents"],
+      "importance": 93
+    },
+    {
+      "original_title": "ChatGPT is now a partner for your most ambitious work",
+      "title_en": "OpenAI introduces ChatGPT Work for long-running tasks",
+      "summary_en": "ChatGPT Work can operate across apps and files, stay with projects for hours, and produce finished artifacts such as documents, spreadsheets, slides, and sites.",
+      "title_zh": "OpenAI 推出 ChatGPT Work，面向长时间复杂任务",
+      "summary_zh": "ChatGPT Work 可以跨应用和文件执行任务，持续处理数小时的项目，并直接产出文档、表格、幻灯片和网站等成果，代表通用 AI Agent 向完整工作交付继续推进。",
+      "url": "https://openai.com/index/chatgpt-for-your-most-ambitious-work/",
+      "source": "OpenAI",
+      "published_at": "2026-07-09T00:00:00Z",
+      "category": "agents",
+      "extra_categories": ["skills", "industry_business"],
+      "importance": 91
+    },
+    {
+      "original_title": "UST is bringing Claude to physical AI",
+      "title_en": "UST brings Claude into physical AI and industrial engineering",
+      "summary_en": "UST is integrating Claude into chip validation and other engineering workflows while training 20,000 employees, illustrating how agents are moving from pilots into regulated physical production systems.",
+      "title_zh": "UST 将 Claude 引入芯片验证与实体工业流程",
+      "summary_zh": "UST 正把 Claude 接入芯片验证、制造、医疗、通信与银行工作流，并计划培训 2 万名员工。这是 AI Agent 从试点进入高要求实体生产系统的重要产业案例。",
+      "url": "https://www.anthropic.com/news/ust-claude",
+      "source": "Anthropic",
+      "published_at": "2026-07-09T00:00:00Z",
+      "category": "industry_business",
+      "extra_categories": ["agents"],
+      "importance": 87
+    },
+    {
+      "original_title": "Data for Agents",
+      "title_en": "NVIDIA argues that open data is critical for inspectable AI agents",
+      "summary_en": "NVIDIA's Hugging Face article explains why agent training needs open and synthetic datasets covering tool use, failures, recovery, workflows, safety, and locally grounded personas.",
+      "title_zh": "NVIDIA：可审查的 AI Agent 离不开开放数据",
+      "summary_zh": "NVIDIA 在 Hugging Face 讨论 Agent 数据的重要性：除模型权重外，还需要覆盖工具调用、失败恢复、工作流、安全和本地化角色的开放与合成数据，才能让行为可解释、可复现。",
+      "url": "https://huggingface.co/blog/nvidia/open-data-for-agents",
+      "source": "Hugging Face · NVIDIA",
+      "published_at": "2026-07-08T00:00:00Z",
+      "category": "agents",
+      "extra_categories": ["open_source"],
+      "importance": 84
+    },
+    {
       "original_title": "mereyabdenbekuly-ctrl/clodex-ide",
-      "title_zh": "mereyabdenbekuly-ctrl/clodex-ide",
-      "summary_zh": "Local-first, zero-trust agentic IDE for verifiable autonomous software development. GitHub: 691 stars, 148 forks.",
+      "title_en": "Clodex IDE: a local-first, zero-trust agentic IDE",
+      "summary_en": "An open-source agentic IDE focused on verifiable autonomous software development, keeping execution local and emphasizing zero-trust controls. It reached 696 GitHub stars during this collection.",
+      "title_zh": "Clodex IDE：本地优先、零信任的 Agent 开发环境",
+      "summary_zh": "该开源 IDE 面向可验证的自治软件开发，强调本地执行和零信任控制。本次采集时项目已获得 696 个 GitHub Star，值得关注其 Agent 开发工作流。",
       "url": "https://github.com/mereyabdenbekuly-ctrl/clodex-ide",
       "source": "GitHub · MCP 新项目",
       "published_at": "2026-07-12T10:35:44Z",
       "category": "mcp",
-      "extra_categories": [
-        "open_source"
-      ],
-      "importance": 92
+      "extra_categories": ["open_source", "ai_coding"],
+      "importance": 82
     },
     {
-      "original_title": "William-Lu-stack/LuxyAI",
-      "title_zh": "William-Lu-stack/LuxyAI",
-      "summary_zh": "AgenticOps for Kubernetes and cloud infrastructure. GitHub: 425 stars, 14 forks.",
-      "url": "https://github.com/William-Lu-stack/LuxyAI",
+      "original_title": "Paresh-Maheshwari/morphe-ai",
+      "title_en": "Morphe AI uses a multi-agent pipeline for Android APK patching",
+      "summary_en": "Morphe is an open-source Android APK analysis and patching workspace that coordinates agents for target discovery, patch authoring, and deployment.",
+      "title_zh": "Morphe AI 用多 Agent 流水线处理 Android APK 补丁",
+      "summary_zh": "该开源工作区让多个 Agent 协同完成 APK 分析、目标定位、补丁编写和部署，展示了多 Agent 在安全研究与软件改造中的垂直应用方式。",
+      "url": "https://github.com/Paresh-Maheshwari/morphe-ai",
       "source": "GitHub · MCP 新项目",
-      "published_at": "2026-07-10T05:57:02Z",
-      "category": "mcp",
-      "extra_categories": [
-        "open_source"
-      ],
-      "importance": 80
+      "published_at": "2026-07-12T14:03:29Z",
+      "category": "open_source",
+      "extra_categories": ["agents", "ai_coding"],
+      "importance": 78
+    },
+    {
+      "original_title": "exportAnything/ComfyUI-DiffusionGemmaPromptBuilder",
+      "title_en": "DiffusionGemma prompt-building nodes arrive for ComfyUI LTX workflows",
+      "summary_en": "A new ComfyUI extension provides DiffusionGemma Director Assistant nodes for LTX image and video workflows, giving creators another structured prompt-building component.",
+      "title_zh": "ComfyUI 新增面向 LTX 工作流的 DiffusionGemma 提示词节点",
+      "summary_zh": "这个新扩展为 ComfyUI LTX 图片与视频工作流提供 DiffusionGemma Director Assistant 节点，帮助创作者把提示词构建加入可视化生成流程。",
+      "url": "https://github.com/exportAnything/ComfyUI-DiffusionGemmaPromptBuilder",
+      "source": "GitHub · ComfyUI 新项目",
+      "published_at": "2026-07-12T22:27:40Z",
+      "category": "comfyui",
+      "extra_categories": ["image_video", "open_source"],
+      "importance": 75
     },
     {
       "original_title": "OthmanAdi/plandeck",
-      "title_zh": "OthmanAdi/plandeck",
-      "summary_zh": "The visual Kanban for long-running AI agents. Watch your agent's plan organize itself: dependencies unlock into Ready, the critical path lights up, the one next move is obvious. Nobody wants to read a markdown plan. Git…",
+      "title_en": "Plandeck turns long-running agent plans into a visual Kanban",
+      "summary_en": "The project visualizes agent dependencies, ready tasks, and critical paths so teams can follow long-running autonomous work without reading a large Markdown plan.",
+      "title_zh": "Plandeck 把长时间运行的 Agent 计划变成可视化看板",
+      "summary_zh": "项目用看板展示 Agent 的依赖关系、就绪任务和关键路径，让团队无需阅读冗长 Markdown，也能跟踪自治任务的执行进度。",
       "url": "https://github.com/OthmanAdi/plandeck",
       "source": "GitHub · AI Skill 新项目",
       "published_at": "2026-07-12T12:10:05Z",
       "category": "skills",
-      "extra_categories": [
-        "agents",
-        "open_source"
-      ],
-      "importance": 73
+      "extra_categories": ["agents", "open_source"],
+      "importance": 74
     },
     {
       "original_title": "Alisa0808/vox-director",
-      "title_zh": "Alisa0808/vox-director",
-      "summary_zh": "Turn one topic into a finished Vox-style paper-collage explainer/ad video — automated end to end on Atlas Cloud + ffmpeg. An agent skill. GitHub: 85 stars, 9 forks.",
+      "title_en": "Vox Director automates paper-collage explainer video production",
+      "summary_en": "This open-source agent skill turns one topic into a finished Vox-style explainer or ad video by orchestrating Atlas Cloud and FFmpeg end to end.",
+      "title_zh": "Vox Director 自动完成纸片拼贴风解说视频",
+      "summary_zh": "这个开源 Agent Skill 从一个主题出发，串联 Atlas Cloud 与 FFmpeg 自动生成 Vox 风格解说或广告视频，体现了生成式视频工作流的端到端自动化。",
       "url": "https://github.com/Alisa0808/vox-director",
       "source": "GitHub · 生成式 AI 新项目",
       "published_at": "2026-07-10T15:32:05Z",
       "category": "image_video",
-      "extra_categories": [
-        "open_source"
-      ],
+      "extra_categories": ["skills", "open_source"],
       "importance": 73
-    },
-    {
-      "original_title": "LiteRT.js, Google's high performance Web AI Inference",
-      "title_zh": "LiteRT.js, Google's high performance Web AI Inference",
-      "summary_zh": "We're excited to introduce LiteRT.js, the newest member of the LiteRT family! LiteRT.js is our powerful solution for running machine learning models directly in the browser, extending Google's cross-platform edge AI run…",
-      "url": "https://developers.googleblog.com/litertjs-googles-high-performance-web-ai-inference",
-      "source": "Google Developers Blog",
-      "published_at": "2026-07-13T08:48:45.837773Z",
-      "category": "new_models",
-      "extra_categories": [
-        "ai_coding",
-        "agents"
-      ],
-      "importance": 72
-    },
-    {
-      "original_title": "Bridging the Domain Gap: AI Race Coach built with Antigravity and Gemini",
-      "title_zh": "Bridging the Domain Gap: AI Race Coach built with Antigravity and Gemini",
-      "summary_zh": "On May 23, 2026, fresh off the stage at Google I/O, our Google Developer Experts (GDEs) converged on...",
-      "url": "https://developers.googleblog.com/bridging-the-domain-gap-ai-race-coach-built-with-antigravity-and-gemini",
-      "source": "Google Developers Blog",
-      "published_at": "2026-07-13T08:48:45.837773Z",
-      "category": "new_models",
-      "extra_categories": [
-        "ai_coding",
-        "agents"
-      ],
-      "importance": 72
-    },
-    {
-      "original_title": "We terminated a TPU mid-training and it recovered in seconds: Introduction to elastic training with MaxText",
-      "title_zh": "We terminated a TPU mid-training and it recovered in seconds: Introduction to e…",
-      "summary_zh": "Distributed AI training is notoriously fragile because losing a single machine typically crashes the entire multi-node job, forcing a time-consuming, full-workload infrastructure restart. To address this, Google’s JAX e…",
-      "url": "https://developers.googleblog.com/we-terminated-a-tpu-mid-training-and-it-recovered-in-seconds-introduction-to-elastic-training-with-maxtext",
-      "source": "Google Developers Blog",
-      "published_at": "2026-07-13T08:48:45.837773Z",
-      "category": "new_models",
-      "extra_categories": [
-        "ai_coding",
-        "agents"
-      ],
-      "importance": 72
-    },
-    {
-      "original_title": "Build agentic full-stack apps with Genkit",
-      "title_zh": "Build agentic full-stack apps with Genkit",
-      "summary_zh": "The open-source Genkit framework has introduced the Agents API, a full-stack tool designed to simplify the complex plumbing of conversational AI by packaging message history, tool loops, and streaming into a single inte…",
-      "url": "https://developers.googleblog.com/build-agentic-full-stack-apps-with-genkit",
-      "source": "Google Developers Blog",
-      "published_at": "2026-07-13T08:48:45.837773Z",
-      "category": "new_models",
-      "extra_categories": [
-        "ai_coding",
-        "agents"
-      ],
-      "importance": 72
-    },
-    {
-      "original_title": "Driving the Agent Quality Flywheel from Your Coding Agent",
-      "title_zh": "Driving the Agent Quality Flywheel from Your Coding Agent",
-      "summary_zh": "Building AI agents often leaves developers uncertain if prompt tweaks to fix single errors will accidentally cause widespread regressions in production. To bridge this gap, Google has introduced a new developer skill fo…",
-      "url": "https://developers.googleblog.com/driving-the-agent-quality-flywheel-from-your-coding-agent",
-      "source": "Google Developers Blog",
-      "published_at": "2026-07-13T08:48:45.837773Z",
-      "category": "new_models",
-      "extra_categories": [
-        "ai_coding",
-        "agents"
-      ],
-      "importance": 72
-    },
-    {
-      "original_title": "Build reliable multi-agent applications with ADK Go 2.0. Discover our new graph-based workflow engine, built-in human-in-the-loop, and dynamic orchestration",
-      "title_zh": "Build reliable multi-agent applications with ADK Go 2.0. Discover our new graph…",
-      "summary_zh": "The Agent Development Kit (ADK) for Go 2.0 has been released, introducing a first-class, graph-based workflow engine to help developers compose complex, multi-agent applications. This update adds built-in primitives for…",
-      "url": "https://developers.googleblog.com/announcing-adk-go-20",
-      "source": "Google Developers Blog",
-      "published_at": "2026-07-13T08:48:45.837773Z",
-      "category": "new_models",
-      "extra_categories": [
-        "ai_coding",
-        "agents"
-      ],
-      "importance": 72
     }
   ]
 }
