@@ -1,0 +1,130 @@
+rss:
+  # 第一层：模型厂商与官方技术来源（最高权重）
+  - name: OpenAI News
+    url: https://openai.com/news/rss.xml
+    tier: 1
+    weight: 1.00
+    category_hints: [new_models, agents, industry_business]
+    keyword_filter: false
+
+  - name: Google DeepMind
+    url: https://deepmind.google/blog/rss.xml
+    tier: 1
+    weight: 1.00
+    category_hints: [new_models, agents, image_video, industry_business]
+    keyword_filter: false
+
+  - name: Google Developers Blog
+    url: https://developers.googleblog.com/feeds/posts/default
+    tier: 1
+    weight: 0.95
+    category_hints: [new_models, ai_coding, agents]
+    keyword_filter: true
+
+  - name: NVIDIA Technical Blog - Generative AI
+    url: https://developer.nvidia.com/blog/category/generative-ai/feed/
+    tier: 1
+    weight: 0.95
+    category_hints: [new_models, image_video, open_source]
+    keyword_filter: false
+
+  # 第二层：开发者生态、协议与开源社区
+  - name: Hugging Face Blog
+    url: https://huggingface.co/blog/feed.xml
+    tier: 2
+    weight: 0.90
+    category_hints: [new_models, open_source, image_video]
+    keyword_filter: true
+
+  - name: GitHub AI & ML
+    url: https://github.blog/ai-and-ml/feed/
+    tier: 2
+    weight: 0.90
+    category_hints: [ai_coding, agents, open_source]
+    keyword_filter: false
+
+  - name: GitHub Changelog
+    url: https://github.blog/changelog/feed/
+    tier: 2
+    weight: 0.85
+    category_hints: [ai_coding, agents]
+    keyword_filter: true
+
+  - name: ComfyUI Blog
+    url: https://blog.comfy.org/feed
+    tier: 2
+    weight: 0.95
+    category_hints: [comfyui, image_video, open_source]
+    keyword_filter: false
+
+  - name: ComfyUI Engineering Blog
+    url: https://dev.comfy.org/feed
+    tier: 2
+    weight: 0.95
+    category_hints: [comfyui, image_video, open_source]
+    keyword_filter: false
+
+  - name: Model Context Protocol Blog
+    url: https://blog.modelcontextprotocol.io/index.xml
+    tier: 1
+    weight: 1.00
+    category_hints: [mcp, agents]
+    keyword_filter: false
+
+  # 第三层：行业媒体（用于补足商业、融资和重大行业动态）
+  - name: TechCrunch AI
+    url: https://techcrunch.com/category/artificial-intelligence/feed/
+    tier: 3
+    weight: 0.75
+    category_hints: [industry_business]
+    keyword_filter: false
+
+  - name: VentureBeat AI
+    url: https://venturebeat.com/category/ai/feed/
+    tier: 3
+    weight: 0.72
+    category_hints: [industry_business, agents]
+    keyword_filter: false
+
+  - name: The Decoder
+    url: https://the-decoder.com/feed/
+    tier: 3
+    weight: 0.70
+    category_hints: [new_models, industry_business]
+    keyword_filter: true
+
+# 没有可靠 RSS、但有稳定官方列表页的来源。
+webpages:
+  - name: Anthropic News
+    url: https://www.anthropic.com/news
+    tier: 1
+    weight: 1.00
+    category_hints: [new_models, ai_coding, agents, mcp, industry_business]
+    item_selector: a[href^="/news/"]
+    title_selector: h2, h3, h4, span[class*="title"]
+    date_selector: time
+    summary_selector: p
+
+github:
+  enabled: true
+  lookback_days: 7
+  per_query: 10
+  queries:
+    - name: AI 新项目
+      query: topic:artificial-intelligence created:>={since} stars:>=30
+      category_hints: [open_source]
+    - name: Agent 新项目
+      query: topic:ai-agent created:>={since} stars:>=20
+      category_hints: [agents, open_source]
+    - name: 生成式 AI 新项目
+      query: topic:generative-ai created:>={since} stars:>=30
+      category_hints: [image_video, open_source]
+    - name: MCP 新项目
+      query: model-context-protocol in:name,description,readme created:>={since} stars:>=10
+      category_hints: [mcp, open_source]
+    - name: ComfyUI 新项目
+      query: comfyui in:name,description,readme created:>={since} stars:>=10
+      category_hints: [comfyui, image_video, open_source]
+    - name: AI Skill 新项目
+      query: topic:agent-skill created:>={since} stars:>=10
+      category_hints: [skills, agents, open_source]

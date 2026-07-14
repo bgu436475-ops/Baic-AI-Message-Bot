@@ -1,0 +1,55 @@
+name: Daily AI News
+
+on:
+  schedule:
+    - cron: "0 9 * * *"
+      timezone: "Asia/Shanghai"
+  workflow_dispatch:
+
+concurrency:
+  group: daily-ai-news
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  send-digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore sent-news history
+        uses: actions/cache/restore@v4
+        with:
+          path: .state/history.json
+          key: ai-news-history-${{ github.run_id }}
+          restore-keys: |
+            ai-news-history-
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: python -m pip install .
+
+      - name: Collect, curate, and send
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-5.6-luna' }}
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+          FEISHU_SIGNING_SECRET: ${{ secrets.FEISHU_SIGNING_SECRET }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ai-news-bot
+
+      - name: Save sent-news history
+        if: success() && hashFiles('.state/history.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: .state/history.json
+          key: ai-news-history-${{ github.run_id }}
