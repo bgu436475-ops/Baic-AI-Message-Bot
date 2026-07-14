@@ -71,6 +71,8 @@ class AISelection(BaseModel):
 
 class NewsItem(BaseModel):
     original_title: str
+    title_en: str = ""
+    summary_en: str = ""
     title_zh: str
     summary_zh: str
     url: str
@@ -86,4 +88,3 @@ class DailyDigest(BaseModel):
     candidate_count: int
     source_count: int
     items: list[NewsItem]
-

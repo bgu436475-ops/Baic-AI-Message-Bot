@@ -12,6 +12,8 @@ export type Category =
 
 export type NewsItem = {
   original_title: string;
+  title_en?: string;
+  summary_en?: string;
   title_zh: string;
   summary_zh: string;
   url: string;
@@ -29,20 +31,34 @@ export type Digest = {
   items: NewsItem[];
 };
 
-export const CATEGORY_LABELS: Record<Category, string> = {
-  all: "全部",
-  new_models: "新模型",
-  ai_coding: "AI 编程",
-  agents: "Agent",
-  image_video: "图片 / 视频",
-  comfyui: "ComfyUI",
-  open_source: "开源项目",
-  mcp: "MCP",
-  skills: "Skill",
-  industry_business: "行业 / 商业",
+export const CATEGORY_LABELS: Record<"zh" | "en", Record<Category, string>> = {
+  zh: {
+    all: "全部",
+    new_models: "新模型",
+    ai_coding: "AI 编程",
+    agents: "Agent",
+    image_video: "图片 / 视频",
+    comfyui: "ComfyUI",
+    open_source: "开源项目",
+    mcp: "MCP",
+    skills: "Skill",
+    industry_business: "行业 / 商业",
+  },
+  en: {
+    all: "All",
+    new_models: "New Models",
+    ai_coding: "AI Coding",
+    agents: "Agents",
+    image_video: "Image / Video",
+    comfyui: "ComfyUI",
+    open_source: "Open Source",
+    mcp: "MCP",
+    skills: "Skills",
+    industry_business: "Industry / Business",
+  },
 };
 
-export const categories = Object.keys(CATEGORY_LABELS) as Category[];
+export const categories = Object.keys(CATEGORY_LABELS.zh) as Category[];
 
 export const digest: Digest = {
   generated_at: "2026-07-14T08:45:00+08:00",

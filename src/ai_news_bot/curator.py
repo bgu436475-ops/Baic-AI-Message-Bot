@@ -79,6 +79,8 @@ def select_with_openai(
         result.append(
             NewsItem(
                 original_title=original.title,
+                title_en=truncate(original.title, 120),
+                summary_en=truncate(original.summary or "No summary was provided by the source.", 320),
                 title_zh=truncate(selected.title_zh, 80),
                 summary_zh=truncate(selected.summary_zh, 220),
                 url=original.url,
@@ -117,6 +119,8 @@ def select_without_ai(
     return [
         NewsItem(
             original_title=item.title,
+            title_en=truncate(item.title, 120),
+            summary_en=truncate(item.summary or "No summary was provided by the source.", 320),
             title_zh=truncate(item.title, 80),
             summary_zh=truncate(item.summary or "候选源未提供摘要。", 220),
             url=item.url,

@@ -23,4 +23,7 @@ test("server-renders the AI news dashboard", async () => {
   assert.match(html, /三层去重/);
   assert.match(html, /Clodex IDE/);
   assert.match(html, /每天约 10 条/);
+  assert.match(html, /切换到英文/);
+  assert.match(html, /中/);
+  assert.match(html, /EN/);
 });

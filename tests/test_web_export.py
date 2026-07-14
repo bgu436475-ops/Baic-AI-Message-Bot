@@ -13,6 +13,8 @@ def test_export_digest_for_web(tmp_path):
         items=[
             NewsItem(
                 original_title="Test model",
+                title_en="Test model release",
+                summary_en="This is a summary.",
                 title_zh="测试模型发布",
                 summary_zh="这是摘要。",
                 url="https://example.com/model",
@@ -30,3 +32,4 @@ def test_export_digest_for_web(tmp_path):
     payload = json.loads(output.read_text(encoding="utf-8"))
     assert payload["candidate_count"] == 12
     assert payload["items"][0]["title_zh"] == "测试模型发布"
+    assert payload["items"][0]["title_en"] == "Test model release"

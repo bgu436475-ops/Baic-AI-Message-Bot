@@ -40,6 +40,11 @@ a { color: inherit; }
   backdrop-filter: blur(12px);
 }
 .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font-size: 14px; font-weight: 800; letter-spacing: .08em; }
+.header-left { display: flex; align-items: center; gap: 22px; }
+.language-toggle { display: flex; align-items: center; gap: 6px; border: 1px solid var(--ink); background: transparent; padding: 7px 9px; color: #8b8d87; font: 800 10px/1 ui-monospace, monospace; cursor: pointer; }
+.language-toggle .active { color: var(--ink); }
+.language-toggle i { color: #b6b7b1; font-style: normal; font-weight: 400; }
+.language-toggle:hover { background: var(--signal); }
 .brand-mark { display: inline-grid; place-items: center; width: 30px; height: 30px; background: var(--ink); color: var(--signal); font: 800 13px/1 ui-monospace, monospace; transform: rotate(-3deg); }
 .header-center { font-size: 13px; letter-spacing: .22em; font-weight: 700; }
 .header-status { justify-self: end; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
@@ -157,6 +162,7 @@ footer > span { justify-self: end; color: var(--signal); font: 600 10px/1 ui-mon
 @media (max-width: 560px) {
   .site-header { padding: 0 16px; }
   .brand > span:last-child { display: none; }
+  .header-left { gap: 10px; }
   .hero { padding-left: 18px; padding-right: 18px; padding-bottom: 46px; }
   .hero-kicker { font-size: 9px; }
   .hero-bottom > p { font-size: 14px; }
