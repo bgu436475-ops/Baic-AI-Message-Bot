@@ -37,6 +37,23 @@ export type Digest = {
   items: NewsItem[];
 };
 
+export function isDigest(value: unknown): value is Digest {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<Digest>;
+  if (typeof candidate.generated_at !== "string" || !Array.isArray(candidate.items) || candidate.items.length === 0) return false;
+  return candidate.items.every((item) => (
+    item
+    && typeof item === "object"
+    && typeof item.title_zh === "string"
+    && typeof item.summary_zh === "string"
+    && typeof item.url === "string"
+    && item.url.startsWith("https://")
+    && typeof item.published_at === "string"
+    && typeof item.category === "string"
+    && typeof item.importance === "number"
+  ));
+}
+
 export const CATEGORY_LABELS: Record<"zh" | "en", Record<Category, string>> = {
   zh: {
     all: "全部", new_models: "新模型", ai_coding: "AI 编程", agents: "Agent",

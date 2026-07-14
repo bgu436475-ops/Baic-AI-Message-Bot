@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-async function request(path = "/", accept = "text/html") {
+async function request(path = "/", accept = "text/html", init = {}) {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
   const { default: worker } = await import(workerUrl.href);
   return worker.fetch(
-    new Request(new URL(path, "http://localhost/"), { headers: { accept } }),
+    new Request(new URL(path, "http://localhost/"), {
+      ...init,
+      headers: { accept, ...(init.headers ?? {}) },
+    }),
     { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } },
     { waitUntil() {}, passThroughOnException() {} },
   );
@@ -48,4 +51,19 @@ test("summary API exposes a Feishu-ready daily and weekly payload", async () => 
   assert.equal(weekly.period, "weekly");
   assert.equal(weekly.language, "en");
   assert.ok(weekly.narratives.length <= 5);
+});
+
+test("digest API serves a fallback and protects updates", async () => {
+  const getResponse = await request("/api/digest", "application/json");
+  assert.equal(getResponse.status, 200);
+  assert.equal(getResponse.headers.get("cache-control"), "no-store");
+  const digest = await getResponse.json();
+  assert.ok(digest.items.length > 0);
+  assert.ok(digest.items.every((item) => item.url.startsWith("https://")));
+
+  const postResponse = await request("/api/digest", "application/json", {
+    method: "POST",
+    body: JSON.stringify(digest),
+  });
+  assert.equal(postResponse.status, 401);
 });

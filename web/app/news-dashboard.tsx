@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   CATEGORY_LABELS,
   categories,
+  isDigest,
   type Category,
   type Digest,
   type NewsItem,
@@ -209,13 +210,13 @@ export function NewsDashboard({ initialDigest }: { initialDigest: Digest }) {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/data/latest.json", { signal: controller.signal, cache: "no-store" })
+    fetch("/api/digest", { signal: controller.signal, cache: "no-store" })
       .then((response) => {
         if (!response.ok) throw new Error("Latest digest is unavailable");
         return response.json() as Promise<Digest>;
       })
       .then((latest) => {
-        if (Array.isArray(latest.items) && latest.items.length) setCurrentDigest(latest);
+        if (isDigest(latest)) setCurrentDigest(latest);
       })
       .catch(() => undefined);
     return () => controller.abort();
