@@ -2,6 +2,8 @@
 
 每天自动采集 AI 新闻，完成硬去重、跨来源语义合并、中文摘要、分类和重要性排序，从中精选约 10 条，并在北京时间每天 9:00 发送到飞书“AI 增长内部群”。默认使用 GitHub Actions，因此不需要单独购买服务器。
 
+项目同时包含 `web/` 下的 AI SIGNAL 新闻网页。网页提供分类筛选、关键词搜索、信源优先级和去重方法说明；Bot 每次生成简报时，会自动更新 `web/public/data/latest.json`，网页打开后读取这份最新数据。
+
 ## 工作流程
 
 ```mermaid
@@ -74,6 +76,22 @@ ai-news-bot --dry-run --skip-ai
 
 ```bash
 ai-news-bot
+```
+
+### 打开新闻网页
+
+网页需要 Node.js 22.13 或更新版本。在另一个终端中运行：
+
+```bash
+cd web
+pnpm install
+pnpm dev
+```
+
+默认访问地址为 `http://localhost:3000`。如需把历史简报重新导出给网页，可在运行 Bot 时指定目标路径：
+
+```bash
+ai-news-bot --dry-run --web-output web/public/data/latest.json
 ```
 
 ## 接入飞书“AI 增长内部群”
