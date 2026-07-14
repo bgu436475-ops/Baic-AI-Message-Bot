@@ -20,10 +20,10 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Restore sent-news history
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: .state/history.json
           key: ai-news-history-${{ github.run_id }}
@@ -31,7 +31,7 @@ jobs:
             ai-news-history-
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -74,7 +74,7 @@ jobs:
 
       - name: Save sent-news history
         if: always() && hashFiles('.state/history.json') != ''
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: .state/history.json
           key: ai-news-history-${{ github.run_id }}
