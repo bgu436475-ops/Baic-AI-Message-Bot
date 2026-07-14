@@ -105,11 +105,14 @@ def run(args: argparse.Namespace) -> int:
     if args.skip_ai:
         items = select_without_ai(unique, settings.target_news_count)
     else:
+        api_key, model, base_url, provider = settings.ai_backend()
+        LOGGER.info("Curating Chinese digest with %s (%s)", provider, model)
         items = select_with_openai(
             unique,
             settings.target_news_count,
-            settings.openai_api_key,
-            settings.openai_model,
+            api_key,
+            model,
+            base_url,
         )
     if not items:
         LOGGER.warning("Curation returned no items; no message sent")

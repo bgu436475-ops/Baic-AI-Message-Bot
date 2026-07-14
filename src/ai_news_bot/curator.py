@@ -26,7 +26,9 @@ SYSTEM_PROMPT = """你是面向 AI 从业者和增长团队的资深新闻编辑
 """
 
 
-def _candidate_payload(candidates: list[Candidate]) -> list[dict[str, object]]:
+def _candidate_payload(
+    candidates: list[Candidate], summary_limit: int = 1200
+) -> list[dict[str, object]]:
     return [
         {
             "candidate_id": item.id,
@@ -34,7 +36,7 @@ def _candidate_payload(candidates: list[Candidate]) -> list[dict[str, object]]:
             "source": item.source,
             "source_tier": item.source_tier,
             "published_at": item.published_at.isoformat(),
-            "summary": truncate(item.summary, 1200),
+            "summary": truncate(item.summary, summary_limit),
             "category_hints": item.category_hints,
             "metrics": item.metrics,
         }
@@ -43,34 +45,51 @@ def _candidate_payload(candidates: list[Candidate]) -> list[dict[str, object]]:
 
 
 def select_with_openai(
-    candidates: list[Candidate], target_count: int, api_key: str, model: str
+    candidates: list[Candidate],
+    target_count: int,
+    api_key: str,
+    model: str,
+    base_url: str | None = None,
 ) -> list[NewsItem]:
     if not api_key:
-        raise ValueError("缺少 OPENAI_API_KEY；无法执行中文摘要和语义筛选")
+        raise ValueError("缺少 AI 服务凭证；无法执行中文摘要和语义筛选")
     if not candidates:
         return []
 
-    target = min(target_count, len(candidates))
+    model_candidates = candidates[:40] if base_url else candidates
+    target = min(target_count, len(model_candidates))
     minimum = min(target, max(1, target - 2))
     prompt = (
-        f"从下面 {len(candidates)} 条候选中选择 {minimum}-{target} 条最重要新闻。"
+        f"从下面 {len(model_candidates)} 条候选中选择 {minimum}-{target} 条最重要新闻。"
         "先在内部合并同一事件，再按重要性排序输出。\n\n候选 JSON：\n"
-        + json.dumps(_candidate_payload(candidates), ensure_ascii=False)
+        + json.dumps(
+            _candidate_payload(model_candidates, 500 if base_url else 1200),
+            ensure_ascii=False,
+        )
     )
-    client = OpenAI(api_key=api_key)
-    response = client.responses.parse(
-        model=model,
-        input=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
-        ],
-        text_format=AISelection,
-    )
-    selection = response.output_parsed
+    client = OpenAI(api_key=api_key, base_url=base_url)
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": prompt},
+    ]
+    if base_url:
+        response = client.chat.completions.parse(
+            model=model,
+            messages=messages,
+            response_format=AISelection,
+        )
+        selection = response.choices[0].message.parsed
+    else:
+        response = client.responses.parse(
+            model=model,
+            input=messages,
+            text_format=AISelection,
+        )
+        selection = response.output_parsed
     if selection is None:
         raise RuntimeError("模型没有返回可解析的新闻列表")
 
-    by_id = {item.id: item for item in candidates}
+    by_id = {item.id: item for item in model_candidates}
     result: list[NewsItem] = []
     used_ids: set[str] = set()
     for selected in selection.items:

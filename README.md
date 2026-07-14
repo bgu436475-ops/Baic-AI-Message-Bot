@@ -144,6 +144,7 @@ schedule:
 - 新闻不足时的补充窗口：`FALLBACK_LOOKBACK_HOURS`，默认 168 小时（7 天）。
 - 送入模型的最大候选数：`MAX_CANDIDATES`，默认 80。
 - 模型：`OPENAI_MODEL`，默认 `gpt-5.6-luna`，适合高频筛选和摘要。
+- GitHub Actions 在未配置 `OPENAI_API_KEY` 时，会使用工作流自带的 `GITHUB_TOKEN` 调用 GitHub Models；默认模型为 `openai/gpt-4o-mini`，无需额外 API Key。
 - 信息源、层级、权重、类别提示、GitHub 查询：`config/sources.yaml`。
 
 ## 测试

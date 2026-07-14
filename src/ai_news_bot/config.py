@@ -52,6 +52,8 @@ class SourcesConfig(BaseModel):
 class Settings(BaseModel):
     openai_api_key: str = ""
     openai_model: str = "gpt-5.6-luna"
+    github_models_model: str = "openai/gpt-4o-mini"
+    github_models_base_url: str = "https://models.github.ai/inference"
     feishu_webhook_url: str = ""
     feishu_signing_secret: str = ""
     github_token: str = ""
@@ -67,6 +69,12 @@ class Settings(BaseModel):
         return cls(
             openai_api_key=os.getenv("OPENAI_API_KEY", "").strip(),
             openai_model=os.getenv("OPENAI_MODEL", "gpt-5.6-luna").strip(),
+            github_models_model=os.getenv(
+                "GITHUB_MODELS_MODEL", "openai/gpt-4o-mini"
+            ).strip(),
+            github_models_base_url=os.getenv(
+                "GITHUB_MODELS_BASE_URL", "https://models.github.ai/inference"
+            ).strip(),
             feishu_webhook_url=os.getenv("FEISHU_WEBHOOK_URL", "").strip(),
             feishu_signing_secret=os.getenv("FEISHU_SIGNING_SECRET", "").strip(),
             github_token=os.getenv("GITHUB_TOKEN", "").strip(),
@@ -76,6 +84,20 @@ class Settings(BaseModel):
             max_candidates=int(os.getenv("MAX_CANDIDATES", "80")),
             request_timeout=int(os.getenv("REQUEST_TIMEOUT", "20")),
             state_path=Path(os.getenv("STATE_PATH", ".state/history.json")),
+        )
+
+    def ai_backend(self) -> tuple[str, str, str | None, str]:
+        if self.openai_api_key:
+            return self.openai_api_key, self.openai_model, None, "OpenAI"
+        if self.github_token:
+            return (
+                self.github_token,
+                self.github_models_model,
+                self.github_models_base_url,
+                "GitHub Models",
+            )
+        raise ValueError(
+            "缺少 OPENAI_API_KEY 或 GITHUB_TOKEN；无法执行中文摘要和语义筛选"
         )
 
 
