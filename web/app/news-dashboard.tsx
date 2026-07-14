@@ -23,6 +23,12 @@ const COPY = {
     candidates: "候选信息",
     sources: "信源覆盖",
     filterAria: "筛选新闻",
+    freshnessLabel: "信息时效",
+    checkedAt: "最后检查",
+    currentSignal: "近 24 小时有可靠新进展",
+    archiveSignal: "今日暂无新的可靠发布，展示最近 7 天重要信息",
+    freshItems: "条近 24 小时内容",
+    latestAt: "最新一条发布于",
     searchAria: "搜索新闻",
     searchPlaceholder: "搜索标题、摘要或来源",
     signals: "今日值得关注",
@@ -64,6 +70,12 @@ const COPY = {
     candidates: "Candidates",
     sources: "Sources",
     filterAria: "Filter news",
+    freshnessLabel: "FRESHNESS",
+    checkedAt: "Last checked",
+    currentSignal: "Reliable new signals found in the past 24 hours",
+    archiveSignal: "No reliable release today; showing important signals from the past 7 days",
+    freshItems: "items from the past 24 hours",
+    latestAt: "Latest item published",
     searchAria: "Search news",
     searchPlaceholder: "Search title, summary, or source",
     signals: "Signals worth your attention",
@@ -119,6 +131,17 @@ function localizedSummary(item: NewsItem, language: Language) {
   return item.summary_zh || item.summary_en || "—";
 }
 
+function formatTime(value: string, language: Language) {
+  return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-GB", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "Asia/Shanghai",
+  }).format(new Date(value));
+}
+
 function StoryCard({ item, index, language }: { item: NewsItem; index: number; language: Language }) {
   const copy = COPY[language];
   const labels = CATEGORY_LABELS[language];
@@ -162,8 +185,6 @@ export function NewsDashboard({ initialDigest }: { initialDigest: Digest }) {
   const labels = CATEGORY_LABELS[language];
 
   useEffect(() => {
-    const savedLanguage = window.localStorage.getItem("ai-signal-language");
-    if (savedLanguage === "zh" || savedLanguage === "en") setLanguage(savedLanguage);
     const controller = new AbortController();
     fetch("/data/latest.json", { signal: controller.signal, cache: "no-store" })
       .then((response) => {
@@ -196,6 +217,21 @@ export function NewsDashboard({ initialDigest }: { initialDigest: Digest }) {
     for (const item of currentDigest.items) counts[item.category] = (counts[item.category] ?? 0) + 1;
     return counts;
   }, [currentDigest.items]);
+
+  const freshness = useMemo(() => {
+    const now = new Date(currentDigest.generated_at).getTime();
+    const latest = currentDigest.latest_published_at
+      ? new Date(currentDigest.latest_published_at).getTime()
+      : Math.max(...currentDigest.items.map((item) => new Date(item.published_at).getTime()));
+    const calculatedFresh = currentDigest.items.filter((item) => {
+      const age = now - new Date(item.published_at).getTime();
+      return age >= 0 && age <= 24 * 60 * 60 * 1000;
+    }).length;
+    return {
+      latest: Number.isFinite(latest) ? new Date(latest).toISOString() : currentDigest.generated_at,
+      freshCount: currentDigest.fresh_count_24h ?? calculatedFresh,
+    };
+  }, [currentDigest]);
 
   const resetFilters = () => { setActiveCategory("all"); setQuery(""); };
   const toggleLanguage = () => setLanguage((current) => current === "zh" ? "en" : "zh");
@@ -240,6 +276,18 @@ export function NewsDashboard({ initialDigest }: { initialDigest: Digest }) {
           <span aria-hidden="true">⌕</span><span className="sr-only">{copy.searchAria}</span>
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={copy.searchPlaceholder} />
         </label>
+      </section>
+
+      <section className={freshness.freshCount > 0 ? "freshness-strip is-current" : "freshness-strip is-archive"} aria-label={copy.freshnessLabel}>
+        <div className="freshness-main">
+          <span className="freshness-pulse" />
+          <strong>{freshness.freshCount > 0 ? copy.currentSignal : copy.archiveSignal}</strong>
+        </div>
+        <div className="freshness-meta">
+          <span>{copy.checkedAt} · {formatTime(currentDigest.generated_at, language)}</span>
+          <span>{freshness.freshCount} {copy.freshItems}</span>
+          <span>{copy.latestAt} · {formatTime(freshness.latest, language)}</span>
+        </div>
       </section>
 
       <div className="content-grid">

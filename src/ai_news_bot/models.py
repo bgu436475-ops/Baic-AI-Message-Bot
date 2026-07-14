@@ -87,4 +87,8 @@ class DailyDigest(BaseModel):
     generated_at: datetime
     candidate_count: int
     source_count: int
+    latest_published_at: datetime | None = None
+    fresh_count_24h: int = 0
+    lookback_hours: int = 36
+    fallback_used: bool = False
     items: list[NewsItem]

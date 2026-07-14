@@ -22,6 +22,7 @@ SYSTEM_PROMPT = """你是面向 AI 从业者和增长团队的资深新闻编辑
 6. GitHub 新项目应结合候选中的 stars、用途和新颖性判断，不能只因关键词入选。
 7. candidate_id 必须原样引用候选 ID；不得创建候选中不存在的链接或 ID。
 8. importance 取 1-100，综合技术影响、开发者价值、行业影响、可信度和新颖性。
+9. 时效性是核心排序因素：优先最近 24 小时的可靠一手信息；不足目标数量时，才用最近 7 天仍有判断价值的内容补足，不能把旧内容写成今日发布。
 """
 
 
@@ -134,10 +135,26 @@ def select_without_ai(
     ]
 
 
-def build_digest(candidates: list[Candidate], items: list[NewsItem]) -> DailyDigest:
+def build_digest(
+    candidates: list[Candidate],
+    items: list[NewsItem],
+    *,
+    lookback_hours: int = 36,
+    fallback_used: bool = False,
+    now: datetime | None = None,
+) -> DailyDigest:
+    now = now or datetime.now(UTC)
+    latest_published_at = max((item.published_at for item in items), default=None)
+    fresh_count_24h = sum(
+        1 for item in items if (now - item.published_at).total_seconds() <= 24 * 3600
+    )
     return DailyDigest(
-        generated_at=datetime.now(UTC),
+        generated_at=now,
         candidate_count=len(candidates),
         source_count=len({item.source for item in candidates}),
+        latest_published_at=latest_published_at,
+        fresh_count_24h=fresh_count_24h,
+        lookback_hours=lookback_hours,
+        fallback_used=fallback_used,
         items=items,
     )

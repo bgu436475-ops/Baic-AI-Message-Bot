@@ -26,4 +26,6 @@ test("server-renders the AI news dashboard", async () => {
   assert.match(html, /切换到英文/);
   assert.match(html, /中/);
   assert.match(html, /EN/);
+  assert.match(html, /最后检查/);
+  assert.match(html, /近 24 小时/);
 });
