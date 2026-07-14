@@ -1,121 +1,115 @@
 {
-  "generated_at": "2026-07-14T03:06:06.075018Z",
-  "candidate_count": 45,
+  "generated_at": "2026-07-14T03:10:43.342283Z",
+  "candidate_count": 37,
   "source_count": 8,
-  "latest_published_at": "2026-07-13T23:31:18Z",
-  "fresh_count_24h": 8,
+  "latest_published_at": "2026-07-13T17:47:39Z",
+  "fresh_count_24h": 3,
   "lookback_hours": 36,
   "fallback_used": false,
   "items": [
     {
-      "original_title": "Nobel laureates and AI leaders warn the window to prepare for AI's economic impact is closing fast",
-      "title_en": "Nobel laureates and AI leaders warn the window to prepare for AI's economic impact is closing fast",
-      "summary_en": "More than 200 economists and AI researchers, including 16 Nobel laureates and representatives from Google, OpenAI, and Anthropic, are calling for immediate action in a coordinated statement. The AI transformation could surpass the Industrial Revolution but unfold in a fraction of the time. The paper doesn't propose co…",
-      "title_zh": "诺贝尔奖得主与AI领军者警告AI的经济影响准备窗口即将关闭",
-      "summary_zh": "超过200位经济学家和AI研究人员，包括16位诺贝尔奖得主，警告称为AI经济影响做好准备的窗口正在迅速关闭。",
-      "url": "https://the-decoder.com/nobel-laureates-and-ai-leaders-warn-the-window-to-prepare-for-ais-economic-impact-is-closing-fast",
+      "original_title": "Google’s SensorFM turns messy wearable sensor data into a general-purpose health intelligence layer",
+      "title_en": "Google’s SensorFM turns messy wearable sensor data into a general-purpose health intelligence layer",
+      "summary_en": "Google Research's SensorFM is a foundation model trained on more than a trillion minutes of wearable data from five million Fitbit and Pixel Watch users. It beats existing benchmarks on 34 of 35 health and behavioral tasks. SensorFM could eventually power Google's AI health coach, but the company hasn't announced any…",
+      "title_zh": "谷歌推出SensorFM健康智能模型",
+      "summary_zh": "谷歌推出新模型SensorFM，能够将穿戴设备数据转化为通用健康智能层，表现超过现有基准。这一模型将对未来的AI健康教练产生重要影响。",
+      "url": "https://the-decoder.com/sensorfm",
       "source": "The Decoder",
-      "published_at": "2026-07-13T16:00:24Z",
-      "category": "industry_business",
-      "extra_categories": [
-        "new_models"
-      ],
-      "importance": 95
-    },
-    {
-      "original_title": "The wildest allegations in Apple’s trade secrets lawsuit against OpenAI",
-      "title_en": "The wildest allegations in Apple’s trade secrets lawsuit against OpenAI",
-      "summary_en": "Apple’s trade secrets lawsuit against OpenAI contains allegations that range from employees joking about unauthorized access to Apple’s systems to claims that job candidates were asked to bring Apple hardware to interviews. Here are the complaint’s most eye-catching claims.",
-      "title_zh": "苹果对OpenAI的商业秘密诉讼中的疯狂指控",
-      "summary_zh": "苹果公司对OpenAI提起的商业机密诉讼中，涉及了多项惊人指控，包括员工开玩笑关于未授权访问苹果系统的情况。",
-      "url": "https://techcrunch.com/2026/07/13/the-wildest-allegations-in-apples-trade-secrets-lawsuit-against-openai",
-      "source": "TechCrunch AI",
-      "published_at": "2026-07-13T18:22:10Z",
-      "category": "industry_business",
-      "extra_categories": [],
-      "importance": 90
-    },
-    {
-      "original_title": "Anthropic starts localizing Claude pricing for India, its biggest market after the US",
-      "title_en": "Anthropic starts localizing Claude pricing for India, its biggest market after the US",
-      "summary_en": "Claude users in India are starting to see Indian rupee-denominated subscription plans.",
-      "title_zh": "Anthropic开始在印度本地化Claude定价",
-      "summary_zh": "Anthropic开始为其在印度的Claude用户推出以印度卢比计价的订阅计划，印度成为其在美国之外的最大市场。",
-      "url": "https://techcrunch.com/2026/07/13/anthropic-starts-localizing-claude-pricing-for-india-its-biggest-market-after-the-us",
-      "source": "TechCrunch AI",
-      "published_at": "2026-07-13T15:34:59Z",
-      "category": "industry_business",
-      "extra_categories": [],
-      "importance": 80
-    },
-    {
-      "original_title": "Nadella calls out AI labs like OpenAI and Anthropic for banning distillation while training on everyone else's data",
-      "title_en": "Nadella calls out AI labs like OpenAI and Anthropic for banning distillation while training on everyone else's data",
-      "summary_en": "Microsoft CEO Satya Nadella is calling out OpenAI and Anthropic for what he calls a \"reverse information paradox.\" They train on public data under fair use but ban distillation of their own models, all while learning from customer interactions. Nadella wants companies to control their own learning infrastructure. Micr…",
-      "title_zh": "纳德拉批评OpenAI和Anthropic在训练数据问题上的做法",
-      "summary_zh": "微软首席执行官萨提亚·纳德拉对OpenAI和Anthropic提出的质疑，呼吁这些公司控制自己的学习基础设施。",
-      "url": "https://the-decoder.com/nadella-calls-out-ai-labs-like-openai-and-anthropic-for-banning-distillation-while-training-on-everyone-elses-data",
-      "source": "The Decoder",
-      "published_at": "2026-07-13T14:28:50Z",
-      "category": "industry_business",
-      "extra_categories": [
-        "new_models"
-      ],
-      "importance": 75
-    },
-    {
-      "original_title": "Sam Altman’s space data center trash talk is what most experts already believe",
-      "title_en": "Sam Altman’s space data center trash talk is what most experts already believe",
-      "summary_en": "Responding to Musk accusing him of being a scammer, Altman said, \"homeboy you're the one sellling [sic] public market investors on short-term space datacenters.\"",
-      "title_zh": "OpenAI发布新的提示指南，鼓励用户从结果出发",
-      "summary_zh": "OpenAI发布了一份新的提示指南，建议用户从结果出发，提供更直观的提示方式。",
-      "url": "https://techcrunch.com/2026/07/13/sam-altmans-space-data-center-trash-talk-is-what-most-experts-already-believe",
-      "source": "TechCrunch AI",
-      "published_at": "2026-07-13T17:28:37Z",
-      "category": "industry_business",
-      "extra_categories": [],
-      "importance": 70
-    },
-    {
-      "original_title": "German AI consortium releases Soofi S, an open 30B model that tops benchmarks in both English and German",
-      "title_en": "German AI consortium releases Soofi S, an open 30B model that tops benchmarks in both English and German",
-      "summary_en": "A German research consortium has released Soofi S 30B-A3B, an open language model trained entirely on Deutsche Telekom's cloud infrastructure in Munich. The model uses an efficient hybrid architecture that activates only a fraction of its 31.6 billion parameters per token, keeping throughput steady even at very long c…",
-      "title_zh": "德国AI联盟发布开源Soofi S语言模型",
-      "summary_zh": "德国研究联盟发布了Soofi S，一个开放的30B语言模型，在英语和德语基准测试中表现优异。",
-      "url": "https://the-decoder.com/german-ai-consortium-releases-soofi-s-an-open-30b-model-that-tops-benchmarks-in-both-english-and-german",
-      "source": "The Decoder",
-      "published_at": "2026-07-13T11:41:01Z",
+      "published_at": "2026-07-13T09:16:48Z",
       "category": "new_models",
       "extra_categories": [
         "industry_business"
       ],
+      "importance": 90
+    },
+    {
+      "original_title": "Anthropic extends free Fable 5 access for subscribers as OpenAI's GPT-5.6 Sol heats up the pricing war",
+      "title_en": "Anthropic extends free Fable 5 access for subscribers as OpenAI's GPT-5.6 Sol heats up the pricing war",
+      "summary_en": "Anthropic is keeping Claude Fable 5 in its subscription plans through July 19, 2026. The model was supposed to switch to pay-per-use today. Subscribers can use up to 50 percent of their weekly limit for Fable 5. The extension is likely a response to pricing pressure from OpenAI's GPT-5.6 Sol and cheaper competing mode…",
+      "title_zh": "Anthropic延长Claude Fable 5免费使用期应对价格竞争",
+      "summary_zh": "Anthropic延长了Claude Fable 5的免费使用期限，回应了OpenAI GPT-5.6 Sol带来的价格竞争压力。这一策略可能影响未来的AI定价环境。",
+      "url": "https://the-decoder.com/anthropic-extends-free-fable-5-access-for-subscribers-as-openais-gpt-5-6-sol-heats-up-the-pricing-war",
+      "source": "The Decoder",
+      "published_at": "2026-07-13T07:54:34Z",
+      "category": "new_models",
+      "extra_categories": [
+        "industry_business"
+      ],
+      "importance": 85
+    },
+    {
+      "original_title": "OpenAI's new prompting guide tells users to stop overthinking and start with the result",
+      "title_en": "OpenAI's new prompting guide tells users to stop overthinking and start with the result",
+      "summary_en": "OpenAI has released a prompting guide for everyday users, not developers. Instead of rigid formulas, it suggests four optional building blocks: goal, context, format, and constraints. The core advice is simple: describe the result you want, not the steps to get there. It's the first time OpenAI covers both Chat and Co…",
+      "title_zh": "OpenAI发布用户友好的提示指南",
+      "summary_zh": "OpenAI发布新的提示指南，鼓励用户专注于结果而非过程，旨在帮助用户更高效地与AI进行互动。该框架首次整合了Chat与Codex的使用方式。",
+      "url": "https://the-decoder.com/openais-new-prompting-guide-tells-users-to-stop-overthinking-and-start-with-the-result",
+      "source": "The Decoder",
+      "published_at": "2026-07-13T17:47:39Z",
+      "category": "new_models",
+      "extra_categories": [
+        "industry_business"
+      ],
+      "importance": 80
+    },
+    {
+      "original_title": "LinkedIn is the undisputed king of long-form AI slop, according to a study spanning five platforms",
+      "title_en": "LinkedIn is the undisputed king of long-form AI slop, according to a study spanning five platforms",
+      "summary_en": "One in four longer social media posts is entirely AI-generated, according to a Pangram analysis. LinkedIn leads with 41 percent of long-form posts flagged as AI-written. The platform made up only a third of all posts scanned but accounted for nearly two-thirds of all detected AI content. Because the detection model te…",
+      "title_zh": "研究显示LinkedIn是AI生成内容的主要平台",
+      "summary_zh": "研究显示，LinkedIn是AI生成长文的重灾区，相当于四分之一的长文内容完全由AI生成。这反映了社交媒体平台上AI内容生成的普遍性。",
+      "url": "https://the-decoder.com/linkedin-is-the-undisputed-king-of-long-form-ai-slop-according-to-a-study-spanning-five-platforms",
+      "source": "The Decoder",
+      "published_at": "2026-07-12T16:41:47Z",
+      "category": "industry_business",
+      "extra_categories": [],
+      "importance": 75
+    },
+    {
+      "original_title": "mereyabdenbekuly-ctrl/clodex-ide",
+      "title_en": "mereyabdenbekuly-ctrl/clodex-ide",
+      "summary_en": "Local-first, zero-trust agentic IDE for verifiable autonomous software development. GitHub: 698 stars, 148 forks.",
+      "title_zh": "推出新的自主软件开发环境",
+      "summary_zh": "新推出的控制环境有助于实现验证自主软件开发，并支持无暴露的代理操作。这为软件开发领域带来了新的工具和思路。",
+      "url": "https://github.com/mereyabdenbekuly-ctrl/clodex-ide",
+      "source": "GitHub · MCP 新项目",
+      "published_at": "2026-07-12T10:35:44Z",
+      "category": "mcp",
+      "extra_categories": [
+        "open_source"
+      ],
+      "importance": 70
+    },
+    {
+      "original_title": "exportAnything/ComfyUI-DiffusionGemmaPromptBuilder",
+      "title_en": "exportAnything/ComfyUI-DiffusionGemmaPromptBuilder",
+      "summary_en": "DiffusionGemma Director Assistant nodes for ComfyUI LTX workflows GitHub: 19 stars, 2 forks.",
+      "title_zh": "ComfyUI推出DiffusionGemmaPromptBuilder新工具",
+      "summary_zh": "ComfyUI发布新的DiffusionGemmaPromptBuilder，支持LTX工作流，为生成内容提供新的工具。",
+      "url": "https://github.com/exportAnything/ComfyUI-DiffusionGemmaPromptBuilder",
+      "source": "GitHub · ComfyUI 新项目",
+      "published_at": "2026-07-12T22:27:40Z",
+      "category": "comfyui",
+      "extra_categories": [
+        "image_video",
+        "open_source"
+      ],
       "importance": 65
     },
     {
-      "original_title": "Waze adds new AI-powered features and customization updates",
-      "title_en": "Waze adds new AI-powered features and customization updates",
-      "summary_en": "Some of the new features are powered by Google's Gemini AI assistant, which reflects the tech giant's broader push to integrate Gemini across its products while also better positioning Waze to compete with rival services such as Apple Maps.",
-      "title_zh": "Waze新增AI驱动的功能与定制更新",
-      "summary_zh": "Waze新增了由Google的Gemini AI助手驱动的AI功能，旨在增强用户体验并与其他服务竞争。",
-      "url": "https://techcrunch.com/2026/07/13/waze-adds-new-ai-powered-features-and-customization-updates",
-      "source": "TechCrunch AI",
-      "published_at": "2026-07-13T14:18:16Z",
-      "category": "industry_business",
-      "extra_categories": [],
-      "importance": 60
-    },
-    {
-      "original_title": "Hermes agent maker Nous Research in talks for new funding at $1.5B valuation",
-      "title_en": "Hermes agent maker Nous Research in talks for new funding at $1.5B valuation",
-      "summary_en": "The company is raising at least $75 million, led by Robot Ventures, with significant participation from USV and other prominent investors.",
-      "title_zh": "Hermes代理制造商Nous Research洽谈融资，估值达15亿美元",
-      "summary_zh": "Nous Research正在与Robot Ventures等投资者洽谈融资，预计估值达到15亿美元，筹集至少7500万美元。",
-      "url": "https://techcrunch.com/2026/07/13/hermes-agent-maker-nous-research-in-talks-for-new-funding-at-1-5b-valuation",
-      "source": "TechCrunch AI",
-      "published_at": "2026-07-13T23:31:18Z",
-      "category": "industry_business",
-      "extra_categories": [],
-      "importance": 55
+      "original_title": "KevinYoung-Kw/vibe-resume-skill",
+      "title_en": "KevinYoung-Kw/vibe-resume-skill",
+      "summary_en": "AI 简历生成与排版 Skill｜12 套可投递 HTML/PDF 模板。AI resume builder for creating, updating and tailoring resumes to any JD via Codex, Claude Code, Cursor & Trae. GitHub: 26 stars, 0 forks.",
+      "title_zh": "Homekit项目让AI代理支持智能家居控制",
+      "summary_zh": "新推出的Homekit项目允许任何AI代理直接控制Apple Home设备，为智能家居的AI集成提供了新的可能性。",
+      "url": "https://github.com/KevinYoung-Kw/vibe-resume-skill",
+      "source": "GitHub · AI Skill 新项目",
+      "published_at": "2026-07-08T03:18:22Z",
+      "category": "agents",
+      "extra_categories": [
+        "open_source"
+      ],
+      "importance": 50
     }
   ]
 }
