@@ -2,7 +2,9 @@ name: Daily AI News
 
 on:
   schedule:
-    - cron: "0 9 * * *"
+    - cron: "7 9 * * *"
+      timezone: "Asia/Shanghai"
+    - cron: "22 9 * * *"
       timezone: "Asia/Shanghai"
   workflow_dispatch:
 
@@ -39,7 +41,22 @@ jobs:
       - name: Install
         run: python -m pip install .
 
+      - name: Check daily send guard
+        id: daily_guard
+        run: >-
+          python -m ai_news_bot.daily_guard
+          --event "${{ github.event_name }}"
+          --digest web/public/data/latest.json
+          --history .state/history.json
+          --timezone Asia/Shanghai
+          >> "$GITHUB_OUTPUT"
+
+      - name: Skip duplicate scheduled retry
+        if: steps.daily_guard.outputs.should_run == 'false'
+        run: echo "A digest was already generated today; skipping this scheduled retry."
+
       - name: Collect, curate, and send
+        if: steps.daily_guard.outputs.should_run == 'true'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-5.6-luna' }}
@@ -50,6 +67,7 @@ jobs:
         run: ai-news-bot
 
       - name: Persist latest web digest
+        if: steps.daily_guard.outputs.should_run == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -60,6 +78,7 @@ jobs:
           fi
 
       - name: Publish latest digest to private dashboard
+        if: steps.daily_guard.outputs.should_run == 'true'
         env:
           SITE_DIGEST_ENDPOINT: ${{ secrets.SITE_DIGEST_ENDPOINT }}
           SITE_BYPASS_TOKEN: ${{ secrets.SITE_BYPASS_TOKEN }}
@@ -73,7 +92,7 @@ jobs:
             "$SITE_DIGEST_ENDPOINT"
 
       - name: Save sent-news history
-        if: always() && hashFiles('.state/history.json') != ''
+        if: always() && steps.daily_guard.outputs.should_run == 'true' && hashFiles('.state/history.json') != ''
         uses: actions/cache/save@v5
         with:
           path: .state/history.json
