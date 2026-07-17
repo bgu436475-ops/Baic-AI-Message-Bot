@@ -2,10 +2,8 @@ name: Daily AI News
 
 on:
   schedule:
-    - cron: "5 9 * * *"
-      timezone: "Asia/Shanghai"
-    - cron: "20 9 * * *"
-      timezone: "Asia/Shanghai"
+    - cron: "5 1 * * *" # 09:05 Asia/Shanghai (UTC+8)
+    - cron: "20 1 * * *" # 09:20 Asia/Shanghai (UTC+8)
   workflow_dispatch:
 
 concurrency:
