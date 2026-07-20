@@ -7,6 +7,9 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 
+AUTOMATED_EVENTS = frozenset({"schedule", "repository_dispatch"})
+
+
 def _parse_generated_at(path: Path) -> datetime | None:
     if not path.exists():
         return None
@@ -45,8 +48,8 @@ def should_run_daily_digest(
     timezone: str = "Asia/Shanghai",
     now: datetime | None = None,
 ) -> bool:
-    """Allow manual runs, but skip a scheduled retry after today's digest exists."""
-    if event_name != "schedule":
+    """Allow manual runs, but skip automatic retries after today's digest exists."""
+    if event_name not in AUTOMATED_EVENTS:
         return True
 
     zone = ZoneInfo(timezone)

@@ -68,3 +68,37 @@ def test_missing_or_invalid_digest_does_not_block_schedule(tmp_path: Path) -> No
     assert should_run_daily_digest("schedule", missing)
     assert should_run_daily_digest("schedule", invalid)
     assert should_run_daily_digest("schedule", wrong_shape)
+
+
+def test_repository_dispatch_skips_digest_generated_today(tmp_path: Path) -> None:
+    digest = tmp_path / "latest.json"
+    _write_digest(digest, "2026-07-15T00:59:00Z")
+
+    assert not should_run_daily_digest(
+        "repository_dispatch",
+        digest,
+        now=datetime(2026, 7, 15, 1, 22, tzinfo=UTC),
+    )
+
+
+def test_repository_dispatch_runs_when_today_has_no_digest(tmp_path: Path) -> None:
+    digest = tmp_path / "latest.json"
+    _write_digest(digest, "2026-07-14T15:59:00Z")
+
+    assert should_run_daily_digest(
+        "repository_dispatch",
+        digest,
+        now=datetime(2026, 7, 15, 1, 5, tzinfo=UTC),
+    )
+
+
+def test_workflow_accepts_external_dispatch_and_preserves_fallbacks() -> None:
+    workflow = (
+        Path(__file__).parents[1] / ".github/workflows/daily-ai-news.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "repository_dispatch:" in workflow
+    assert "types: [daily-ai-news]" in workflow
+    assert 'cron: "5 1 * * *"' in workflow
+    assert 'cron: "20 1 * * *"' in workflow
+    assert "workflow_dispatch:" in workflow

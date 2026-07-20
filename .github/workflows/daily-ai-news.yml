@@ -4,6 +4,8 @@ on:
   schedule:
     - cron: "5 1 * * *" # 09:05 Asia/Shanghai (UTC+8)
     - cron: "20 1 * * *" # 09:20 Asia/Shanghai (UTC+8)
+  repository_dispatch:
+    types: [daily-ai-news]
   workflow_dispatch:
 
 concurrency:
