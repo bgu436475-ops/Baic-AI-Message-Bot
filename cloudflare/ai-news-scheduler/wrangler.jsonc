@@ -1,0 +1,15 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "baic-ai-news-scheduler",
+  "main": "src/index.js",
+  "compatibility_date": "2026-07-20",
+  "triggers": {
+    "crons": ["5 1 * * *"]
+  },
+  "observability": {
+    "enabled": true
+  },
+  "secrets": {
+    "required": ["GITHUB_DISPATCH_TOKEN"]
+  }
+}
