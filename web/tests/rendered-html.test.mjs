@@ -1,5 +1,64 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { after, before, test } from "node:test";
+import { createServer } from "vite";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+
+const PUBLISHED_DIGEST = {
+  schema_version: 2,
+  run_status: "published",
+  generated_at: "2026-07-20T01:05:00Z",
+  candidate_count: 1,
+  source_count: 1,
+  latest_published_at: "2026-07-20T00:30:00Z",
+  fresh_count_24h: 1,
+  lookback_hours: 36,
+  fallback_used: false,
+  items: [{
+    original_title: "Example release",
+    title_en: "Example release",
+    summary_en: "A deterministic rendered-test item.",
+    title_zh: "示例发布",
+    summary_zh: "用于稳定渲染测试的确定性条目。",
+    url: "https://example.com/news",
+    source: "Example",
+    published_at: "2026-07-20T00:30:00Z",
+    category: "new_models",
+    extra_categories: [],
+    importance: 90,
+  }],
+};
+
+const EMPTY_DIGEST = {
+  schema_version: 2,
+  run_status: "no_qualifying_items",
+  generated_at: "2026-07-20T01:05:00Z",
+  candidate_count: 0,
+  source_count: 0,
+  latest_published_at: null,
+  fresh_count_24h: 0,
+  lookback_hours: 36,
+  fallback_used: false,
+  items: [],
+};
+
+let vite;
+
+before(async () => {
+  vite = await createServer({
+    configFile: false,
+    server: { middlewareMode: true, ws: false },
+  });
+});
+
+after(async () => {
+  await vite?.close();
+});
+
+async function renderDashboard(digest) {
+  const { NewsDashboard } = await vite.ssrLoadModule("/app/news-dashboard.tsx");
+  return renderToStaticMarkup(createElement(NewsDashboard, { initialDigest: digest }));
+}
 
 async function request(path = "/", accept = "text/html", init = {}) {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -25,9 +84,6 @@ test("server-renders the AI news dashboard", async () => {
   assert.match(html, /今日值得关注/);
   assert.match(html, /三层去重/);
   assert.match(html, /<section class="feed" aria-live="polite">/);
-  assert.match(html, /<div class="story-list">/);
-  assert.match(html, /<article class="story-card">[\s\S]*?<h2>/);
-  assert.match(html, /aria-label="阅读原文:/);
   assert.match(html, /每天约 10 条/);
   assert.match(html, /切换到英文/);
   assert.match(html, /中/);
@@ -35,6 +91,25 @@ test("server-renders the AI news dashboard", async () => {
   assert.match(html, /最后检查/);
   assert.match(html, /近 24 小时/);
   assert.match(html, /一键总结/);
+});
+
+test("NewsDashboard renders published and empty v2 results deterministically", async () => {
+  const { isDigest } = await vite.ssrLoadModule("/app/news-data.ts");
+
+  assert.equal(isDigest(PUBLISHED_DIGEST), true);
+  assert.equal(isDigest(EMPTY_DIGEST), true);
+  assert.equal(isDigest({ ...PUBLISHED_DIGEST, items: [] }), false);
+  assert.equal(isDigest({ ...EMPTY_DIGEST, items: PUBLISHED_DIGEST.items }), false);
+
+  const publishedHtml = await renderDashboard(PUBLISHED_DIGEST);
+  assert.match(publishedHtml, /<div class="story-list">/);
+  assert.match(publishedHtml, /<article class="story-card">[\s\S]*?<h2>示例发布<\/h2>/);
+  assert.match(publishedHtml, /aria-label="阅读原文: 示例发布"/);
+
+  const emptyHtml = await renderDashboard(EMPTY_DIGEST);
+  assert.match(emptyHtml, /<div class="empty-state">/);
+  assert.match(emptyHtml, /没有找到匹配的新闻/);
+  assert.doesNotMatch(emptyHtml, /class="story-card"/);
 });
 
 test("summary API exposes a Feishu-ready daily and weekly payload", async () => {
@@ -61,7 +136,13 @@ test("digest API serves a fallback and protects updates", async () => {
   assert.equal(getResponse.status, 200);
   assert.equal(getResponse.headers.get("cache-control"), "no-store");
   const digest = await getResponse.json();
-  assert.ok(digest.items.length > 0);
+  if (digest.schema_version === 2) {
+    assert.ok(["published", "no_qualifying_items"].includes(digest.run_status));
+    assert.equal(digest.run_status === "published", digest.items.length > 0);
+  } else {
+    assert.equal(digest.schema_version, undefined);
+    assert.ok(digest.items.length > 0);
+  }
   assert.ok(digest.items.every((item) => item.url.startsWith("https://")));
 
   const postResponse = await request("/api/digest", "application/json", {
