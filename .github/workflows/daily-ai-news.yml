@@ -76,6 +76,7 @@ jobs:
           fi
 
       - name: Send persisted daily result
+        id: send_digest
         if: steps.daily_guard.outputs.should_run == 'true'
         env:
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
@@ -97,7 +98,7 @@ jobs:
             "$SITE_DIGEST_ENDPOINT"
 
       - name: Save sent-news history
-        if: steps.daily_guard.outputs.should_run == 'true' && hashFiles('.state/history.json') != ''
+        if: always() && steps.send_digest.outcome == 'success' && steps.daily_guard.outputs.should_run == 'true' && hashFiles('.state/history.json') != ''
         uses: actions/cache/save@v5
         with:
           path: .state/history.json

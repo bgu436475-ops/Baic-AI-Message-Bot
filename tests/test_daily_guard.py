@@ -141,6 +141,20 @@ def test_workflow_persists_before_send_and_separates_manual_concurrency() -> Non
     assert "cancel-in-progress: false" in workflow
 
 
+def test_workflow_preserves_history_after_dashboard_publish_failure() -> None:
+    workflow = (
+        Path(__file__).parents[1] / ".github/workflows/daily-ai-news.yml"
+    ).read_text(encoding="utf-8")
+
+    send_step = workflow[workflow.index("- name: Send persisted daily result") : workflow.index("- name: Publish latest digest to private dashboard")]
+    history_step = workflow[workflow.index("- name: Save sent-news history") :]
+    assert "id: send_digest" in send_step
+    assert (
+        "always() && steps.send_digest.outcome == 'success' && "
+        "steps.daily_guard.outputs.should_run == 'true'"
+    ) in history_step
+
+
 def test_readme_documents_external_primary_and_github_fallback() -> None:
     readme = (Path(__file__).parents[1] / "README.md").read_text(encoding="utf-8")
 
