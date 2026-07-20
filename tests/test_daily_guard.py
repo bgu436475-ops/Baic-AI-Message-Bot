@@ -58,6 +58,26 @@ def test_manual_run_is_always_allowed(tmp_path: Path) -> None:
     )
 
 
+def test_empty_result_blocks_automatic_events_but_not_manual_runs(tmp_path: Path) -> None:
+    digest = tmp_path / "latest.json"
+    digest.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "run_status": "no_qualifying_items",
+                "generated_at": "2026-07-15T00:59:00Z",
+                "items": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    now = datetime(2026, 7, 15, 1, 22, tzinfo=UTC)
+
+    assert not should_run_daily_digest("schedule", digest, now=now)
+    assert not should_run_daily_digest("repository_dispatch", digest, now=now)
+    assert should_run_daily_digest("workflow_dispatch", digest, now=now)
+
+
 def test_missing_or_invalid_digest_does_not_block_schedule(tmp_path: Path) -> None:
     missing = tmp_path / "missing.json"
     invalid = tmp_path / "invalid.json"

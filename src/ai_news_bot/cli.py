@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .collectors import GitHubCollector, RSSCollector, WebPageCollector
 from .config import Settings, load_sources
-from .curator import build_digest, select_with_openai, select_without_ai
+from .curator import build_digest, build_empty_digest, select_with_openai, select_without_ai
 from .dedupe import hard_dedupe
 from .feishu import digest_markdown, send_to_feishu
 from .history import HistoryStore
@@ -60,6 +60,13 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _write_digest(digest, settings: Settings, web_output: Path) -> None:
+    latest_path = settings.state_path.parent / "latest_digest.json"
+    latest_path.parent.mkdir(parents=True, exist_ok=True)
+    latest_path.write_text(digest.model_dump_json(indent=2), encoding="utf-8")
+    export_digest_for_web(digest, web_output)
+
+
 def run(args: argparse.Namespace) -> int:
     settings = Settings.from_env()
     if args.target_count is not None:
@@ -100,6 +107,19 @@ def run(args: argparse.Namespace) -> int:
 
     if not unique:
         LOGGER.warning("No fresh AI news candidates; no message sent")
+        _write_digest(
+            build_empty_digest(
+                unique,
+                lookback_hours=(
+                    settings.fallback_lookback_hours
+                    if fallback_used
+                    else settings.lookback_hours
+                ),
+                fallback_used=fallback_used,
+            ),
+            settings,
+            args.web_output,
+        )
         return 0
 
     if args.skip_ai:
@@ -116,6 +136,19 @@ def run(args: argparse.Namespace) -> int:
         )
     if not items:
         LOGGER.warning("Curation returned no items; no message sent")
+        _write_digest(
+            build_empty_digest(
+                unique,
+                lookback_hours=(
+                    settings.fallback_lookback_hours
+                    if fallback_used
+                    else settings.lookback_hours
+                ),
+                fallback_used=fallback_used,
+            ),
+            settings,
+            args.web_output,
+        )
         return 0
 
     digest = build_digest(
@@ -126,10 +159,7 @@ def run(args: argparse.Namespace) -> int:
         ),
         fallback_used=fallback_used,
     )
-    latest_path = settings.state_path.parent / "latest_digest.json"
-    latest_path.parent.mkdir(parents=True, exist_ok=True)
-    latest_path.write_text(digest.model_dump_json(indent=2), encoding="utf-8")
-    export_digest_for_web(digest, args.web_output)
+    _write_digest(digest, settings, args.web_output)
     print(digest_markdown(digest))
 
     if args.dry_run:

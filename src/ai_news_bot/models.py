@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 Category = Literal[
@@ -84,6 +84,8 @@ class NewsItem(BaseModel):
 
 
 class DailyDigest(BaseModel):
+    schema_version: Literal[2] = 2
+    run_status: Literal["published", "no_qualifying_items"] = "published"
     generated_at: datetime
     candidate_count: int
     source_count: int
@@ -92,3 +94,11 @@ class DailyDigest(BaseModel):
     lookback_hours: int = 36
     fallback_used: bool = False
     items: list[NewsItem]
+
+    @model_validator(mode="after")
+    def validate_run_status_matches_items(self) -> "DailyDigest":
+        if self.run_status == "published" and not self.items:
+            raise ValueError("published daily digests must include at least one item")
+        if self.run_status == "no_qualifying_items" and self.items:
+            raise ValueError("empty daily results cannot include items")
+        return self

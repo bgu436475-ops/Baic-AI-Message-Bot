@@ -27,6 +27,8 @@ export type NewsItem = {
 };
 
 export type Digest = {
+  schema_version?: 2;
+  run_status?: "published" | "no_qualifying_items";
   generated_at: string;
   candidate_count: number;
   source_count: number;
@@ -40,7 +42,17 @@ export type Digest = {
 export function isDigest(value: unknown): value is Digest {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<Digest>;
-  if (typeof candidate.generated_at !== "string" || !Array.isArray(candidate.items) || candidate.items.length === 0) return false;
+  if (typeof candidate.generated_at !== "string" || !Array.isArray(candidate.items)) return false;
+  const isValidV2 = candidate.schema_version === 2 && (
+    (candidate.run_status === "published" && candidate.items.length > 0)
+    || (candidate.run_status === "no_qualifying_items" && candidate.items.length === 0)
+  );
+  const isValidLegacyDigest = (
+    candidate.schema_version === undefined
+    && candidate.run_status === undefined
+    && candidate.items.length > 0
+  );
+  if (!isValidV2 && !isValidLegacyDigest) return false;
   return candidate.items.every((item) => (
     item
     && typeof item === "object"

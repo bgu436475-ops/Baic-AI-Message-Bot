@@ -177,3 +177,25 @@ def build_digest(
         fallback_used=fallback_used,
         items=items,
     )
+
+
+def build_empty_digest(
+    candidates: list[Candidate],
+    *,
+    lookback_hours: int = 36,
+    fallback_used: bool = False,
+    now: datetime | None = None,
+) -> DailyDigest:
+    """Build the persisted result for a day with no qualifying items."""
+    now = now or datetime.now(UTC)
+    return DailyDigest(
+        generated_at=now,
+        candidate_count=len(candidates),
+        source_count=len({item.source for item in candidates}),
+        latest_published_at=None,
+        fresh_count_24h=0,
+        lookback_hours=lookback_hours,
+        fallback_used=fallback_used,
+        run_status="no_qualifying_items",
+        items=[],
+    )
