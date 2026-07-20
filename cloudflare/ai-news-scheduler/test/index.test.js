@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
@@ -67,6 +68,26 @@ test("does not retry authentication failures or reveal the token", async () => {
   assert.equal(calls, 1);
 });
 
+test("does not include an HTTP response body in dispatch errors", async () => {
+  const responseBody = `upstream response leaked ${TOKEN}`;
+  const fetchImpl = async () => new Response(responseBody, { status: 500 });
+
+  await assert.rejects(
+    dispatchDailyNews(
+      { GITHUB_DISPATCH_TOKEN: TOKEN },
+      SCHEDULED_TIME,
+      fetchImpl,
+      async () => {},
+    ),
+    (error) => {
+      assert.match(error.message, /500/);
+      assert.doesNotMatch(error.message, new RegExp(TOKEN));
+      assert.doesNotMatch(error.message, /upstream response leaked/);
+      return true;
+    },
+  );
+});
+
 test("retries transient GitHub failures up to three attempts", async () => {
   const statuses = [500, 502, 204];
   const waits = [];
@@ -121,4 +142,12 @@ test("rejects a missing Cloudflare secret before making a request", async () => 
     /GITHUB_DISPATCH_TOKEN is not configured/,
   );
   assert.equal(calls, 0);
+});
+
+test("declares a Node 20 or newer runtime requirement", async () => {
+  const packageJson = JSON.parse(
+    await readFile(new URL("../package.json", import.meta.url), "utf8"),
+  );
+
+  assert.equal(packageJson.engines.node, ">=20");
 });

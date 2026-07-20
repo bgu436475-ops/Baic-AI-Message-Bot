@@ -57,11 +57,10 @@ export async function dispatchDailyNews(
       return;
     }
 
-    const responseSummary = (await response.text()).slice(0, 300);
     const retryable = response.status === 429 || response.status >= 500;
     if (!retryable || attempt === MAX_ATTEMPTS) {
       throw new Error(
-        `GitHub repository dispatch failed with ${response.status}: ${responseSummary}`,
+        `GitHub repository dispatch failed with ${response.status}`,
       );
     }
     await waitImpl(attempt * 1000);
