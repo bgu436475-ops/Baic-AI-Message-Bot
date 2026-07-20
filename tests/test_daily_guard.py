@@ -102,3 +102,14 @@ def test_workflow_accepts_external_dispatch_and_preserves_fallbacks() -> None:
     assert 'cron: "5 1 * * *"' in workflow
     assert 'cron: "20 1 * * *"' in workflow
     assert "workflow_dispatch:" in workflow
+
+
+def test_readme_documents_external_primary_and_github_fallback() -> None:
+    readme = (Path(__file__).parents[1] / "README.md").read_text(encoding="utf-8")
+
+    assert "Cloudflare Worker" in readme
+    assert "09:05" in readme
+    assert "09:20" in readme
+    assert "GITHUB_DISPATCH_TOKEN" in readme
+    assert 'cron: "7 9 * * *"' not in readme
+    assert 'cron: "22 9 * * *"' not in readme

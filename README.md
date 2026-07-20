@@ -128,19 +128,16 @@ GET /api/summary?period=weekly&lang=zh
 
 接口格式版本为 `ai-signal.summary.v1`，包含摘要周期、生成时间、重大叙事、原始链接和是否启用回看提示。它目前不会主动发送消息，也不会在网页中保存飞书 webhook；正式接入时仍通过 `FEISHU_WEBHOOK_URL` 安全发送到指定群。
 
-## 每天 9:00 自动发送
+## 每天 09:05 自动发送
 
-`.github/workflows/daily-ai-news.yml` 已配置：
+生产环境采用双通道触发：
 
-```yaml
-schedule:
-  - cron: "7 9 * * *"
-    timezone: "Asia/Shanghai"
-  - cron: "22 9 * * *"
-    timezone: "Asia/Shanghai"
-```
+1. Cloudflare Worker 在每天北京时间 09:05 调用 GitHub `repository_dispatch`，作为准点主触发。
+2. GitHub Actions 保留北京时间 09:05 和 09:20 两个原生 `schedule`，作为平台级备用。
+3. `schedule` 与 `repository_dispatch` 共用每日去重；当天成功生成或发送后，后续自动运行直接跳过。
+4. 手动 `Run workflow` 使用 `workflow_dispatch`，仍可显式补发。
 
-工作流只会在默认分支执行。09:07 是主触发，09:22 是防止 GitHub 丢失整点任务的备用触发；如果当天已经生成并发送过简报，备用任务会自动跳过，避免重复推送。每天运行时会采集和筛选新闻、发送飞书卡片、更新仓库中的简报文件，并把同一份内容发布到网页。
+Cloudflare 只保存仓库专用的 `GITHUB_DISPATCH_TOKEN`，不保存飞书、模型或网页密钥。Worker 的部署和验证步骤见 `cloudflare/ai-news-scheduler/README.md`。
 
 ## 调整筛选
 
