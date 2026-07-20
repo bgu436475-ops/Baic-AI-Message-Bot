@@ -124,6 +124,23 @@ def test_workflow_accepts_external_dispatch_and_preserves_fallbacks() -> None:
     assert "workflow_dispatch:" in workflow
 
 
+def test_workflow_persists_before_send_and_separates_manual_concurrency() -> None:
+    workflow = (
+        Path(__file__).parents[1] / ".github/workflows/daily-ai-news.yml"
+    ).read_text(encoding="utf-8")
+
+    generate_position = workflow.index("ai-news-bot --dry-run")
+    persist_position = workflow.index("git add web/public/data/latest.json")
+    send_position = workflow.index("ai-news-bot --send-existing")
+    assert generate_position < persist_position < send_position
+    send_step = workflow[workflow.rfind("- name:", 0, send_position) : send_position]
+    assert "always()" not in send_step
+    assert "github.event_name == 'workflow_dispatch'" in workflow
+    assert "github.run_id" in workflow
+    assert "daily-ai-news-automatic" in workflow
+    assert "cancel-in-progress: false" in workflow
+
+
 def test_readme_documents_external_primary_and_github_fallback() -> None:
     readme = (Path(__file__).parents[1] / "README.md").read_text(encoding="utf-8")
 

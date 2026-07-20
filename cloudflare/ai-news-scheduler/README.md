@@ -2,6 +2,8 @@
 
 This Worker triggers `bgu436475-ops/Baic-AI-Message-Bot` every day at 01:05 UTC / 09:05 Asia/Shanghai. GitHub Actions retains its native schedules as fallbacks.
 
+Use Node.js 22 or newer for local Worker development and validation.
+
 ## 1. Create the GitHub token
 
 Create a fine-grained personal access token for only `bgu436475-ops/Baic-AI-Message-Bot`. Grant `Contents: Read and write`; do not grant organization or account permissions.

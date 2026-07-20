@@ -134,7 +134,7 @@ GET /api/summary?period=weekly&lang=zh
 
 1. Cloudflare Worker 在每天北京时间 09:05 调用 GitHub `repository_dispatch`，作为准点主触发。
 2. GitHub Actions 保留北京时间 09:05 和 09:20 两个原生 `schedule`，作为平台级备用。
-3. `schedule` 与 `repository_dispatch` 共用每日去重；当天成功生成或发送后，后续自动运行直接跳过。
+3. 自动运行先生成日报、提交当天的持久化结果、再发送飞书；`schedule` 与 `repository_dispatch` 共用每日去重，后续自动运行直接跳过。
 4. 手动 `Run workflow` 使用 `workflow_dispatch`，仍可显式补发。
 
 Cloudflare 只保存仓库专用的 `GITHUB_DISPATCH_TOKEN`，不保存飞书、模型或网页密钥。Worker 的部署和验证步骤见 `cloudflare/ai-news-scheduler/README.md`。

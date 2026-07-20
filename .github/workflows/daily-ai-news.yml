@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: daily-ai-news
+  group: ${{ github.event_name == 'workflow_dispatch' && format('daily-ai-news-manual-{0}', github.run_id) || 'daily-ai-news-automatic' }}
   cancel-in-progress: false
 
 permissions:
@@ -55,16 +55,14 @@ jobs:
         if: steps.daily_guard.outputs.should_run == 'false'
         run: echo "A digest was already generated today; skipping this scheduled retry."
 
-      - name: Collect, curate, and send
+      - name: Generate daily result
         if: steps.daily_guard.outputs.should_run == 'true'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-5.6-luna' }}
           GITHUB_MODELS_MODEL: ${{ vars.GITHUB_MODELS_MODEL || 'openai/gpt-4o-mini' }}
-          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
-          FEISHU_SIGNING_SECRET: ${{ secrets.FEISHU_SIGNING_SECRET }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ai-news-bot
+        run: ai-news-bot --dry-run
 
       - name: Persist latest web digest
         if: steps.daily_guard.outputs.should_run == 'true'
@@ -76,6 +74,13 @@ jobs:
             git commit -m "Update daily AI news"
             git push
           fi
+
+      - name: Send persisted daily result
+        if: steps.daily_guard.outputs.should_run == 'true'
+        env:
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+          FEISHU_SIGNING_SECRET: ${{ secrets.FEISHU_SIGNING_SECRET }}
+        run: ai-news-bot --send-existing
 
       - name: Publish latest digest to private dashboard
         if: steps.daily_guard.outputs.should_run == 'true'
@@ -92,7 +97,7 @@ jobs:
             "$SITE_DIGEST_ENDPOINT"
 
       - name: Save sent-news history
-        if: always() && steps.daily_guard.outputs.should_run == 'true' && hashFiles('.state/history.json') != ''
+        if: steps.daily_guard.outputs.should_run == 'true' && hashFiles('.state/history.json') != ''
         uses: actions/cache/save@v5
         with:
           path: .state/history.json

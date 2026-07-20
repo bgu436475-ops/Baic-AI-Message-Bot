@@ -10,6 +10,7 @@ from .curator import build_digest, build_empty_digest, select_with_openai, selec
 from .dedupe import hard_dedupe
 from .feishu import digest_markdown, send_to_feishu
 from .history import HistoryStore
+from .models import DailyDigest
 from .web_export import export_digest_for_web
 
 LOGGER = logging.getLogger(__name__)
@@ -42,7 +43,13 @@ def _prepare_candidates(collected: list, history: HistoryStore, max_candidates: 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Collect and send the daily AI news digest")
     parser.add_argument("--sources", type=Path, default=Path("config/sources.yaml"))
-    parser.add_argument("--dry-run", action="store_true", help="Generate but do not send")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--dry-run", action="store_true", help="Generate but do not send")
+    mode.add_argument(
+        "--send-existing",
+        action="store_true",
+        help="Send a previously persisted daily result without collecting again",
+    )
     parser.add_argument(
         "--skip-ai",
         action="store_true",
@@ -67,8 +74,32 @@ def _write_digest(digest, settings: Settings, web_output: Path) -> None:
     export_digest_for_web(digest, web_output)
 
 
+def _send_existing_daily_result(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        digest = DailyDigest.model_validate_json(args.web_output.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise ValueError("Could not load a valid persisted daily result") from error
+
+    if digest.run_status == "no_qualifying_items":
+        LOGGER.info("Persisted result has no qualifying items; Feishu was not called")
+        return 0
+
+    history = HistoryStore(settings.state_path)
+    send_to_feishu(
+        digest,
+        settings.feishu_webhook_url,
+        settings.feishu_signing_secret,
+        settings.request_timeout,
+    )
+    history.record(digest.items)
+    LOGGER.info("Sent %d persisted item(s) to Feishu", len(digest.items))
+    return 0
+
+
 def run(args: argparse.Namespace) -> int:
     settings = Settings.from_env()
+    if args.send_existing:
+        return _send_existing_daily_result(args, settings)
     if args.target_count is not None:
         settings.target_news_count = args.target_count
     if args.lookback_hours is not None:

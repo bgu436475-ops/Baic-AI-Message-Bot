@@ -6,7 +6,7 @@
 
 **Architecture:** A Cloudflare Worker Cron Trigger posts a `daily-ai-news` repository dispatch event to the production repository. GitHub Actions accepts that event alongside the existing two UTC schedules, while `daily_guard` treats both event types as automatic retries and leaves `workflow_dispatch` as an explicit manual override. The Worker contains no Feishu or model credentials and keeps its single repository-scoped GitHub token in a Cloudflare Secret.
 
-**Tech Stack:** Python 3.11+, pytest 8, GitHub Actions YAML, JavaScript ES modules, Node.js 20+ built-in test runner, Cloudflare Workers and Wrangler 4.
+**Tech Stack:** Python 3.11+, pytest 8, GitHub Actions YAML, JavaScript ES modules, Node.js 22+ built-in test runner, Cloudflare Workers and Wrangler 4.
 
 ## Global Constraints
 
@@ -17,7 +17,7 @@
 - The repository dispatch event type is exactly `daily-ai-news`.
 - The GitHub token is stored only as the Cloudflare Secret `GITHUB_DISPATCH_TOKEN`.
 - The token is limited to `bgu436475-ops/Baic-AI-Message-Bot` with `Contents: Read and write`.
-- Worker development and deployment use Node.js 20 or newer.
+- Worker development and deployment use Node.js 22 or newer.
 - No Feishu webhook, signing secret, model key, GitHub token, or Cloudflare credential may be committed or printed.
 - Each independently testable feature is committed separately with a short commit message.
 - The existing 09:35 health check remains read-only and never clicks Run workflow or sends a replacement digest.

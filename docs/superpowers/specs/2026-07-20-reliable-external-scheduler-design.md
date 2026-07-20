@@ -31,7 +31,7 @@ GitHub repository_dispatch: daily-ai-news
 Daily guard ---- 当天已成功发送 ----> 跳过
         |
         v
-采集、筛选、飞书发送、更新网页和状态
+采集与筛选 → 持久化当天结果 → 飞书发送 → 更新网页和状态
 
 GitHub schedule 09:05 / 09:20 ------------------^
 人工 workflow_dispatch ------------------------> 强制执行
@@ -83,7 +83,7 @@ Worker 使用 GitHub fine-grained personal access token，范围仅限 `bgu43647
 - `client_payload.source`：`cloudflare-cron`
 - `client_payload.scheduled_at`：Cloudflare 提供的计划执行时间 ISO 字符串
 
-非 204 响应必须抛出不含密钥的错误。Worker 最多尝试三次；最终失败时由 Cloudflare 日志记录状态码和 GitHub 响应摘要。
+非 204 响应必须抛出不含密钥的错误。Worker 最多尝试三次；最终失败时 Cloudflare 日志只记录 HTTP 状态码，绝不记录 GitHub 响应体。
 
 ## 自检规则
 
@@ -99,7 +99,7 @@ Worker 使用 GitHub fine-grained personal access token，范围仅限 `bgu43647
 - Cloudflare 请求失败：有限重试三次，之后失败并记录可核查日志。
 - GitHub 接受请求但 Actions 暂时不可用：`repository_dispatch` 运行会在 GitHub 侧排队；09:20 原生定时仍保留。
 - 两个触发同时到达：GitHub concurrency 串行化，后一个运行由 `daily_guard` 跳过。
-- 密钥失效：GitHub 返回 401/403；Worker 日志只记录状态和响应摘要，不记录请求头。
+- 密钥失效：GitHub 返回 401/403；Worker 日志只记录 HTTP 状态码，不记录请求头或响应体。
 - 当天没有合格新闻：日报流程按现有规则生成合法的空榜状态，不通过重复触发补足低价值内容。
 
 ## 测试和验证
