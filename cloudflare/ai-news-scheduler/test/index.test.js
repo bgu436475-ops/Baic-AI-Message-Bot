@@ -144,10 +144,10 @@ test("rejects a missing Cloudflare secret before making a request", async () => 
   assert.equal(calls, 0);
 });
 
-test("declares a Node 20 or newer runtime requirement", async () => {
+test("declares a Node 22 or newer runtime requirement", async () => {
   const packageJson = JSON.parse(
     await readFile(new URL("../package.json", import.meta.url), "utf8"),
   );
 
-  assert.equal(packageJson.engines.node, ">=20");
+  assert.equal(packageJson.engines.node, ">=22");
 });
