@@ -24,7 +24,10 @@ test("server-renders the AI news dashboard", async () => {
   assert.match(html, /让重要的 AI 进展/);
   assert.match(html, /今日值得关注/);
   assert.match(html, /三层去重/);
-  assert.match(html, /Clodex IDE/);
+  assert.match(html, /<section class="feed" aria-live="polite">/);
+  assert.match(html, /<div class="story-list">/);
+  assert.match(html, /<article class="story-card">[\s\S]*?<h2>/);
+  assert.match(html, /aria-label="阅读原文:/);
   assert.match(html, /每天约 10 条/);
   assert.match(html, /切换到英文/);
   assert.match(html, /中/);
