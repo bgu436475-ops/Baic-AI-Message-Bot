@@ -1,49 +1,23 @@
 {
-  "generated_at": "2026-07-19T09:01:52.183591Z",
-  "candidate_count": 51,
-  "source_count": 9,
-  "latest_published_at": "2026-07-19T08:35:26Z",
-  "fresh_count_24h": 5,
+  "schema_version": 2,
+  "run_status": "published",
+  "generated_at": "2026-07-20T11:29:45.932701Z",
+  "candidate_count": 45,
+  "source_count": 8,
+  "latest_published_at": "2026-07-19T19:24:45Z",
+  "fresh_count_24h": 4,
   "lookback_hours": 36,
   "fallback_used": false,
   "items": [
     {
-      "original_title": "China's new World Artificial Intelligence Cooperation Organization is President Xi's clearest play yet for a parallel AI order",
-      "title_en": "China's new World Artificial Intelligence Cooperation Organization is President Xi's clearest play yet for a parallel A…",
-      "summary_en": "At the World AI Conference in Shanghai, Xi Jinping announced 5,000 AI training slots for Global South countries and the launch of the \"World Artificial Intelligence Cooperation Organization.\" Cooperation centers with ASEAN, the African Union, BRICS, and other alliances are planned to follow. China is systematically bu…",
-      "title_zh": "中国成立世界人工智能合作组织，旨在构建平行的人工智能治理结构",
-      "summary_zh": "中国新成立的世界人工智能合作组织在上海的世界人工智能大会上宣布，旨在建立一个与西方不同的人工智能治理结构。这一计划标志着中国在全球人工智能领域的影响力扩展。",
-      "url": "https://the-decoder.com/chinas-new-world-artificial-intelligence-cooperation-organization-is-president-xis-clearest-play-yet-for-a-parallel-ai-order",
+      "original_title": "Alibaba's Qwen takes on Kimi K3 with open-weight Qwen 3.8, says model is \"second only to Fable 5\"",
+      "title_en": "Alibaba's Qwen takes on Kimi K3 with open-weight Qwen 3.8, says model is \"second only to Fable 5\"",
+      "summary_en": "Alibaba has unveiled Qwen 3.8, a multimodal AI model with 2.4 trillion parameters that the Qwen team says rivals leading models and trails only Fable 5. A preview is available now. The article Alibaba's Qwen takes on Kimi K3 with open-weight Qwen 3.8, says model is \"second only to Fable 5\" appeared first on The Decode…",
+      "title_zh": "阿里巴巴Qwen 3.8多模态AI模型发布，力图超越Fable 5",
+      "summary_zh": "阿里巴巴推出了多模态AI模型Qwen 3.8，参数达到2.4万亿，声称其实力仅次于Fable 5。",
+      "url": "https://the-decoder.com/alibabas-qwen-takes-on-kimi-k3-with-open-weight-qwen-3-8-says-model-is-second-only-to-fable-5",
       "source": "The Decoder",
-      "published_at": "2026-07-18T10:46:04Z",
-      "category": "industry_business",
-      "extra_categories": [],
-      "importance": 95
-    },
-    {
-      "original_title": "The Pentagon's new AI playbook treats slow adoption as a bigger risk than imperfect alignment",
-      "title_en": "The Pentagon's new AI playbook treats slow adoption as a bigger risk than imperfect alignment",
-      "summary_en": "The US Department of the Navy has signed a strategy to \"weaponize\" data and AI and build an \"AI-first\" fleet. Large language models would run directly on warships, and an AI war council would prioritize mission scenarios. The core message is that moving too slowly carries greater risks than \"imperfect alignment.\" The…",
-      "title_zh": "美国海军新人工智能游戏手册：慢速采纳比不完美对齐更具风险",
-      "summary_zh": "美国海军发布新人工智能游戏手册，强调数据和人工智能的武器化，迅速转型为“人工智能第一”的舰队。手册指出，缓慢采纳的风险高于不完美的对齐。",
-      "url": "https://the-decoder.com/the-pentagons-new-ai-playbook-treats-slow-adoption-as-a-bigger-risk-than-imperfect-alignment",
-      "source": "The Decoder",
-      "published_at": "2026-07-18T08:10:40Z",
-      "category": "new_models",
-      "extra_categories": [
-        "industry_business"
-      ],
-      "importance": 92
-    },
-    {
-      "original_title": "Open-weight models now match frontier cyber performance from just four months ago at a fraction of the cost",
-      "title_en": "Open-weight models now match frontier cyber performance from just four months ago at a fraction of the cost",
-      "summary_en": "The British AI Security Institute warns that open-weight models like GLM-5.2 and DeepSeek V4-Pro now trail closed frontier models in cyber capabilities by four to seven months. At the start of 2025, the gap was still six to ten months. It also found that safety measures on open models are largely ineffective, leaving…",
-      "title_zh": "开放权重模型在网络能力上已与封闭模型持平，警示安全措施不足",
-      "summary_zh": "英国人工智能安全研究所警告，开放权重模型在网络能力上已经可以与封闭模型媲美。这突显了安全措施的不足，给防御者带来更短的准备时间。",
-      "url": "https://the-decoder.com/open-weight-models-now-match-frontier-cyber-performance-from-just-four-months-ago-at-a-fraction-of-the-cost",
-      "source": "The Decoder",
-      "published_at": "2026-07-18T10:16:02Z",
+      "published_at": "2026-07-19T12:07:06Z",
       "category": "new_models",
       "extra_categories": [
         "industry_business"
@@ -51,27 +25,14 @@
       "importance": 90
     },
     {
-      "original_title": "OliverCrosby/ComfyUI-Universal-Seamless-Tiles",
-      "title_en": "OliverCrosby/ComfyUI-Universal-Seamless-Tiles",
-      "summary_en": "Nodes for generating seamless tiles with any model GitHub: 12 stars, 2 forks.",
-      "title_zh": "金融代理API：多代理框架与智能金融的未来",
-      "summary_zh": "金融代理API联动多代理框架，为可扩展人工智能系统提供智能金融、观察性和安全治理的能力，具备863个分叉和129个星标。",
-      "url": "https://github.com/OliverCrosby/ComfyUI-Universal-Seamless-Tiles",
-      "source": "GitHub · ComfyUI 新项目",
-      "published_at": "2026-07-14T13:04:10Z",
-      "category": "mcp",
-      "extra_categories": [],
-      "importance": 88
-    },
-    {
-      "original_title": "Anthropic slashes Claude Fable 5 limits in Max and Team Premium and pushes Pro users toward API pricing",
-      "title_en": "Anthropic slashes Claude Fable 5 limits in Max and Team Premium and pushes Pro users toward API pricing",
-      "summary_en": "Anthropic will include Claude Fable 5 in Max and Team Premium plans starting July 20, but at just 50 percent of regular limits, which themselves drop by a third that same day. Pro users get a one-time $100 credit, then pay API rates. The reversal from Anthropic's original plan to pull Fable from subscriptions entirely…",
-      "title_zh": "Anthropic削减Claude Fable 5使用限制，以应对市场竞争",
-      "summary_zh": "Anthropic削减Claude Fable 5在Max和Team Premium计划中的使用限制，以应对市场竞争压力。这一改变反映了AI市场的动态与竞争。",
-      "url": "https://the-decoder.com/anthropic-slashes-claude-fable-5-limits-in-max-and-team-premium-and-pushes-pro-users-toward-api-pricing",
+      "original_title": "Google Deepmind argues video generators already contain the world models computer vision has been missing",
+      "title_en": "Google Deepmind argues video generators already contain the world models computer vision has been missing",
+      "summary_en": "Google Deepmind's GenCeption repurposes a video generator for classic vision tasks such as depth estimation and segmentation, matching state-of-the-art systems with far less training data. The model trained almost entirely on synthetic videos. Its results add to the debate over whether video generators already contain…",
+      "title_zh": "谷歌DeepMind推出GenCeption视频生成模型，解决计算机视觉世界模型缺乏的问题",
+      "summary_zh": "谷歌DeepMind的GenCeption模型通过视频生成技术实现经典计算机视觉任务，显著减少训练数据需求。",
+      "url": "https://the-decoder.com/google-deepmind-argues-video-generators-already-contain-the-world-models-computer-vision-has-been-missing",
       "source": "The Decoder",
-      "published_at": "2026-07-18T07:17:11Z",
+      "published_at": "2026-07-19T10:17:49Z",
       "category": "new_models",
       "extra_categories": [
         "industry_business"
@@ -79,48 +40,86 @@
       "importance": 85
     },
     {
-      "original_title": "AI chatbots reading X-rays can be dangerously confident even when they're wrong",
-      "title_en": "AI chatbots reading X-rays can be dangerously confident even when they're wrong",
-      "summary_en": "The RadLE 2.0 benchmark tests whether AI models in radiology can tell when they should leave a diagnosis to a human. Many models deliver wrong findings with full confidence, and human radiologists are still well ahead. Before AI can diagnose on its own, it needs to learn when it's better to say nothing. The article AI…",
-      "title_zh": "放射学AI模型在错误诊断中表现出危险的自信",
-      "summary_zh": "RadLE 2.0基准测试显示，许多放射学AI模型即使错误诊断，也会以完全的信心进行宣称。这显示出AI在医疗领域的局限性和风险。",
-      "url": "https://the-decoder.com/ai-chatbots-reading-x-rays-can-be-dangerously-confident-even-when-theyre-wrong",
-      "source": "The Decoder",
-      "published_at": "2026-07-19T07:35:20Z",
-      "category": "new_models",
-      "extra_categories": [
-        "industry_business"
-      ],
+      "original_title": "Can an Apple lawsuit derail OpenAI’s hardware plans?",
+      "title_en": "Can an Apple lawsuit derail OpenAI’s hardware plans?",
+      "summary_en": "On the latest episode of Equity, we debate whether Apple's lawsuit will cast over OpenAi's much-discussed plans to get into hardware and go public.",
+      "title_zh": "苹果诉讼是否会影响OpenAI的硬件计划？",
+      "summary_zh": "苹果的诉讼可能对OpenAI的硬件计划造成影响，引发业界热议。",
+      "url": "https://techcrunch.com/2026/07/19/can-an-apple-lawsuit-derail-openais-hardware-plans",
+      "source": "TechCrunch AI",
+      "published_at": "2026-07-19T19:24:45Z",
+      "category": "industry_business",
+      "extra_categories": [],
       "importance": 80
     },
     {
-      "original_title": "AI text detectors struggle when language models mimic an author's style",
-      "title_en": "AI text detectors struggle when language models mimic an author's style",
-      "summary_en": "Epoch AI tested three leading AI text detectors (Pangram, GPTZero, and Originality.ai) using style-imitated texts. Up to 18 percent of AI-generated passages went undetected. For scientific writing, the miss rate climbed as high as 48 percent, the very genre where these detectors likely see the most real-world use. The…",
-      "title_zh": "AI文本检测器在语言模型模仿作者风格时表现不佳",
-      "summary_zh": "Epoch AI测试发现，当语言模型模仿作者风格时，AI文本检测器的有效性显著下降。科学写作中，未检测到的错误率高达48%。",
-      "url": "https://the-decoder.com/ai-text-detectors-struggle-when-language-models-mimic-an-authors-style",
-      "source": "The Decoder",
-      "published_at": "2026-07-19T08:35:26Z",
-      "category": "new_models",
+      "original_title": "‘Odyssey’ director Christopher Nolan calls AI an obvious ‘Trojan horse’",
+      "title_en": "‘Odyssey’ director Christopher Nolan calls AI an obvious ‘Trojan horse’",
+      "summary_en": "\"Everybody knows the Greeks are inside.\"",
+      "title_zh": "诺兰称AI为“特洛伊木马”，引发对AI影响的讨论",
+      "summary_zh": "《奥德赛》导演克里斯托弗·诺兰称AI为明显的“特洛伊木马”，引发对AI潜在影响的思考。",
+      "url": "https://techcrunch.com/2026/07/19/odyssey-director-christopher-nolan-calls-ai-an-obvious-trojan-horse",
+      "source": "TechCrunch AI",
+      "published_at": "2026-07-19T14:52:08Z",
+      "category": "industry_business",
       "extra_categories": [],
-      "importance": 78
+      "importance": 75
     },
     {
-      "original_title": "joeseesun/qiaomu-cut-skill",
-      "title_en": "joeseesun/qiaomu-cut-skill",
-      "summary_en": "乔木智能视频导演 Skill：素材治理、双语字幕、品牌包装与可复现渲染 | Agent-native video director with governed sourcing and verifiable rendering GitHub: 61 stars, 9 forks.",
-      "title_zh": "Qiaomu-Cut Skill：智能视频导演功能的新项目",
-      "summary_zh": "新项目Qiaomu-Cut Skill推出，可实现智能视频导演功能，支持素材治理及双语字幕，当前在GitHub上获得61个星标。",
-      "url": "https://github.com/joeseesun/qiaomu-cut-skill",
-      "source": "GitHub · AI Skill 新项目",
-      "published_at": "2026-07-18T20:00:46Z",
-      "category": "skills",
+      "original_title": "Nonprofit Current AI is racing to build the World Wide Web of AI, free for all",
+      "title_en": "Nonprofit Current AI is racing to build the World Wide Web of AI, free for all",
+      "summary_en": "Current AI, a non-profit building AI that leaves no one culture behind, has made remarkable progress across devices, AI chat and more.",
+      "title_zh": "非营利组织Current AI致力于全球AI建设，推动免费技术普及",
+      "summary_zh": "非营利组织Current AI致力于构建无文化遗漏的全球AI网络，取得显著进展。",
+      "url": "https://techcrunch.com/2026/07/19/nonprofit-current-ai-is-racing-to-build-the-world-wide-web-of-ai-free-for-all",
+      "source": "TechCrunch AI",
+      "published_at": "2026-07-19T14:00:00Z",
+      "category": "industry_business",
+      "extra_categories": [],
+      "importance": 70
+    },
+    {
+      "original_title": "worldwonderer/novel-to-game",
+      "title_en": "worldwonderer/novel-to-game",
+      "summary_en": "把任何小说变成可玩的游戏 · Turn any novel into a playable game — a 7-skill adaptation pipeline for Claude Code, Codex & Kimi Code(k3) GitHub: 66 stars, 11 forks.",
+      "title_zh": "GitHub新项目将小说转化为可玩游戏，适用于AI模型",
+      "summary_zh": "新GitHub项目通过技能适配管道将任何小说转化为可玩的游戏，已获得66颗星。",
+      "url": "https://github.com/worldwonderer/novel-to-game",
+      "source": "GitHub · 生成式 AI 新项目",
+      "published_at": "2026-07-18T16:29:56Z",
+      "category": "open_source",
       "extra_categories": [
-        "agents",
-        "open_source"
+        "image_video"
       ],
-      "importance": 75
+      "importance": 65
+    },
+    {
+      "original_title": "RinDig/icm-architect",
+      "title_en": "RinDig/icm-architect",
+      "summary_en": "Claude skill: design any process, idea, or problem into an ICM workspace (folder structure as agent architecture), or restructure an existing folder into one GitHub: 150 stars, 34 forks.",
+      "title_zh": "新的ICM架构设计工具上线，助力项目管理",
+      "summary_zh": "新发布的ICM架构设计工具能够将任何过程或问题转为工作空间，提升项目管理效率。",
+      "url": "https://github.com/RinDig/icm-architect",
+      "source": "GitHub · MCP 新项目",
+      "published_at": "2026-07-18T14:11:04Z",
+      "category": "open_source",
+      "extra_categories": [
+        "mcp"
+      ],
+      "importance": 60
+    },
+    {
+      "original_title": "KlaatAI/klaatcode",
+      "title_en": "KlaatAI/klaatcode",
+      "summary_en": "Open-source AI coding agent for the terminal. Claude Code-grade accuracy with smart model routing — uses the right AI model for each task, cutting costs 10x. Supports Claude, GPT, Gemini, DeepSeek & more. GitHub: 148 stars, 23 forks.",
+      "title_zh": "KlaatAI推出开源终端AI编程代理，支持多种模型路由",
+      "summary_zh": "开源AI编程代理KlaatAI为终端用户提供更高效的AI模型路由，支持多种模型。",
+      "url": "https://github.com/KlaatAI/klaatcode",
+      "source": "GitHub · AI 新项目",
+      "published_at": "2026-07-17T11:38:10Z",
+      "category": "open_source",
+      "extra_categories": [],
+      "importance": 55
     }
   ]
 }
