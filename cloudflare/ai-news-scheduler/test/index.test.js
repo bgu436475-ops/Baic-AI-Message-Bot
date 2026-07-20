@@ -152,11 +152,12 @@ test("declares a Node 22 or newer runtime requirement", async () => {
   assert.equal(packageJson.engines.node, ">=22");
 });
 
-test("deploys as a cron-only Worker without a public workers.dev route", async () => {
+test("deploys to a workers.dev production target so the cron trigger can attach", async () => {
   const wranglerConfig = JSON.parse(
     await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8"),
   );
 
-  assert.equal(wranglerConfig.workers_dev, false);
+  assert.equal(wranglerConfig.workers_dev, true);
+  assert.equal(wranglerConfig.preview_urls, false);
   assert.deepEqual(wranglerConfig.triggers.crons, ["5 1 * * *"]);
 });
