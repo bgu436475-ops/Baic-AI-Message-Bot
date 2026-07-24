@@ -20,9 +20,22 @@ class FakeResponse:
         content_type: str = "text/html; charset=utf-8",
     ) -> None:
         self.url = url
-        self.text = text
+        self._body = text.encode()
         self.status_code = status_code
         self.headers = {"content-type": content_type}
+        self.bytes_yielded = 0
+        self.iter_content_chunk_sizes: list[int] = []
+
+    @property
+    def text(self) -> str:
+        raise AssertionError("SourceFetcher must read bounded response bytes, not response.text")
+
+    def iter_content(self, *, chunk_size: int) -> object:
+        self.iter_content_chunk_sizes.append(chunk_size)
+        for index in range(0, len(self._body), chunk_size):
+            chunk = self._body[index : index + chunk_size]
+            self.bytes_yielded += len(chunk)
+            yield chunk
 
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
@@ -32,21 +45,23 @@ class FakeResponse:
 class FakeSession:
     def __init__(self, responses: list[FakeResponse | requests.RequestException]) -> None:
         self.responses = iter(responses)
-        self.calls: list[tuple[str, int, dict[str, str]]] = []
+        self.calls: list[tuple[str, int, dict[str, str], bool]] = []
 
-    def get(self, url: str, *, timeout: int, headers: dict[str, str]) -> FakeResponse:
-        self.calls.append((url, timeout, headers))
+    def get(
+        self, url: str, *, timeout: int, headers: dict[str, str], stream: bool
+    ) -> FakeResponse:
+        self.calls.append((url, timeout, headers, stream))
         result = next(self.responses)
         if isinstance(result, requests.RequestException):
             raise result
         return result
 
 
-def candidate(identifier: str) -> Candidate:
+def candidate(identifier: str, *, url: str | None = None) -> Candidate:
     return Candidate(
         id=identifier,
         title=f"Model {identifier}",
-        url=f"https://example.test/{identifier}",
+        url=url or f"https://example.test/{identifier}",
         source="Test source",
         source_tier=1,
         source_weight=1.0,
@@ -126,3 +141,109 @@ def test_fetch_sources_raises_when_every_original_is_unavailable() -> None:
 
     with pytest.raises(AllSourcesUnavailableError):
         SourceFetcher(session=session, timeout=5).fetch_many([one(), two()])
+
+
+@pytest.mark.parametrize("status_code", [404, 500])
+def test_fetch_sources_preserves_redirect_details_for_http_errors(status_code: int) -> None:
+    session = FakeSession(
+        [
+            FakeResponse(
+                url="https://example.com/final?visible=keep#fragment",
+                text="Not found",
+                status_code=status_code,
+            )
+        ]
+    )
+
+    result = SourceFetcher(session=session, timeout=5).fetch_one(one())
+
+    assert result.status == "unavailable"
+    assert result.status_code == status_code
+    assert result.final_url == "https://example.com/final?visible=keep"
+
+
+def test_fetch_sources_reads_only_the_configured_raw_byte_limit() -> None:
+    response = FakeResponse(
+        url="https://example.test/one",
+        text="<p>" + "Long original source text. " * 20 + "</p>",
+    )
+    session = FakeSession([response])
+
+    result = SourceFetcher(session=session, max_response_bytes=100, max_chars=20).fetch_one(one())
+
+    assert session.calls[0][3] is True
+    assert response.bytes_yielded == 100
+    assert response.iter_content_chunk_sizes == [1]
+    assert result.truncated is True
+    assert result.status == "insufficient"
+    assert len(result.text) == 20
+
+
+def test_fetch_sources_marks_short_html_as_insufficient() -> None:
+    session = FakeSession([FakeResponse(url="https://example.test/one", text="<p>Short</p>")])
+
+    result = SourceFetcher(session=session).fetch_one(one())
+
+    assert result.status == "insufficient"
+    assert result.text == "Short"
+
+
+def test_fetch_sources_marks_non_html_as_unavailable() -> None:
+    session = FakeSession(
+        [
+            FakeResponse(
+                url="https://example.test/one",
+                text='{"answer": 42}',
+                content_type="application/json",
+            )
+        ]
+    )
+
+    result = SourceFetcher(session=session).fetch_one(one())
+
+    assert result.status == "unavailable"
+    assert result.status_code == 200
+    assert result.error == "ValueError"
+
+
+def test_fetch_sources_redacts_sensitive_query_values_and_fragments() -> None:
+    client_secret = "client-token"
+    response_secrets = [
+        "access-secret",
+        "api-secret",
+        "key-secret",
+        "signature-secret",
+        "sig-secret",
+        "secret-value",
+        "auth-value",
+        "authorization-value",
+        "goog-secret",
+    ]
+    requested_url = (
+        "https://example.test/one?token=client-token&visible=keep"
+        "&X-Amz-Signature=client-signature#requested-fragment"
+    )
+    final_url = (
+        "https://example.com/final?access_token=access-secret&api_key=api-secret"
+        "&key=key-secret&signature=signature-secret&sig=sig-secret&secret=secret-value"
+        "&auth=auth-value&authorization=authorization-value"
+        "&X-Goog-Signature=goog-secret&visible=final#response-fragment"
+    )
+    session = FakeSession([FakeResponse(url=final_url, text="Not found", status_code=404)])
+
+    result = SourceFetcher(session=session).fetch_one(candidate("secret", url=requested_url))
+
+    serialized = result.model_dump_json()
+    assert result.status == "unavailable"
+    assert result.status_code == 404
+    assert "visible=keep" in result.requested_url
+    assert "visible=final" in result.final_url
+    assert "#" not in result.requested_url
+    assert "#" not in result.final_url
+    assert "token=REDACTED" in result.requested_url
+    assert "X-Amz-Signature=REDACTED" in result.requested_url
+    assert "access_token=REDACTED" in result.final_url
+    assert "X-Goog-Signature=REDACTED" in result.final_url
+    assert client_secret not in serialized
+    assert "client-signature" not in serialized
+    assert all(secret not in serialized for secret in response_secrets)

@@ -2,12 +2,30 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Literal
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import requests
 from bs4 import BeautifulSoup
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from .models import Candidate
+
+
+SENSITIVE_QUERY_PARAMETERS = frozenset(
+    {
+        "token",
+        "access_token",
+        "api_key",
+        "key",
+        "signature",
+        "sig",
+        "secret",
+        "auth",
+        "authorization",
+        "x-amz-signature",
+        "x-goog-signature",
+    }
+)
 
 
 class AllSourcesUnavailableError(RuntimeError):
@@ -22,6 +40,7 @@ class FetchedSource(BaseModel):
     status_code: int | None = None
     title: str = ""
     text: str = ""
+    truncated: bool = False
     fetched_at: datetime
     error: str = ""
 
@@ -32,25 +51,48 @@ class SourceFetcher:
         session: requests.Session | None = None,
         timeout: int = 20,
         max_chars: int = 80_000,
+        max_response_bytes: int = 1_000_000,
     ) -> None:
+        if max_response_bytes < 1:
+            raise ValueError("max_response_bytes must be positive")
         self.session = session or requests.Session()
         self.timeout = timeout
         self.max_chars = max_chars
+        self.max_response_bytes = max_response_bytes
+
+    def _read_response_body(self, response: requests.Response) -> tuple[bytes, bool]:
+        body = bytearray()
+        for chunk in response.iter_content(chunk_size=1):
+            if not chunk:
+                continue
+            remaining = self.max_response_bytes - len(body)
+            if len(chunk) > remaining:
+                body.extend(chunk[:remaining])
+                return bytes(body), True
+            body.extend(chunk)
+            if len(body) == self.max_response_bytes:
+                return bytes(body), True
+        return bytes(body), False
 
     def fetch_one(self, candidate: Candidate) -> FetchedSource:
         now = datetime.now(UTC)
+        response_url = candidate.url
+        status_code: int | None = None
         try:
             response = self.session.get(
                 candidate.url,
                 timeout=self.timeout,
                 headers={"User-Agent": "AI-News-Bot/0.2 (+evidence verification)"},
+                stream=True,
             )
+            response_url = response.url
             status = response.status_code
+            status_code = status
             if status in {401, 403, 429}:
                 return FetchedSource(
                     candidate_id=candidate.id,
-                    requested_url=candidate.url,
-                    final_url=response.url,
+                    requested_url=_sanitize_url(candidate.url),
+                    final_url=_sanitize_url(response_url),
                     status="blocked",
                     status_code=status,
                     fetched_at=now,
@@ -59,30 +101,33 @@ class SourceFetcher:
             response.raise_for_status()
             if "html" not in response.headers.get("content-type", "text/html").lower():
                 raise ValueError("unsupported content type")
-            soup = BeautifulSoup(response.text, "html.parser")
+            body, truncated = self._read_response_body(response)
+            soup = BeautifulSoup(body, "html.parser")
             for node in soup(["script", "style", "nav", "footer", "noscript"]):
                 node.decompose()
             title = soup.title.get_text(" ", strip=True) if soup.title else ""
             text = "\n".join(
                 part.strip() for part in soup.get_text("\n").splitlines() if part.strip()
             )[: self.max_chars]
-            state = "verified" if len(text) >= 80 else "insufficient"
+            state = "verified" if not truncated and len(text) >= 80 else "insufficient"
             return FetchedSource(
                 candidate_id=candidate.id,
-                requested_url=candidate.url,
-                final_url=response.url,
+                requested_url=_sanitize_url(candidate.url),
+                final_url=_sanitize_url(response_url),
                 status=state,
                 status_code=status,
                 title=title,
                 text=text,
+                truncated=truncated,
                 fetched_at=now,
             )
         except (requests.RequestException, ValueError) as error:
             return FetchedSource(
                 candidate_id=candidate.id,
-                requested_url=candidate.url,
-                final_url=candidate.url,
+                requested_url=_sanitize_url(candidate.url),
+                final_url=_sanitize_url(response_url),
                 status="unavailable",
+                status_code=status_code,
                 fetched_at=now,
                 error=type(error).__name__,
             )
@@ -92,3 +137,14 @@ class SourceFetcher:
         if results and all(item.status != "verified" for item in results):
             raise AllSourcesUnavailableError("all shortlisted original sources failed")
         return results
+
+
+def _sanitize_url(url: str) -> str:
+    parsed = urlsplit(url)
+    query = urlencode(
+        [
+            (name, "REDACTED" if name.casefold() in SENSITIVE_QUERY_PARAMETERS else value)
+            for name, value in parse_qsl(parsed.query, keep_blank_values=True)
+        ]
+    )
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, query, ""))
