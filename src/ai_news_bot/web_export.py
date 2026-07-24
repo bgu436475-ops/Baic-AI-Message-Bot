@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .models import DailyDigest
+from .models import DailyDigest, EditorialDigest
 
 
-def export_digest_for_web(digest: DailyDigest, output_path: Path) -> None:
+def export_digest_for_web(
+    digest: DailyDigest | EditorialDigest, output_path: Path
+) -> None:
     """Write the latest digest to the JSON contract consumed by the website."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
