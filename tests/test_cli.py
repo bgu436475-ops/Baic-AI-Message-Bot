@@ -320,6 +320,7 @@ def test_prepare_candidates_enforces_hard_eighty_at_call_site(
         values,
         HistoryStore(tmp_path / "history.json"),
         max_candidates=200,
+        now=NOW,
     )
 
     assert len(retained) == 80
@@ -1047,6 +1048,9 @@ def test_history_records_editorial_evidence_url_canonically(
 
     HistoryStore(path).record(digest.items, now=NOW)
 
-    assert HistoryStore(path).contains("https://example.com/one")
+    assert HistoryStore(path).contains(
+        "https://example.com/one",
+        now=NOW,
+    )
     stored = json.loads(path.read_text(encoding="utf-8"))["sent"]
     assert list(stored) == ["https://example.com/one"]

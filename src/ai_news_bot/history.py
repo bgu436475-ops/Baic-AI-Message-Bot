@@ -8,6 +8,12 @@ from .models import EditorialNewsItem
 from .text import canonicalize_url
 
 
+def _aware(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value
+
+
 class HistoryStore:
     def __init__(self, path: Path, retention_days: int = 30) -> None:
         self.path = path
@@ -23,23 +29,30 @@ class HistoryStore:
         except (OSError, ValueError, TypeError):
             return {}
 
-    def contains(self, url: str) -> bool:
-        return canonicalize_url(url) in self._items
+    def contains(self, url: str, now: datetime) -> bool:
+        timestamp = self._items.get(canonicalize_url(url))
+        if timestamp is None:
+            return False
+        try:
+            recorded_at = _aware(datetime.fromisoformat(timestamp))
+        except ValueError:
+            return False
+        current = _aware(now)
+        cutoff = current - timedelta(days=self.retention_days)
+        return cutoff <= recorded_at <= current
 
     def record(
         self,
         items: list[EditorialNewsItem],
         now: datetime | None = None,
     ) -> None:
-        now = now or datetime.now(UTC)
+        now = _aware(now or datetime.now(UTC))
         cutoff = now - timedelta(days=self.retention_days)
         fresh: dict[str, str] = {}
         for url, timestamp in self._items.items():
             try:
-                parsed = datetime.fromisoformat(timestamp)
-                if parsed.tzinfo is None:
-                    parsed = parsed.replace(tzinfo=UTC)
-                if parsed >= cutoff:
+                parsed = _aware(datetime.fromisoformat(timestamp))
+                if cutoff <= parsed <= now:
                     fresh[url] = parsed.isoformat()
             except ValueError:
                 continue

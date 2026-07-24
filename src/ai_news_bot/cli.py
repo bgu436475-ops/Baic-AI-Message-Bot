@@ -79,8 +79,17 @@ def _collect_candidates(
     return outcome
 
 
-def _prepare_candidates(collected: list, history: HistoryStore, max_candidates: int) -> list:
-    unseen = [candidate for candidate in collected if not history.contains(candidate.url)]
+def _prepare_candidates(
+    collected: list,
+    history: HistoryStore,
+    max_candidates: int,
+    now: datetime,
+) -> list:
+    unseen = [
+        candidate
+        for candidate in collected
+        if not history.contains(candidate.url, now)
+    ]
     unique = hard_dedupe(unseen)
     return sorted(
         unique,
@@ -107,7 +116,7 @@ def _merge_fallback_candidates(
     unseen = [
         candidate
         for candidate in current + older
-        if not history.contains(candidate.url)
+        if not history.contains(candidate.url, now)
     ]
     unique = hard_dedupe(unseen)
     priority = shortlist_candidates(unique, now)
@@ -264,7 +273,12 @@ def run(args: argparse.Namespace) -> int:
         sources, settings, settings.lookback_hours, include_github=True
     )
     collected = current_outcome.candidates
-    unique = _prepare_candidates(collected, history, settings.max_candidates)
+    unique = _prepare_candidates(
+        collected,
+        history,
+        settings.max_candidates,
+        generation_now,
+    )
     fallback_used = False
 
     if (
