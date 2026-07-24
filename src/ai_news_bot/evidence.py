@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
-from typing import Any
+from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
+from typing import Any, Literal
 
 from openai import OpenAIError
 from pydantic import BaseModel
@@ -69,7 +71,8 @@ _IDENTIFIER_TOKEN = re.compile(
     re.IGNORECASE,
 )
 _NUMBER_TOKEN = re.compile(
-    rf"{_ASCII_LEFT}(\d+(?:[.,]\d+)*)(%|x|[kmb])?{_ASCII_RIGHT}",
+    rf"{_ASCII_LEFT}(\d+(?:[.,]\d+)*)"
+    rf"(%|x|ms|µs|us|ns|seconds?|secs?|[kmb])?{_ASCII_RIGHT}",
     re.IGNORECASE,
 )
 _WORD = re.compile(r"[a-z][a-z0-9_-]{2,}")
@@ -110,6 +113,36 @@ _CURRENCY_MARKERS = {
     "pound": (("£", "英镑"), ("gbp", "pound", "pounds")),
     "yen": (("¥", "日元", "人民币"), ("jpy", "cny", "rmb", "yen", "yuan")),
 }
+_DECREASE_DIRECTION = re.compile(
+    r"(?:降至|降到|下降|下调|降低|减少|缩短|下跌|跌至|减至|减到)"
+    r"|(?:\b(?:fall|falls|fell|fallen|drop|drops|dropped|decrease|"
+    r"decreases|decreased|decreasing|reduce|reduces|reduced|reducing|"
+    r"decline|declines|declined|lower|lowers|lowered|cut|cuts|down)\b)",
+    re.IGNORECASE,
+)
+_INCREASE_DIRECTION = re.compile(
+    r"(?:涨至|涨到|上涨|上调|上升|提高|增加|提升|延长|升至|增至|增到)"
+    r"|(?:\b(?:rise|rises|rose|risen|increase|increases|increased|"
+    r"increasing|raise|raises|raised|grow|grows|grew|grown|higher|"
+    r"climb|climbs|climbed|up)\b)",
+    re.IGNORECASE,
+)
+Direction = Literal["increase", "decrease"]
+
+
+@dataclass(frozen=True)
+class _MaterialOccurrence:
+    token: str
+    start: int
+    end: int
+    comparable_value: Decimal | None = None
+
+
+@dataclass(frozen=True)
+class _DirectionAssessment:
+    directional: bool
+    direction: Direction | None
+    invalid: bool = False
 
 
 def _stem_word(value: str) -> str:
@@ -144,14 +177,25 @@ def _meaningful_units(value: str) -> set[str]:
     return words | cjk | canonical
 
 
-def _material_tokens(value: str) -> set[str]:
+def _material_occurrences(value: str) -> list[_MaterialOccurrence]:
     normalized = unicodedata.normalize("NFKC", value)
-    tokens: set[str] = set()
+    occurrences: list[_MaterialOccurrence] = []
     occupied: list[tuple[int, int]] = []
 
-    def reserve(match: re.Match[str], token: str) -> None:
+    def reserve(
+        match: re.Match[str],
+        token: str,
+        comparable_value: Decimal | None = None,
+    ) -> None:
         occupied.append(match.span())
-        tokens.add(token)
+        occurrences.append(
+            _MaterialOccurrence(
+                token=token,
+                start=match.start(),
+                end=match.end(),
+                comparable_value=comparable_value,
+            )
+        )
 
     for match in _VERSION_TOKEN.finditer(normalized):
         version = re.sub(r"[._-]+", ".", match.group(1))
@@ -170,8 +214,133 @@ def _material_tokens(value: str) -> set[str]:
             continue
         number = match.group(1).replace(",", "")
         unit = (match.group(2) or "").casefold()
-        tokens.add(f"number:{number}{unit}")
-    return tokens
+        try:
+            comparable_value = Decimal(number)
+        except InvalidOperation:
+            comparable_value = None
+        reserve(
+            match,
+            f"number:{number}{unit}",
+            comparable_value=comparable_value,
+        )
+    return sorted(occurrences, key=lambda item: (item.start, item.end))
+
+
+def _material_tokens(value: str) -> set[str]:
+    return {occurrence.token for occurrence in _material_occurrences(value)}
+
+
+def _comparable_occurrences(value: str) -> list[_MaterialOccurrence]:
+    return [
+        occurrence
+        for occurrence in _material_occurrences(value)
+        if occurrence.comparable_value is not None
+    ]
+
+
+def _transition_pair(
+    value: str,
+    occurrences: list[_MaterialOccurrence],
+) -> tuple[_MaterialOccurrence, _MaterialOccurrence] | None:
+    if len(occurrences) < 2:
+        return None
+    normalized = unicodedata.normalize("NFKC", value).casefold()
+    for left, right in zip(occurrences, occurrences[1:]):
+        between = normalized[left.end : right.start]
+        if re.search(r"(?:\bto\b|至|到|→|->)", between):
+            return left, right
+    return None
+
+
+def _ordered_subsequence(
+    expected: list[str],
+    available: list[str],
+) -> bool:
+    if not expected:
+        return True
+    position = 0
+    for token in available:
+        if token == expected[position]:
+            position += 1
+            if position == len(expected):
+                return True
+    return False
+
+
+def _direction_assessment(
+    value: str,
+    occurrences: list[_MaterialOccurrence],
+) -> _DirectionAssessment:
+    explicit: set[Direction] = set()
+    if _DECREASE_DIRECTION.search(value):
+        explicit.add("decrease")
+    if _INCREASE_DIRECTION.search(value):
+        explicit.add("increase")
+    transition = _transition_pair(value, occurrences)
+    directional = bool(explicit) or transition is not None
+    if len(explicit) > 1:
+        return _DirectionAssessment(
+            directional=directional,
+            direction=None,
+            invalid=True,
+        )
+
+    inferred: Direction | None = None
+    comparison_pair = transition
+    if comparison_pair is None and len(occurrences) == 2 and explicit:
+        comparison_pair = (occurrences[0], occurrences[1])
+    if comparison_pair is not None:
+        first = comparison_pair[0].comparable_value
+        last = comparison_pair[1].comparable_value
+        if first is not None and last is not None:
+            if last > first:
+                inferred = "increase"
+            elif last < first:
+                inferred = "decrease"
+
+    explicit_direction = next(iter(explicit), None)
+    if (
+        explicit_direction is not None
+        and inferred is not None
+        and explicit_direction != inferred
+    ):
+        return _DirectionAssessment(
+            directional=directional,
+            direction=None,
+            invalid=True,
+        )
+    return _DirectionAssessment(
+        directional=directional,
+        direction=explicit_direction or inferred,
+        invalid=directional and explicit_direction is None and inferred is None,
+    )
+
+
+def _directional_material_agrees(statement: str, quote: str) -> bool:
+    claim_occurrences = _comparable_occurrences(statement)
+    claim_direction = _direction_assessment(
+        statement,
+        claim_occurrences,
+    )
+    if not claim_direction.directional:
+        return True
+    if claim_direction.invalid or claim_direction.direction is None:
+        return False
+
+    anchor_occurrences = _comparable_occurrences(quote)
+    if not _ordered_subsequence(
+        [occurrence.token for occurrence in claim_occurrences],
+        [occurrence.token for occurrence in anchor_occurrences],
+    ):
+        return False
+    anchor_direction = _direction_assessment(
+        quote,
+        anchor_occurrences,
+    )
+    return (
+        not anchor_direction.invalid
+        and anchor_direction.direction == claim_direction.direction
+    )
 
 
 def _currency_units(value: str) -> set[str]:
@@ -191,6 +360,8 @@ def _anchor_supports_claim(statement: str, quote: str) -> bool:
     if not claim_material.issubset(anchor_material):
         return False
     if not _currency_units(statement).issubset(_currency_units(quote)):
+        return False
+    if not _directional_material_agrees(statement, quote):
         return False
     claim_units = _meaningful_units(statement)
     anchor_units = _meaningful_units(quote)

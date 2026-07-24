@@ -10,6 +10,7 @@ from openai.types.chat import ChatCompletion
 from ai_news_bot.evidence import (
     EVIDENCE_SYSTEM_PROMPT,
     EvidenceExtractionError,
+    _anchor_supports_claim,
     extract_evidence,
     validate_anchors,
 )
@@ -618,6 +619,172 @@ def checked_claim(statement: str, quote: str) -> EvidenceRecord:
         }
     )
     return validate_anchors(record, source)
+
+
+@pytest.mark.parametrize(
+    ("statement", "quote", "supported"),
+    [
+        (
+            "价格从每百万令牌2美元降至1美元",
+            "价格从每百万令牌1美元涨至2美元",
+            False,
+        ),
+        (
+            "价格从每百万令牌2美元降至1美元",
+            "价格从每百万令牌2美元涨至1美元",
+            False,
+        ),
+        (
+            "价格从每百万令牌2美元降至1美元",
+            "价格从每百万令牌2美元降至1美元",
+            True,
+        ),
+        (
+            "Input price falls from $2 to $1 per million tokens.",
+            "Input price rises from $1 to $2 per million tokens.",
+            False,
+        ),
+        (
+            "Input price falls from $2 to $1 per million tokens.",
+            "Input price rises from $2 to $1 per million tokens.",
+            False,
+        ),
+        (
+            "Input price falls from $2 to $1 per million tokens.",
+            "Input price falls from $2 to $1 per million tokens.",
+            True,
+        ),
+    ],
+    ids=[
+        "zh-reversed-values",
+        "zh-opposite-direction",
+        "zh-match",
+        "en-reversed-values",
+        "en-opposite-direction",
+        "en-match",
+    ],
+)
+def test_directional_claim_binds_value_order_and_direction(
+    statement: str,
+    quote: str,
+    supported: bool,
+) -> None:
+    assert _anchor_supports_claim(statement, quote) is supported
+
+
+@pytest.mark.parametrize(
+    ("statement", "quote", "supported"),
+    [
+        ("折扣从20%降至10%", "折扣从20%降至10%", True),
+        ("折扣从20%降至10%", "折扣从20%涨至10%", False),
+        (
+            "Latency decreases from 200ms to 100ms.",
+            "Latency decreases from 200ms to 100ms.",
+            True,
+        ),
+        (
+            "Latency decreases from 200ms to 100ms.",
+            "Latency increases from 200ms to 100ms.",
+            False,
+        ),
+        (
+            "Latency decreases from 200ms to 100ms.",
+            "Latency decreases from 100ms to 200ms.",
+            False,
+        ),
+        (
+            "Input price increases from $1 to $2.",
+            "Input price increases from $1 to $2.",
+            True,
+        ),
+        (
+            "Input price increases from $1 to $2.",
+            "Input price decreases from $1 to $2.",
+            False,
+        ),
+        (
+            "Input price falls from $2 to $1.",
+            "Input price was $2; input price is $1.",
+            False,
+        ),
+        (
+            "Input price falls from $2 to $1.",
+            "Input price moves from $2 to $1.",
+            True,
+        ),
+        ("模型v2.0发布", "模型version 2.0发布", True),
+        (
+            "Model X API v2.0 launches on 2026-07-24.",
+            "Model X API version 2.0 launches on 2026-07-24.",
+            True,
+        ),
+        ("Model X API price is $1.", "Model X API price is $1.", True),
+        ("api价格降至1美元", "api价格降至1美元", True),
+    ],
+    ids=[
+        "percentage-decrease",
+        "percentage-opposite",
+        "latency-decrease",
+        "latency-opposite",
+        "latency-reversed-values",
+        "price-increase",
+        "price-opposite",
+        "ambiguous-anchor",
+        "ordered-anchor-infers-direction",
+        "version-only",
+        "version-and-date",
+        "one-value-price-api",
+        "one-value-direction",
+    ],
+)
+def test_direction_binding_covers_metrics_without_overapplying(
+    statement: str,
+    quote: str,
+    supported: bool,
+) -> None:
+    assert _anchor_supports_claim(statement, quote) is supported
+
+
+@pytest.mark.parametrize(
+    ("quote", "eligible"),
+    [
+        ("价格从每百万令牌1美元涨至2美元", False),
+        ("价格从每百万令牌2美元涨至1美元", False),
+        ("价格从每百万令牌2美元降至1美元", True),
+    ],
+    ids=["reversed-values", "opposite-direction", "matching-direction"],
+)
+def test_extraction_and_gate_cannot_bypass_direction_binding(
+    quote: str,
+    eligible: bool,
+) -> None:
+    statement = "价格从每百万令牌2美元降至1美元"
+    record = valid_record().model_copy(
+        update={
+            "concrete_changes": [
+                ChangeFact(change_type="pricing", statement=statement)
+            ],
+            "evidence_anchors": [
+                EvidenceAnchor(quote=quote, locator="Pricing")
+            ],
+            "evidence_covers_full_claim": True,
+        }
+    )
+    source = fetched().model_copy(update={"text": quote})
+
+    extracted = extract_evidence(
+        candidate(),
+        source,
+        FakeStructuredClient([record]),
+        "test-model",
+    )
+    decision = evaluate_gates(extracted, "unique")
+
+    assert extracted.evidence_covers_full_claim is eligible
+    assert decision.eligible_main_try is eligible
+    assert (
+        "invalid_evidence_anchor" in decision.rejection_reasons
+    ) is not eligible
 
 
 def test_chinese_adjacent_price_numbers_must_match_exactly() -> None:
