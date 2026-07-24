@@ -293,6 +293,88 @@ def test_distinct_products_at_same_company_do_not_collapse(
     assert result.status == "unique"
 
 
+def test_same_product_at_different_companies_does_not_collapse(
+    tmp_path: Path,
+) -> None:
+    store = EventHistoryStore(tmp_path / "events.json")
+    store.record(
+        [
+            event(
+                primary_entity="Acme",
+                product_or_model="Model X",
+                event_entities=["Acme", "Model X"],
+            )
+        ],
+        NOW,
+    )
+
+    result = store.classify(
+        event(
+            primary_entity="Beta",
+            product_or_model="Model X",
+            event_entities=["Beta", "Model X"],
+        ),
+        NOW + timedelta(days=1),
+    )
+
+    assert result.status == "unique"
+
+
+def test_shared_product_alias_at_different_companies_does_not_collapse(
+    tmp_path: Path,
+) -> None:
+    store = EventHistoryStore(tmp_path / "events.json")
+    store.record(
+        [
+            event(
+                primary_entity="Acme",
+                product_or_model="Model X",
+                event_entities=["Acme", "Model-X"],
+            )
+        ],
+        NOW,
+    )
+
+    result = store.classify(
+        event(
+            primary_entity="Beta",
+            product_or_model="Model X API",
+            event_entities=["Beta", "Model-X"],
+        ),
+        NOW + timedelta(days=1),
+    )
+
+    assert result.status == "unique"
+
+
+def test_generic_product_alone_does_not_establish_event_identity(
+    tmp_path: Path,
+) -> None:
+    store = EventHistoryStore(tmp_path / "events.json")
+    store.record(
+        [
+            event(
+                primary_entity="Acme",
+                product_or_model="API",
+                event_entities=["Acme", "API"],
+            )
+        ],
+        NOW,
+    )
+
+    result = store.classify(
+        event(
+            primary_entity="Acme",
+            product_or_model="API",
+            event_entities=["Acme", "API"],
+            effective_date="2026-08-01",
+        ),
+        NOW + timedelta(days=1),
+    )
+
+    assert result.status == "unique"
+
+
 def test_empty_event_entities_still_persist_product_identity(
     tmp_path: Path,
 ) -> None:

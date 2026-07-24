@@ -204,14 +204,19 @@ class EventHistoryStore:
                 current_entities.intersection(entry.get("entities", []))
                 - {current_primary, entry_primary, "", *GENERIC_EVENT_ENTITIES}
             )
-            identity_agrees = (
+            same_primary = (
+                bool(current_primary)
+                and bool(entry_primary)
+                and current_primary == entry_primary
+            )
+            same_specific_product = (
                 bool(current_product)
                 and bool(entry_product)
                 and current_product == entry_product
-            ) or (
-                bool(current_primary)
-                and bool(entry_primary)
-                and bool(shared_non_company_entities)
+                and current_product not in GENERIC_EVENT_ENTITIES
+            )
+            identity_agrees = same_primary and (
+                same_specific_product or bool(shared_non_company_entities)
             )
             same_event = (
                 identity_agrees
