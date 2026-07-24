@@ -20,6 +20,12 @@ do not add outside knowledge, assumptions, or fabricated details.
 Return exactly one EvidenceRecord for the supplied candidate_id. Extract evidence only:
 do not score or rank the candidate, choose a board, or produce score/board fields. Evidence
 quotes must be literal excerpts from the supplied source text.
+
+For policy claims, extract each concrete requirement, prohibition, scope, threshold, or
+obligation into policy_terms; do not substitute a summary-level direction for specific terms.
+verification_status describes whether the supplied source itself was verified. For a
+trusted_secondary source, original_source_status separately describes the primary source's
+availability or verification state; never use one field as a substitute for the other.
 """
 
 

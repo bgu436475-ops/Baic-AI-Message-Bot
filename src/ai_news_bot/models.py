@@ -165,6 +165,7 @@ class EvidenceRecord(BaseModel):
     change_signature: str
     version_or_metric: str = ""
     effective_date: str | None = None
+    policy_terms: list[str] = Field(default_factory=list)
     relevance_signal: Literal["direct", "adjacent", "low"] = "low"
     action_horizon_days: int | None = Field(default=None, ge=0)
     resource_available: bool = False
@@ -177,6 +178,7 @@ class EvidenceRecord(BaseModel):
     original_paper_or_independent_validation: bool = False
     marketing_exaggeration: bool = False
     evidence_covers_full_claim: bool = True
+    original_source_status: VerificationStatus | None = None
 
 
 class GateDecision(BaseModel):

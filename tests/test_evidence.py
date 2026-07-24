@@ -316,6 +316,9 @@ def test_extractor_uses_responses_structured_parse_and_constrained_payload() -> 
     assert "only" in prompt
     assert "score" in prompt
     assert "board" in prompt
+    assert "policy_terms" in prompt
+    assert "original_source_status" in prompt
+    assert "secondary" in prompt
 
 
 def test_anchor_validator_accepts_normalized_literal_quote() -> None:

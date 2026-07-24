@@ -48,7 +48,14 @@ def valid_record() -> EvidenceRecord:
     [
         ({"funding_only": True}, "funding_only"),
         ({"opinion_only": True}, "opinion_without_evidence"),
-        ({"policy_claim": True, "effective_date": None}, "policy_without_terms_or_date"),
+        (
+            {"policy_claim": True, "effective_date": "2026-08-01"},
+            "policy_without_terms_or_date",
+        ),
+        (
+            {"policy_claim": True, "policy_terms": ["API providers must register"]},
+            "policy_without_terms_or_date",
+        ),
         ({"vague_claim_without_evidence": True}, "vague_claim_without_evidence"),
         ({"title_body_conflict": True}, "title_body_conflict"),
         (
@@ -67,11 +74,12 @@ def test_forced_rejections(changes: dict, reason: str) -> None:
     assert reason in decision.rejection_reasons
 
 
-def test_unavailable_original_is_watch_only_with_trusted_specific_secondary() -> None:
+def test_unavailable_original_is_watch_only_with_verified_trusted_secondary() -> None:
     record = valid_record().model_copy(
         update={
             "source_type": "trusted_secondary",
-            "verification_status": "unavailable",
+            "verification_status": "verified",
+            "original_source_status": "unavailable",
         }
     )
 
@@ -82,12 +90,69 @@ def test_unavailable_original_is_watch_only_with_trusted_specific_secondary() ->
     assert decision.rejection_reasons == ["unverified_primary_source"]
 
 
+def test_policy_claim_with_terms_and_date_can_pass() -> None:
+    record = valid_record().model_copy(
+        update={
+            "policy_claim": True,
+            "policy_terms": ["API providers must register before deployment"],
+            "effective_date": "2026-08-01",
+        }
+    )
+
+    decision = evaluate_gates(record, "unique")
+
+    assert decision.eligible_main_try
+    assert decision.eligible_watch
+    assert decision.rejection_reasons == []
+
+
+@pytest.mark.parametrize("secondary_status", ["unavailable", "blocked"])
+def test_unverified_trusted_secondary_is_rejected_from_watch(
+    secondary_status: str,
+) -> None:
+    record = valid_record().model_copy(
+        update={
+            "source_type": "trusted_secondary",
+            "verification_status": secondary_status,
+            "original_source_status": "unavailable",
+        }
+    )
+
+    decision = evaluate_gates(record, "unique")
+
+    assert not decision.eligible_main_try
+    assert not decision.eligible_watch
+    assert decision.rejection_reasons == ["unverified_primary_source"]
+
+
+def test_trusted_secondary_without_original_source_status_is_rejected_from_watch() -> None:
+    record = valid_record().model_copy(
+        update={
+            "source_type": "trusted_secondary",
+            "verification_status": "verified",
+        }
+    )
+
+    decision = evaluate_gates(record, "unique")
+
+    assert not decision.eligible_main_try
+    assert not decision.eligible_watch
+    assert decision.rejection_reasons == ["unverified_primary_source"]
+
+
 @pytest.mark.parametrize(
     ("changes", "reason"),
     [
         ({"funding_only": True}, "funding_only"),
         ({"opinion_only": True}, "opinion_without_evidence"),
-        ({"policy_claim": True, "effective_date": None}, "policy_without_terms_or_date"),
+        (
+            {"policy_claim": True, "effective_date": "2026-08-01"},
+            "policy_without_terms_or_date",
+        ),
+        (
+            {"policy_claim": True, "policy_terms": ["API providers must register"]},
+            "policy_without_terms_or_date",
+        ),
         ({"vague_claim_without_evidence": True}, "vague_claim_without_evidence"),
         ({"title_body_conflict": True}, "title_body_conflict"),
         (
@@ -107,7 +172,8 @@ def test_trusted_secondary_watch_exception_does_not_bypass_fatal_rejections(
     record = valid_record().model_copy(
         update={
             "source_type": "trusted_secondary",
-            "verification_status": "blocked",
+            "verification_status": "verified",
+            "original_source_status": "blocked",
             **changes,
         }
     )
