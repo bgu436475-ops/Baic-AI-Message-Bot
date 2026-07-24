@@ -35,6 +35,17 @@ def test_shortlist_caps_at_twenty_and_is_stable() -> None:
     assert [item.id for item in first] == [item.id for item in second]
 
 
+def test_shortlist_never_exceeds_twenty_when_given_a_larger_limit() -> None:
+    candidates = [candidate(i, title=f"Model {i} API price drops to ${i}") for i in range(30)]
+    assert len(shortlist_candidates(candidates, NOW, limit=21)) == 20
+
+
+def test_shortlist_returns_no_items_for_non_positive_limits() -> None:
+    candidates = [candidate(i, title=f"Model {i} API price drops to ${i}") for i in range(3)]
+    assert shortlist_candidates(candidates, NOW, limit=0) == []
+    assert shortlist_candidates(candidates, NOW, limit=-1) == []
+
+
 def test_shortlist_does_not_pad_weak_opinion_items_to_fifteen() -> None:
     strong = [candidate(i, title=f"SDK v{i} adds API support") for i in range(4)]
     weak = [

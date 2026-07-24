@@ -28,6 +28,7 @@ def _rough_score(item: Candidate, now: datetime) -> tuple[float, str]:
 def shortlist_candidates(
     candidates: list[Candidate], now: datetime, limit: int = 20
 ) -> list[Candidate]:
+    effective_limit = max(0, min(limit, 20))
     eligible = []
     for item in candidates:
         text = f"{item.title} {item.summary}"
@@ -36,4 +37,6 @@ def shortlist_candidates(
         if WEAK_ONLY.search(text) and not re.search(r"\d|\b(?:api|sdk|v\d)\b", text, re.I):
             continue
         eligible.append(item)
-    return sorted(eligible, key=lambda item: (-_rough_score(item, now)[0], item.id))[:limit]
+    return sorted(eligible, key=lambda item: (-_rough_score(item, now)[0], item.id))[
+        :effective_limit
+    ]
