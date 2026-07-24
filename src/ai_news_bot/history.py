@@ -4,7 +4,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from .models import NewsItem
+from .models import EditorialNewsItem
 from .text import canonicalize_url
 
 
@@ -26,7 +26,11 @@ class HistoryStore:
     def contains(self, url: str) -> bool:
         return canonicalize_url(url) in self._items
 
-    def record(self, items: list[NewsItem], now: datetime | None = None) -> None:
+    def record(
+        self,
+        items: list[EditorialNewsItem],
+        now: datetime | None = None,
+    ) -> None:
         now = now or datetime.now(UTC)
         cutoff = now - timedelta(days=self.retention_days)
         fresh: dict[str, str] = {}
@@ -40,10 +44,9 @@ class HistoryStore:
             except ValueError:
                 continue
         for item in items:
-            fresh[canonicalize_url(item.url)] = now.isoformat()
+            fresh[canonicalize_url(item.evidence_url)] = now.isoformat()
         self._items = fresh
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(
             json.dumps({"sent": fresh}, ensure_ascii=False, indent=2), encoding="utf-8"
         )
-
