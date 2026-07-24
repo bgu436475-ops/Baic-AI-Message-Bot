@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import http.client
 import re
 import socket
+import ssl
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
 from ipaddress import ip_address
-from typing import Callable, Literal
+from typing import Any, Callable, Literal, Protocol
 from urllib.parse import (
     parse_qsl,
     unquote,
@@ -81,6 +84,37 @@ Resolver = Callable[[str, int], list[str]]
 REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
 
+@dataclass(frozen=True)
+class ValidatedSourceTarget:
+    url: str
+    hostname: str
+    ip_address: str
+    port: int
+    request_target: str
+    host_header: str
+
+
+class SourceResponse(Protocol):
+    status_code: int
+    headers: dict[str, str]
+
+    def iter_content(self, *, chunk_size: int) -> Any: ...
+
+    def raise_for_status(self) -> None: ...
+
+    def close(self) -> None: ...
+
+
+class SourceTransport(Protocol):
+    def get(
+        self,
+        target: ValidatedSourceTarget,
+        *,
+        timeout: int,
+        headers: dict[str, str],
+    ) -> SourceResponse: ...
+
+
 def _resolve_public_addresses(hostname: str, port: int) -> list[str]:
     return sorted(
         {
@@ -94,7 +128,10 @@ def _resolve_public_addresses(hostname: str, port: int) -> list[str]:
     )
 
 
-def _validated_public_https_url(url: str, resolver: Resolver) -> str:
+def _validated_public_https_url(
+    url: str,
+    resolver: Resolver,
+) -> ValidatedSourceTarget:
     if url != url.strip() or any(
         ord(character) < 32 or ord(character) == 127 for character in url
     ):
@@ -127,11 +164,183 @@ def _validated_public_https_url(url: str, resolver: Resolver) -> str:
     if not addresses:
         raise UnsafeSourceUrlError("source hostname has no addresses")
     try:
-        if any(not ip_address(address).is_global for address in addresses):
+        normalized_addresses = sorted(
+            {str(ip_address(address)) for address in addresses}
+        )
+        if any(
+            not ip_address(address).is_global
+            for address in normalized_addresses
+        ):
             raise UnsafeSourceUrlError("source hostname resolves outside the public Internet")
     except ValueError as error:
         raise UnsafeSourceUrlError("resolver returned an invalid address") from error
-    return url
+    request_target = parsed.path or "/"
+    if parsed.query:
+        request_target = f"{request_target}?{parsed.query}"
+    bracketed_hostname = (
+        f"[{ascii_hostname}]" if ":" in ascii_hostname else ascii_hostname
+    )
+    host_header = (
+        bracketed_hostname
+        if port == 443
+        else f"{bracketed_hostname}:{port}"
+    )
+    return ValidatedSourceTarget(
+        url=url,
+        hostname=ascii_hostname,
+        ip_address=normalized_addresses[0],
+        port=port,
+        request_target=request_target,
+        host_header=host_header,
+    )
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    def __init__(
+        self,
+        *,
+        server_hostname: str,
+        ip_address: str,
+        port: int,
+        timeout: int,
+        context: ssl.SSLContext,
+    ) -> None:
+        super().__init__(
+            server_hostname,
+            port=port,
+            timeout=timeout,
+            context=context,
+        )
+        self._pinned_ip_address = ip_address
+
+    def connect(self) -> None:
+        raw_socket = socket.create_connection(
+            (self._pinned_ip_address, self.port),
+            self.timeout,
+            self.source_address,
+        )
+        try:
+            self.sock = self._context.wrap_socket(
+                raw_socket,
+                server_hostname=self.host,
+            )
+        except Exception:
+            raw_socket.close()
+            raise
+
+
+class _PinnedHTTPResponse:
+    def __init__(
+        self,
+        response: http.client.HTTPResponse,
+        connection: http.client.HTTPSConnection,
+    ) -> None:
+        self._response = response
+        self._connection = connection
+        self.status_code = response.status
+        self.headers = {
+            name.casefold(): value
+            for name, value in response.getheaders()
+        }
+
+    def iter_content(self, *, chunk_size: int) -> Any:
+        while True:
+            chunk = self._response.read(chunk_size)
+            if not chunk:
+                break
+            yield chunk
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise requests.HTTPError(f"HTTP {self.status_code}")
+
+    def close(self) -> None:
+        try:
+            self._response.close()
+        finally:
+            self._connection.close()
+
+
+ConnectionFactory = Callable[
+    [ValidatedSourceTarget, int, ssl.SSLContext],
+    http.client.HTTPSConnection,
+]
+
+
+class PinnedHTTPSTransport:
+    def __init__(
+        self,
+        *,
+        connection_factory: ConnectionFactory | None = None,
+        ssl_context: ssl.SSLContext | None = None,
+    ) -> None:
+        self._connection_factory = (
+            connection_factory or self._create_connection
+        )
+        self._ssl_context = ssl_context or ssl.create_default_context()
+
+    @staticmethod
+    def _create_connection(
+        target: ValidatedSourceTarget,
+        timeout: int,
+        context: ssl.SSLContext,
+    ) -> http.client.HTTPSConnection:
+        return _PinnedHTTPSConnection(
+            server_hostname=target.hostname,
+            ip_address=target.ip_address,
+            port=target.port,
+            timeout=timeout,
+            context=context,
+        )
+
+    def get(
+        self,
+        target: ValidatedSourceTarget,
+        *,
+        timeout: int,
+        headers: dict[str, str],
+    ) -> SourceResponse:
+        connection = self._connection_factory(
+            target,
+            timeout,
+            self._ssl_context,
+        )
+        request_headers = {
+            **headers,
+            "Host": target.host_header,
+            "Accept-Encoding": "identity",
+        }
+        try:
+            connection.request(
+                "GET",
+                target.request_target,
+                headers=request_headers,
+            )
+            response = connection.getresponse()
+        except Exception:
+            connection.close()
+            raise
+        return _PinnedHTTPResponse(response, connection)
+
+
+class _SessionTransport:
+    def __init__(self, session: requests.Session) -> None:
+        self.session = session
+
+    def get(
+        self,
+        target: ValidatedSourceTarget,
+        *,
+        timeout: int,
+        headers: dict[str, str],
+    ) -> SourceResponse:
+        return self.session.get(
+            target.url,
+            timeout=timeout,
+            headers=headers,
+            stream=True,
+            allow_redirects=False,
+        )
 
 
 class FetchedSource(BaseModel):
@@ -151,6 +360,7 @@ class SourceFetcher:
     def __init__(
         self,
         session: requests.Session | None = None,
+        transport: SourceTransport | None = None,
         timeout: int = 20,
         max_chars: int = 80_000,
         max_response_bytes: int = 1_000_000,
@@ -159,19 +369,32 @@ class SourceFetcher:
     ) -> None:
         if max_response_bytes < 1:
             raise ValueError("max_response_bytes must be positive")
-        self.session = session or requests.Session()
+        if session is not None and transport is not None:
+            raise ValueError("session and transport are mutually exclusive")
+        self.session = session
+        self.transport = (
+            transport
+            if transport is not None
+            else (
+                _SessionTransport(session)
+                if session is not None
+                else PinnedHTTPSTransport()
+            )
+        )
         self.timeout = timeout
         self.max_chars = max_chars
         self.max_response_bytes = max_response_bytes
         self.max_redirects = max_redirects
         self.resolver = resolver or getattr(
-            self.session,
+            session or self.transport,
             "resolve",
             _resolve_public_addresses,
         )
         self._drop_session_credentials()
 
     def _drop_session_credentials(self) -> None:
+        if self.session is None:
+            return
         if hasattr(self.session, "auth"):
             self.session.auth = None
         if hasattr(self.session, "trust_env"):
@@ -187,28 +410,26 @@ class SourceFetcher:
             except (AttributeError, KeyError):
                 pass
 
-    def _get(self, url: str) -> requests.Response:
+    def _get(self, target: ValidatedSourceTarget) -> SourceResponse:
         self._drop_session_credentials()
-        return self.session.get(
-            url,
+        return self.transport.get(
+            target,
             timeout=self.timeout,
             headers={"User-Agent": "AI-News-Bot/0.2 (+evidence verification)"},
-            stream=True,
-            allow_redirects=False,
         )
 
     def _request_following_redirects(
         self,
         initial_url: str,
-    ) -> tuple[requests.Response, str]:
+    ) -> tuple[SourceResponse, str]:
         current_url = initial_url
         visited: set[str] = set()
         for hop in range(self.max_redirects + 1):
-            _validated_public_https_url(current_url, self.resolver)
             if current_url in visited:
                 raise UnsafeSourceUrlError("redirect loop")
             visited.add(current_url)
-            response = self._get(current_url)
+            target = _validated_public_https_url(current_url, self.resolver)
+            response = self._get(target)
             if response.status_code not in REDIRECT_STATUSES:
                 return response, current_url
             try:
@@ -216,7 +437,6 @@ class SourceFetcher:
                 if not location:
                     raise UnsafeSourceUrlError("redirect has no location")
                 next_url = urljoin(current_url, location)
-                _validated_public_https_url(next_url, self.resolver)
                 if next_url in visited:
                     raise UnsafeSourceUrlError("redirect loop")
                 if hop >= self.max_redirects:
@@ -229,7 +449,7 @@ class SourceFetcher:
                     pass
         raise UnsafeSourceUrlError("too many redirects")
 
-    def _read_response_body(self, response: requests.Response) -> tuple[bytes, bool]:
+    def _read_response_body(self, response: SourceResponse) -> tuple[bytes, bool]:
         body = bytearray()
         for chunk in response.iter_content(chunk_size=RESPONSE_CHUNK_BYTES):
             if not chunk:
@@ -245,7 +465,7 @@ class SourceFetcher:
         now = datetime.now(UTC)
         response_url = candidate.url
         status_code: int | None = None
-        response: requests.Response | None = None
+        response: SourceResponse | None = None
         try:
             response, response_url = self._request_following_redirects(candidate.url)
             status = response.status_code
@@ -283,7 +503,12 @@ class SourceFetcher:
                 truncated=truncated,
                 fetched_at=now,
             )
-        except (requests.RequestException, ValueError, OSError) as error:
+        except (
+            requests.RequestException,
+            http.client.HTTPException,
+            ValueError,
+            OSError,
+        ) as error:
             return FetchedSource(
                 candidate_id=candidate.id,
                 requested_url=_sanitize_url(candidate.url),

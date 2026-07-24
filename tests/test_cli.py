@@ -505,8 +505,8 @@ class _PipelineHTTPSession:
     def __init__(self) -> None:
         self.calls: list[str] = []
 
-    def get(self, url: str, **kwargs):
-        self.calls.append(url)
+    def get(self, target, **kwargs):
+        self.calls.append(target.url)
         return _PipelineHTTPResponse()
 
     @staticmethod
@@ -662,7 +662,7 @@ def test_production_pipeline_wiring_uses_backend_adapter_and_real_stages(
     )
     monkeypatch.setattr(cli, "OpenAI", openai_constructor)
     monkeypatch.setattr(
-        "ai_news_bot.source_fetcher.requests.Session",
+        "ai_news_bot.source_fetcher.PinnedHTTPSTransport",
         lambda: session,
     )
     monkeypatch.setattr(

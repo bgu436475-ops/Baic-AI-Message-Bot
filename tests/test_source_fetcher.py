@@ -4,6 +4,7 @@ from hashlib import sha256
 import pytest
 import requests
 
+import ai_news_bot.source_fetcher as source_fetcher
 from ai_news_bot.models import Candidate
 from ai_news_bot.source_fetcher import (
     AllSourcesUnavailableError,
@@ -87,6 +88,22 @@ class FakeSession:
         if isinstance(result, requests.RequestException):
             raise result
         return result
+
+
+class RecordingPinnedTransport:
+    def __init__(self, responses: list[FakeResponse]) -> None:
+        self.responses = iter(responses)
+        self.calls: list[object] = []
+
+    def get(
+        self,
+        target: object,
+        *,
+        timeout: int,
+        headers: dict[str, str],
+    ) -> FakeResponse:
+        self.calls.append(target)
+        return next(self.responses)
 
 
 def resolver(mapping: dict[str, list[str]]):
@@ -195,6 +212,197 @@ def test_fetch_rejects_hostname_that_resolves_to_private_address() -> None:
     assert result.status == "unavailable"
     assert result.error == "UnsafeSourceUrlError"
     assert session.calls == []
+
+
+def test_validated_address_is_resolved_once_and_pinned_for_the_request() -> None:
+    resolve_calls: list[tuple[str, int]] = []
+
+    def rebinding_resolver(hostname: str, port: int) -> list[str]:
+        resolve_calls.append((hostname, port))
+        return (
+            ["93.184.216.34"]
+            if len(resolve_calls) == 1
+            else ["10.0.0.7"]
+        )
+
+    transport = RecordingPinnedTransport(
+        [
+            FakeResponse(
+                url="https://example.test/one",
+                text="Verified source text with enough detail. " * 4,
+            )
+        ]
+    )
+
+    result = SourceFetcher(
+        transport=transport,
+        resolver=rebinding_resolver,
+    ).fetch_one(one())
+
+    assert result.status == "verified"
+    assert resolve_calls == [("example.test", 443)]
+    assert len(transport.calls) == 1
+    target = transport.calls[0]
+    assert target.ip_address == "93.184.216.34"
+    assert target.hostname == "example.test"
+    assert target.host_header == "example.test"
+
+
+def test_each_redirect_hop_is_resolved_once_and_pinned_independently() -> None:
+    resolve_calls: list[tuple[str, int]] = []
+    addresses = {
+        "example.test": ["93.184.216.34"],
+        "cdn.example.test": ["1.1.1.1"],
+    }
+
+    def counting_resolver(hostname: str, port: int) -> list[str]:
+        resolve_calls.append((hostname, port))
+        return addresses[hostname]
+
+    transport = RecordingPinnedTransport(
+        [
+            FakeResponse(
+                url="https://example.test/start",
+                text="",
+                status_code=302,
+                location="https://cdn.example.test/final?edition=2",
+            ),
+            FakeResponse(
+                url="https://cdn.example.test/final?edition=2",
+                text="Verified redirected source text with enough detail. " * 4,
+            ),
+        ]
+    )
+
+    result = SourceFetcher(
+        transport=transport,
+        resolver=counting_resolver,
+    ).fetch_one(candidate("redirect", url="https://example.test/start"))
+
+    assert result.status == "verified"
+    assert resolve_calls == [
+        ("example.test", 443),
+        ("cdn.example.test", 443),
+    ]
+    assert [
+        (target.ip_address, target.hostname, target.host_header)
+        for target in transport.calls
+    ] == [
+        ("93.184.216.34", "example.test", "example.test"),
+        ("1.1.1.1", "cdn.example.test", "cdn.example.test"),
+    ]
+
+
+def test_pinned_https_connection_uses_validated_ip_with_original_tls_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    socket_calls: list[tuple[tuple[str, int], int | float | None]] = []
+    tls_names: list[str] = []
+    raw_socket = object()
+    tls_socket = object()
+
+    def create_connection(
+        address: tuple[str, int],
+        timeout: int | float | None,
+        source_address: tuple[str, int] | None = None,
+    ) -> object:
+        socket_calls.append((address, timeout))
+        return raw_socket
+
+    class Context:
+        def wrap_socket(
+            self,
+            sock: object,
+            *,
+            server_hostname: str,
+        ) -> object:
+            assert sock is raw_socket
+            tls_names.append(server_hostname)
+            return tls_socket
+
+    monkeypatch.setattr(source_fetcher.socket, "create_connection", create_connection)
+    connection = source_fetcher._PinnedHTTPSConnection(
+        server_hostname="news.example.test",
+        ip_address="93.184.216.34",
+        port=8443,
+        timeout=7,
+        context=Context(),
+    )
+
+    connection.connect()
+
+    assert socket_calls == [(("93.184.216.34", 8443), 7)]
+    assert tls_names == ["news.example.test"]
+    assert connection.sock is tls_socket
+
+
+def test_pinned_transport_sends_original_host_header() -> None:
+    request_calls: list[tuple[str, str, dict[str, str]]] = []
+
+    class HTTPResponse:
+        status = 200
+
+        @staticmethod
+        def getheaders() -> list[tuple[str, str]]:
+            return [("Content-Type", "text/html; charset=utf-8")]
+
+        @staticmethod
+        def read(size: int) -> bytes:
+            return b""
+
+        @staticmethod
+        def close() -> None:
+            return None
+
+    class Connection:
+        def request(
+            self,
+            method: str,
+            path: str,
+            *,
+            headers: dict[str, str],
+        ) -> None:
+            request_calls.append((method, path, headers))
+
+        @staticmethod
+        def getresponse() -> HTTPResponse:
+            return HTTPResponse()
+
+        @staticmethod
+        def close() -> None:
+            return None
+
+    def connection_factory(
+        target: object,
+        timeout: int,
+        context: object,
+    ) -> Connection:
+        return Connection()
+
+    transport = source_fetcher.PinnedHTTPSTransport(
+        connection_factory=connection_factory,
+    )
+    response = transport.get(
+        source_fetcher._validated_public_https_url(
+            "https://news.example.test:8443/path?q=1",
+            resolver({"news.example.test": ["93.184.216.34"]}),
+        ),
+        timeout=9,
+        headers={"User-Agent": "test-agent"},
+    )
+
+    assert request_calls == [
+        (
+            "GET",
+            "/path?q=1",
+            {
+                "User-Agent": "test-agent",
+                "Host": "news.example.test:8443",
+                "Accept-Encoding": "identity",
+            },
+        )
+    ]
+    response.close()
 
 
 @pytest.mark.parametrize(
