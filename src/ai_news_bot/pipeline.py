@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -16,9 +17,11 @@ from .evidence import validate_anchors
 from .models import (
     BoardName,
     Candidate,
+    ChangeFact,
     DigestBoards,
     EditorialDigest,
     EditorialDraft,
+    EvidenceAnchor,
     EvidenceRecord,
     GateDecision,
     PipelineStats,
@@ -26,7 +29,7 @@ from .models import (
     ScoreBreakdown,
     VerificationStatus,
 )
-from .source_fetcher import FetchedSource
+from .source_fetcher import FetchedSource, _sanitize_url
 from .text import truncate
 
 
@@ -37,6 +40,162 @@ DuplicateAuditStatus = Literal[
     "minor_update",
     "duplicate",
 ]
+
+MAX_CONCRETE_CHANGES = 5
+MAX_ANCHORS = 8
+MAX_AUDIENCE = 5
+MAX_AREAS = 5
+MAX_ACTIONS = 5
+MAX_EVENT_ENTITIES = 10
+MAX_POLICY_TERMS = 10
+
+_ASSIGNED_SECRET = re.compile(
+    r"""(?ix)
+    \b(api[_-]?key|token|secret|password)
+    \s*[:=]\s*
+    (?:"[^"]*"|'[^']*'|[^\s,;]+)
+    """
+)
+_BEARER_SECRET = re.compile(
+    r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{8,}"
+)
+_OPENAI_SECRET = re.compile(
+    r"(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{8,}"
+    r"(?![A-Za-z0-9])"
+)
+_GITHUB_SECRET = re.compile(
+    r"(?<![A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+    r"(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+_JWT_SECRET = re.compile(
+    r"(?<![A-Za-z0-9])eyJ[A-Za-z0-9_-]{4,}\."
+    r"[A-Za-z0-9_-]{4,}\."
+    r"[A-Za-z0-9_-]{4,}(?![A-Za-z0-9])"
+)
+
+
+def _safe_text(value: str, limit: int) -> str:
+    redacted = _ASSIGNED_SECRET.sub(
+        lambda match: f"{match.group(1)}=[REDACTED]",
+        value,
+    )
+    for pattern in (
+        _BEARER_SECRET,
+        _OPENAI_SECRET,
+        _GITHUB_SECRET,
+        _JWT_SECRET,
+    ):
+        redacted = pattern.sub("[REDACTED]", redacted)
+    return truncate(redacted, limit)
+
+
+def _safe_list(
+    values: list[str],
+    *,
+    max_items: int,
+    max_chars: int,
+) -> list[str]:
+    return [
+        sanitized
+        for value in values[:max_items]
+        if (sanitized := _safe_text(value, max_chars))
+    ]
+
+
+def _sanitize_change(change: ChangeFact) -> ChangeFact:
+    return change.model_copy(
+        update={
+            "change_type": _safe_text(change.change_type, 80),
+            "statement": _safe_text(change.statement, 500),
+            "numbers": _safe_list(
+                change.numbers,
+                max_items=10,
+                max_chars=80,
+            ),
+            "entities": _safe_list(
+                change.entities,
+                max_items=10,
+                max_chars=160,
+            ),
+        }
+    )
+
+
+def _sanitize_anchor(anchor: EvidenceAnchor) -> EvidenceAnchor:
+    return anchor.model_copy(
+        update={"locator": _safe_text(anchor.locator, 120)}
+    )
+
+
+def _sanitize_record(record: EvidenceRecord) -> EvidenceRecord:
+    return record.model_copy(
+        update={
+            "candidate_id": _safe_text(record.candidate_id, 160),
+            "title_zh": _safe_text(record.title_zh, 80),
+            "summary_zh": _safe_text(record.summary_zh, 220),
+            "source_url": _safe_text(
+                _sanitize_url(record.source_url),
+                1000,
+            ),
+            "concrete_changes": [
+                _sanitize_change(change)
+                for change in record.concrete_changes[
+                    :MAX_CONCRETE_CHANGES
+                ]
+            ],
+            "evidence_anchors": [
+                _sanitize_anchor(anchor)
+                for anchor in record.evidence_anchors[:MAX_ANCHORS]
+            ],
+            "affected_audience": _safe_list(
+                record.affected_audience,
+                max_items=MAX_AUDIENCE,
+                max_chars=160,
+            ),
+            "affected_area": _safe_list(
+                record.affected_area,
+                max_items=MAX_AREAS,
+                max_chars=160,
+            ),
+            "recommended_action": _safe_list(
+                record.recommended_action,
+                max_items=MAX_ACTIONS,
+                max_chars=300,
+            ),
+            "event_entities": _safe_list(
+                record.event_entities,
+                max_items=MAX_EVENT_ENTITIES,
+                max_chars=160,
+            ),
+            "primary_entity": _safe_text(
+                record.primary_entity,
+                160,
+            ),
+            "product_or_model": _safe_text(
+                record.product_or_model,
+                160,
+            ),
+            "change_signature": _safe_text(
+                record.change_signature,
+                160,
+            ),
+            "version_or_metric": _safe_text(
+                record.version_or_metric,
+                120,
+            ),
+            "effective_date": (
+                _safe_text(record.effective_date, 32)
+                if record.effective_date is not None
+                else None
+            ),
+            "policy_terms": _safe_list(
+                record.policy_terms,
+                max_items=MAX_POLICY_TERMS,
+                max_chars=300,
+            ),
+        }
+    )
 
 
 class SourceFetcherLike(Protocol):
@@ -128,22 +287,26 @@ def _prepare_draft(
     score: ScoreBreakdown,
 ) -> EditorialDraft:
     return EditorialDraft(
-        candidate_id=candidate.id,
-        original_title=candidate.title,
-        title_en=truncate(candidate.title, 120),
-        summary_en=truncate(
+        candidate_id=_safe_text(candidate.id, 160),
+        original_title=_safe_text(candidate.title, 120),
+        title_en=_safe_text(candidate.title, 120),
+        summary_en=_safe_text(
             candidate.summary or "No summary was provided by the source.",
             320,
         ),
-        title_zh=truncate(record.title_zh, 80),
-        summary_zh=truncate(record.summary_zh, 220),
-        concrete_change="；".join(
-            change.statement for change in record.concrete_changes
+        title_zh=_safe_text(record.title_zh, 80),
+        summary_zh=_safe_text(record.summary_zh, 220),
+        concrete_change=_safe_text(
+            "；".join(
+                change.statement
+                for change in record.concrete_changes
+            ),
+            1200,
         ),
         affected_audience=record.affected_audience,
         affected_area=record.affected_area,
         recommended_action=record.recommended_action,
-        evidence_url=record.source_url,
+        evidence_url=_safe_text(record.source_url, 1000),
         verification_status=(
             record.original_source_status
             if (
@@ -154,7 +317,11 @@ def _prepare_draft(
             else record.verification_status
         ),
         event_fingerprint=event_fingerprint(record),
-        update_of=assessment.update_of,
+        update_of=(
+            _safe_text(assessment.update_of, 500)
+            if assessment.update_of is not None
+            else None
+        ),
         primary_entity=record.primary_entity,
         event_entities=record.event_entities,
         change_signature=record.change_signature,
@@ -162,7 +329,7 @@ def _prepare_draft(
         effective_date=record.effective_date,
         resource_available=record.resource_available,
         scientific_verified=record.original_paper_or_independent_validation,
-        source=candidate.source,
+        source=_safe_text(candidate.source, 120),
         published_at=candidate.published_at,
         category=record.category,
         extra_categories=[
@@ -179,13 +346,13 @@ def _audit_entry(
     selected_boards: dict[str, BoardName],
 ) -> AuditEntry:
     return AuditEntry(
-        candidate_id=value.candidate.id,
-        source_url=value.source.final_url,
+        candidate_id=_safe_text(value.candidate.id, 160),
+        source_url=_safe_text(value.record.source_url, 1000),
         fetch_status=value.source.status,
         anchor_locators=[
             anchor.locator for anchor in value.record.evidence_anchors
         ],
-        gate_reasons=value.decision.rejection_reasons,
+        gate_reasons=value.decision.rejection_reasons[:20],
         duplicate_status=(
             value.assessment.status
             if value.assessment is not None
@@ -243,6 +410,7 @@ def run_editorial_pipeline(
                 )
             }
         )
+        record = _sanitize_record(record)
         prepared.append(
             _PreparedRecord(
                 candidate=candidate,

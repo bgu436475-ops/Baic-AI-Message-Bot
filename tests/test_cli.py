@@ -2,19 +2,30 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
 from ai_news_bot import cli
+from ai_news_bot.collectors import (
+    AllCollectorsUnavailableError,
+    CollectionOutcome,
+)
 from ai_news_bot.config import Settings, SourcesConfig
+from ai_news_bot.event_history import DuplicateAssessment
 from ai_news_bot.history import HistoryStore
 from ai_news_bot.models import (
     Candidate,
+    ChangeFact,
     DigestBoards,
     EditorialDigest,
     EditorialNewsItem,
+    EvidenceAnchor,
+    EvidenceRecord,
     PipelineStats,
     ScoreBreakdown,
 )
@@ -33,7 +44,6 @@ def _args(
         sources=Path("config/sources.yaml"),
         dry_run=dry_run,
         skip_ai=False,
-        target_count=None,
         lookback_hours=None,
         web_output=web_output,
         send_existing=False,
@@ -154,6 +164,401 @@ def _send_existing_args(web_output: Path) -> argparse.Namespace:
     return args
 
 
+class _OutcomeCollector:
+    def __init__(self, outcome: CollectionOutcome) -> None:
+        self.outcome = outcome
+
+    def collect_with_health(self, *args, **kwargs) -> CollectionOutcome:
+        return self.outcome
+
+
+def _install_collection_outcomes(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    rss: CollectionOutcome,
+    web: CollectionOutcome,
+    github: CollectionOutcome,
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "RSSCollector",
+        lambda **kwargs: _OutcomeCollector(rss),
+    )
+    monkeypatch.setattr(
+        cli,
+        "WebPageCollector",
+        lambda **kwargs: _OutcomeCollector(web),
+    )
+    monkeypatch.setattr(
+        cli,
+        "GitHubCollector",
+        lambda **kwargs: _OutcomeCollector(github),
+    )
+
+
+def test_collection_health_raises_when_every_configured_source_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _install_collection_outcomes(
+        monkeypatch,
+        rss=CollectionOutcome(candidates=[], attempted=1, succeeded=0),
+        web=CollectionOutcome(candidates=[], attempted=1, succeeded=0),
+        github=CollectionOutcome(candidates=[], attempted=1, succeeded=0),
+    )
+
+    with pytest.raises(
+        AllCollectorsUnavailableError,
+        match="all 3 configured sources/queries failed",
+    ):
+        cli._collect_candidates(
+            SourcesConfig(rss=[]),
+            _settings(tmp_path),
+            36,
+            include_github=True,
+        )
+
+
+def test_collection_health_accepts_partial_success_with_zero_candidates(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _install_collection_outcomes(
+        monkeypatch,
+        rss=CollectionOutcome(candidates=[], attempted=1, succeeded=0),
+        web=CollectionOutcome(candidates=[], attempted=1, succeeded=1),
+        github=CollectionOutcome(candidates=[], attempted=0, succeeded=0),
+    )
+
+    outcome = cli._collect_candidates(
+        SourcesConfig(rss=[]),
+        _settings(tmp_path),
+        36,
+        include_github=True,
+    )
+
+    assert outcome == CollectionOutcome(
+        candidates=[],
+        attempted=2,
+        succeeded=1,
+    )
+
+
+def test_collection_health_keeps_candidates_from_successful_source(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _install_collection_outcomes(
+        monkeypatch,
+        rss=CollectionOutcome(
+            candidates=[_candidate()],
+            attempted=1,
+            succeeded=1,
+        ),
+        web=CollectionOutcome(candidates=[], attempted=1, succeeded=0),
+        github=CollectionOutcome(candidates=[], attempted=0, succeeded=0),
+    )
+
+    outcome = cli._collect_candidates(
+        SourcesConfig(rss=[]),
+        _settings(tmp_path),
+        36,
+        include_github=True,
+    )
+
+    assert outcome.candidates == [_candidate()]
+    assert outcome.attempted == 2
+    assert outcome.succeeded == 1
+
+
+def test_collection_health_allows_no_configured_sources(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _install_collection_outcomes(
+        monkeypatch,
+        rss=CollectionOutcome(candidates=[], attempted=0, succeeded=0),
+        web=CollectionOutcome(candidates=[], attempted=0, succeeded=0),
+        github=CollectionOutcome(candidates=[], attempted=0, succeeded=0),
+    )
+
+    outcome = cli._collect_candidates(
+        SourcesConfig(rss=[]),
+        _settings(tmp_path),
+        36,
+        include_github=True,
+    )
+
+    assert outcome.attempted == 0
+    assert outcome.succeeded == 0
+
+
+def test_prepare_candidates_enforces_hard_eighty_at_call_site(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    values = [
+        _candidate().model_copy(
+            update={
+                "id": f"candidate-{index}",
+                "title": (
+                    f"Product-{index} API v{index} costs ${index + 1}"
+                ),
+                "url": f"https://example.com/{index}",
+            }
+        )
+        for index in range(100)
+    ]
+    monkeypatch.setattr(cli, "hard_dedupe", lambda candidates: candidates)
+
+    retained = cli._prepare_candidates(
+        values,
+        HistoryStore(tmp_path / "history.json"),
+        max_candidates=200,
+    )
+
+    assert len(retained) == 80
+
+
+def test_parse_args_rejects_legacy_target_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["ai-news-bot", "--target-count", "5"],
+    )
+
+    with pytest.raises(SystemExit) as error:
+        cli.parse_args()
+
+    assert error.value.code == 2
+
+
+def test_fallback_expands_only_when_current_shortlist_is_empty() -> None:
+    qualifying = _candidate()
+    nonspecific = qualifying.model_copy(
+        update={
+            "id": "nonspecific",
+            "title": "AI industry thoughts",
+            "summary": "A broad discussion of future potential.",
+            "url": "https://example.com/nonspecific",
+        }
+    )
+
+    assert not cli._should_expand_lookback([qualifying], NOW)
+    assert cli._should_expand_lookback([nonspecific], NOW)
+    assert cli._should_expand_lookback([], NOW)
+
+
+class _PipelineHTTPResponse:
+    url = "https://example.com/one?token=private"
+    status_code = 200
+    headers = {"content-type": "text/html; charset=utf-8"}
+
+    def iter_content(self, *, chunk_size: int):
+        body = (
+            "<html><head><title>Model-X release</title></head><body>"
+            "<p>Model-X API v2 is available now for one dollar.</p>"
+            "<p>The SDK is available today for API developers worldwide.</p>"
+            "</body></html>"
+        ).encode()
+        yield body
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def close(self) -> None:
+        return None
+
+
+class _PipelineHTTPSession:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def get(self, url: str, **kwargs):
+        self.calls.append(url)
+        return _PipelineHTTPResponse()
+
+
+class _PipelineModelClient:
+    def __init__(self, record: EvidenceRecord) -> None:
+        self.record = record
+        self.interfaces: list[str] = []
+        self.requests: list[dict[str, Any]] = []
+        self.responses = SimpleNamespace(parse=self._responses_parse)
+        self.chat = SimpleNamespace(
+            completions=SimpleNamespace(parse=self._chat_parse)
+        )
+
+    def _responses_parse(self, **kwargs: Any) -> SimpleNamespace:
+        self.interfaces.append("responses")
+        self.requests.append(kwargs)
+        return SimpleNamespace(output_parsed=self.record)
+
+    def _chat_parse(self, **kwargs: Any) -> SimpleNamespace:
+        self.interfaces.append("chat")
+        self.requests.append(kwargs)
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(parsed=self.record)
+                )
+            ]
+        )
+
+
+class _PipelineEventStore:
+    def __init__(self) -> None:
+        self.classified: list[str] = []
+
+    def classify(
+        self,
+        record: EvidenceRecord,
+        now: datetime,
+    ) -> DuplicateAssessment:
+        self.classified.append(record.candidate_id)
+        return DuplicateAssessment(status="unique")
+
+
+def _model_record() -> EvidenceRecord:
+    return EvidenceRecord(
+        candidate_id="one",
+        title_zh="Model-X API v2 发布",
+        summary_zh="Model-X API v2 已开放，价格为一美元。",
+        category="ai_coding",
+        source_url="https://model.invalid/hallucinated",
+        source_type="official_announcement",
+        verification_status="verified",
+        concrete_changes=[
+            ChangeFact(
+                change_type="release",
+                statement=(
+                    "Model-X API v2 is available now for one dollar."
+                ),
+                numbers=["v2", "$1"],
+                entities=["Model-X"],
+            )
+        ],
+        evidence_anchors=[
+            EvidenceAnchor(
+                quote=(
+                    "Model-X API v2 is available now for one dollar."
+                ),
+                locator="release paragraph",
+            )
+        ],
+        affected_audience=["API developers"],
+        affected_area=["integration"],
+        recommended_action=["Test API v2 this week"],
+        event_entities=["Acme", "Model-X"],
+        primary_entity="Acme",
+        product_or_model="Model-X",
+        change_signature="api-release",
+        version_or_metric="v2-$1",
+        relevance_signal="direct",
+        action_horizon_days=3,
+        resource_available=True,
+    )
+
+
+@pytest.mark.parametrize(
+    (
+        "backend",
+        "expected_base_url",
+        "expected_interface",
+        "expected_model",
+    ),
+    [
+        (
+            "openai",
+            None,
+            "responses",
+            "gpt-5.6-luna",
+        ),
+        (
+            "github",
+            "https://models.github.ai/inference",
+            "chat",
+            "openai/gpt-4o-mini",
+        ),
+    ],
+)
+def test_production_pipeline_wiring_uses_backend_adapter_and_real_stages(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    backend: str,
+    expected_base_url: str | None,
+    expected_interface: str,
+    expected_model: str,
+) -> None:
+    settings = _settings(tmp_path).model_copy(
+        update={
+            "openai_api_key": (
+                "openai-key" if backend == "openai" else ""
+            ),
+            "github_token": (
+                "github-key" if backend == "github" else ""
+            ),
+        }
+    )
+    web_output = tmp_path / f"{backend}.json"
+    session = _PipelineHTTPSession()
+    model_client = _PipelineModelClient(_model_record())
+    event_store = _PipelineEventStore()
+    constructor_calls: list[dict[str, Any]] = []
+
+    def openai_constructor(**kwargs: Any) -> _PipelineModelClient:
+        constructor_calls.append(kwargs)
+        return model_client
+
+    monkeypatch.setattr(cli.Settings, "from_env", lambda: settings)
+    monkeypatch.setattr(
+        cli,
+        "load_sources",
+        lambda path: SourcesConfig(rss=[]),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_collect_candidates",
+        lambda *args, **kwargs: CollectionOutcome(
+            candidates=[_candidate()],
+            attempted=1,
+            succeeded=1,
+        ),
+    )
+    monkeypatch.setattr(cli, "OpenAI", openai_constructor)
+    monkeypatch.setattr(
+        "ai_news_bot.source_fetcher.requests.Session",
+        lambda: session,
+    )
+    monkeypatch.setattr(
+        cli,
+        "EventHistoryStore",
+        lambda path: event_store,
+    )
+
+    assert cli.run(_args(web_output)) == 0
+
+    payload = json.loads(web_output.read_text(encoding="utf-8"))
+    assert payload["run_status"] == "published"
+    assert payload["items"][0]["candidate_id"] == "one"
+    assert constructor_calls == [
+        {
+            "api_key": (
+                "openai-key"
+                if backend == "openai"
+                else "github-key"
+            ),
+            "base_url": expected_base_url,
+        }
+    ]
+    assert model_client.interfaces == [expected_interface]
+    assert model_client.requests[0]["model"] == expected_model
+    assert event_store.classified == ["one"]
+    assert session.calls == [_candidate().url]
+
+
 @pytest.mark.parametrize("dry_run", [True, False])
 def test_generation_writes_schema_v3_digest_and_private_audit_without_sending_or_state_mutation(
     monkeypatch: pytest.MonkeyPatch,
@@ -173,7 +578,11 @@ def test_generation_writes_schema_v3_digest_and_private_audit_without_sending_or
     monkeypatch.setattr(
         cli,
         "_collect_candidates",
-        lambda *args, **kwargs: [_candidate()],
+        lambda *args, **kwargs: CollectionOutcome(
+            candidates=[_candidate()],
+            attempted=1,
+            succeeded=1,
+        ),
     )
     monkeypatch.setattr(
         cli,
@@ -355,6 +764,116 @@ def test_feishu_failure_does_not_record_any_success_state(
         cli.run(_send_existing_args(output))
 
     assert recorded == []
+
+
+@pytest.mark.parametrize(
+    ("url_history_fails", "event_history_fails"),
+    [
+        (True, False),
+        (False, True),
+        (True, True),
+    ],
+)
+def test_post_send_history_failures_do_not_erase_delivery_success(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    url_history_fails: bool,
+    event_history_fails: bool,
+) -> None:
+    output = tmp_path / "latest.json"
+    output.write_text(
+        _published_digest().model_dump_json(),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        cli.Settings,
+        "from_env",
+        lambda: _settings(tmp_path),
+    )
+    events: list[str] = []
+    monkeypatch.setattr(
+        cli,
+        "send_to_feishu",
+        lambda *args: events.append("send"),
+    )
+    monkeypatch.setattr(
+        cli.SendLedger,
+        "record_success",
+        lambda *args: events.append("ledger"),
+    )
+
+    def record_urls(*args) -> None:
+        events.append("url")
+        if url_history_fails:
+            raise OSError("URL history unavailable")
+
+    def record_events(*args) -> None:
+        events.append("event")
+        if event_history_fails:
+            raise OSError("event history unavailable")
+
+    monkeypatch.setattr(cli.HistoryStore, "record", record_urls)
+    monkeypatch.setattr(
+        cli.EventHistoryStore,
+        "record_digest",
+        record_events,
+    )
+
+    assert cli.run(_send_existing_args(output)) == 0
+
+    assert events == ["send", "ledger", "url", "event"]
+    if url_history_fails:
+        assert "Could not record sent URL history" in caplog.text
+    if event_history_fails:
+        assert "Could not record sent event history" in caplog.text
+
+
+def test_ledger_failure_after_feishu_stops_before_noncritical_histories(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "latest.json"
+    output.write_text(
+        _published_digest().model_dump_json(),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        cli.Settings,
+        "from_env",
+        lambda: _settings(tmp_path),
+    )
+    events: list[str] = []
+    monkeypatch.setattr(
+        cli,
+        "send_to_feishu",
+        lambda *args: events.append("send"),
+    )
+
+    def ledger_failure(*args) -> None:
+        events.append("ledger")
+        raise OSError("ledger replace failed")
+
+    monkeypatch.setattr(
+        cli.SendLedger,
+        "record_success",
+        ledger_failure,
+    )
+    monkeypatch.setattr(
+        cli.HistoryStore,
+        "record",
+        lambda *args: events.append("url"),
+    )
+    monkeypatch.setattr(
+        cli.EventHistoryStore,
+        "record_digest",
+        lambda *args: events.append("event"),
+    )
+
+    with pytest.raises(OSError, match="ledger replace failed"):
+        cli.run(_send_existing_args(output))
+
+    assert events == ["send", "ledger"]
 
 
 @pytest.mark.parametrize("payload", ["not json", "{}", "schema-v2"])

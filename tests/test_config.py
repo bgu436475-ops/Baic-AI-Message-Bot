@@ -1,5 +1,8 @@
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from ai_news_bot.config import Settings, load_sources
 
 
@@ -45,3 +48,20 @@ def test_editorial_state_paths_can_be_configured_from_environment(
     assert settings.event_history_path == Path("private/events.json")
     assert settings.send_ledger_path == Path("private/sends.json")
     assert settings.audit_path == Path("private/audit.json")
+
+
+@pytest.mark.parametrize("max_candidates", [81, 200])
+def test_settings_rejects_candidate_caps_above_hard_eighty(
+    max_candidates: int,
+) -> None:
+    with pytest.raises(ValidationError):
+        Settings(max_candidates=max_candidates)
+
+
+def test_environment_cannot_raise_candidate_cap_above_eighty(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("MAX_CANDIDATES", "200")
+
+    with pytest.raises(ValidationError):
+        Settings.from_env()

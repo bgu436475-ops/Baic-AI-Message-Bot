@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Callable
@@ -322,3 +323,176 @@ def test_explicit_fetched_original_source_can_enable_secondary_watch() -> None:
         candidate.id
     ]
     assert result.digest.items[0].verification_status == "blocked"
+
+
+def test_pipeline_bounds_and_redacts_untrusted_model_output() -> None:
+    candidate = candidates()[0].model_copy(
+        update={
+            "title": (
+                "Model API token="
+                "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
+            ),
+            "summary": (
+                "Bearer super-secret-access-token "
+                + "summary " * 1000
+            ),
+            "url": (
+                "https://example.com/release?"
+                "api_key=sk-abcdefghijklmnopqrstuvwxyz123456"
+            ),
+            "source": "password=ultra-secret-source",
+        }
+    )
+    secrets = [
+        "sk-abcdefghijklmnopqrstuvwxyz123456",
+        "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
+        "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signaturevalue",
+        "super-secret-access-token",
+        "ultra-secret-source",
+        "private-token-value",
+    ]
+    long_statement = (
+        "Model-X API v2 is available now for one dollar. "
+        + "A" * 30_000
+        + "TAIL_MARKER "
+        + secrets[0]
+    )
+
+    def hostile(value: Candidate) -> EvidenceRecord:
+        record = evidence(value)
+        change = record.concrete_changes[0].model_copy(
+            update={
+                "statement": long_statement,
+                "numbers": [
+                    f"{index}-{secrets[2]}"
+                    for index in range(30)
+                ],
+                "entities": [
+                    f"entity-{index}-token:{secrets[5]}"
+                    for index in range(30)
+                ],
+            }
+        )
+        anchors = [
+            record.evidence_anchors[0].model_copy(
+                update={
+                    "locator": (
+                        f"paragraph-{index} "
+                        f"secret={secrets[4]} "
+                        + "L" * 180
+                    )
+                }
+            )
+            for index in range(30)
+        ]
+        return record.model_copy(
+            update={
+                "title_zh": f"API 发布 {secrets[1]}" + "标题" * 100,
+                "summary_zh": (
+                    f"Bearer {secrets[3]} "
+                    + "摘要" * 1000
+                ),
+                "concrete_changes": [change] * 20,
+                "evidence_anchors": anchors,
+                "affected_audience": [
+                    f"audience-{index} password:{secrets[4]}"
+                    for index in range(30)
+                ],
+                "affected_area": [
+                    f"area-{index} api_key={secrets[0]}"
+                    for index in range(30)
+                ],
+                "recommended_action": [
+                    f"action-{index} token={secrets[5]}"
+                    for index in range(30)
+                ],
+                "event_entities": [
+                    f"entity-{index}-{secrets[2]}"
+                    for index in range(30)
+                ],
+                "primary_entity": f"Acme secret={secrets[4]}",
+                "product_or_model": "Model-X " + "M" * 1000,
+                "change_signature": "release " + "S" * 1000,
+                "version_or_metric": f"v2 token={secrets[5]}" + "V" * 1000,
+                "policy_terms": [
+                    f"term-{index} password={secrets[4]}"
+                    for index in range(30)
+                ],
+            }
+        )
+
+    result = run_editorial_pipeline(
+        [candidate],
+        dependencies=fakes(
+            [],
+            qualifying=True,
+            record_factory=hostile,
+        ),
+        now=NOW,
+    )
+
+    digest_json = result.digest.model_dump_json()
+    audit_json = result.audit.model_dump_json()
+    for secret in secrets:
+        assert secret not in digest_json
+        assert secret not in audit_json
+    assert "TAIL_MARKER" not in digest_json
+    assert "TAIL_MARKER" not in audit_json
+
+    item = result.digest.items[0]
+    assert len(item.title_zh) <= 80
+    assert len(item.summary_zh) <= 220
+    assert len(item.concrete_change) <= 1200
+    assert len(item.affected_audience) <= 5
+    assert len(item.affected_area) <= 5
+    assert len(item.recommended_action) <= 5
+    assert len(item.event_entities) <= 10
+    assert len(item.primary_entity) <= 160
+    assert len(item.version_or_metric) <= 120
+    assert len(item.source) <= 120
+
+    audit = result.audit.entries[0]
+    assert len(audit.anchor_locators) <= 8
+    assert all(
+        len(locator) <= 120
+        for locator in audit.anchor_locators
+    )
+
+
+def test_final_gate_runs_after_event_dedupe_with_real_status() -> None:
+    calls: list[str] = []
+    dependencies = fakes([], qualifying=True)
+
+    def gates(
+        record: EvidenceRecord,
+        duplicate_status: str,
+    ) -> GateDecision:
+        calls.append(f"gate:{duplicate_status}")
+        return evaluate_gates(record, duplicate_status)
+
+    def classify(
+        record: EvidenceRecord,
+        now: datetime,
+    ) -> DuplicateAssessment:
+        calls.append("dedupe")
+        return DuplicateAssessment(
+            status="material_update",
+            update_of="previous-event",
+        )
+
+    result = run_editorial_pipeline(
+        [candidates()[0]],
+        dependencies=replace(
+            dependencies,
+            gates=gates,
+            classify=classify,
+        ),
+        now=NOW,
+    )
+
+    assert calls == [
+        "gate:unique",
+        "dedupe",
+        "gate:material_update",
+    ]
+    assert result.digest.items[0].update_of == "previous-event"

@@ -60,7 +60,7 @@ class Settings(BaseModel):
     target_news_count: int = Field(default=10, ge=1, le=20)
     lookback_hours: int = Field(default=36, ge=6, le=168)
     fallback_lookback_hours: int = Field(default=168, ge=24, le=336)
-    max_candidates: int = Field(default=80, ge=10, le=200)
+    max_candidates: int = Field(default=80, ge=10, le=80)
     request_timeout: int = Field(default=20, ge=5, le=60)
     state_path: Path = Path(".state/history.json")
     event_history_path: Path = Path(".state/events.json")

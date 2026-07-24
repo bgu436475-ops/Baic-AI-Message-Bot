@@ -8,7 +8,13 @@ from pathlib import Path
 from openai import OpenAI
 
 from .boards import build_boards
-from .collectors import GitHubCollector, RSSCollector, WebPageCollector
+from .collectors import (
+    AllCollectorsUnavailableError,
+    CollectionOutcome,
+    GitHubCollector,
+    RSSCollector,
+    WebPageCollector,
+)
 from .config import Settings, load_sources
 from .dedupe import hard_dedupe
 from .event_history import EventHistoryStore
@@ -37,18 +43,40 @@ def _collect_candidates(
     lookback_hours: int,
     *,
     include_github: bool,
-) -> list:
-    collected = RSSCollector(timeout=settings.request_timeout).collect(
-        sources.rss, lookback_hours
-    )
-    collected += WebPageCollector(timeout=settings.request_timeout).collect(
-        sources.webpages, lookback_hours
-    )
+) -> CollectionOutcome:
+    outcomes = [
+        RSSCollector(timeout=settings.request_timeout).collect_with_health(
+            sources.rss,
+            lookback_hours,
+        ),
+        WebPageCollector(
+            timeout=settings.request_timeout
+        ).collect_with_health(
+            sources.webpages,
+            lookback_hours,
+        ),
+    ]
     if include_github:
-        collected += GitHubCollector(
-            token=settings.github_token, timeout=settings.request_timeout
-        ).collect(sources.github)
-    return collected
+        outcomes.append(
+            GitHubCollector(
+                token=settings.github_token,
+                timeout=settings.request_timeout,
+            ).collect_with_health(sources.github)
+        )
+    outcome = CollectionOutcome(
+        candidates=[
+            candidate
+            for value in outcomes
+            for candidate in value.candidates
+        ],
+        attempted=sum(value.attempted for value in outcomes),
+        succeeded=sum(value.succeeded for value in outcomes),
+    )
+    if outcome.attempted > 0 and outcome.succeeded == 0:
+        raise AllCollectorsUnavailableError(
+            f"all {outcome.attempted} configured sources/queries failed"
+        )
+    return outcome
 
 
 def _prepare_candidates(collected: list, history: HistoryStore, max_candidates: int) -> list:
@@ -58,7 +86,14 @@ def _prepare_candidates(collected: list, history: HistoryStore, max_candidates: 
         unique,
         key=lambda item: (item.published_at, item.source_weight),
         reverse=True,
-    )[:max_candidates]
+    )[: max(0, min(max_candidates, 80))]
+
+
+def _should_expand_lookback(
+    candidates: list,
+    now: datetime,
+) -> bool:
+    return not shortlist_candidates(candidates, now)
 
 
 def _build_pipeline_dependencies(
@@ -119,7 +154,6 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Unsupported by the evidence-verified editorial pipeline",
     )
-    parser.add_argument("--target-count", type=int, default=None)
     parser.add_argument("--lookback-hours", type=int, default=None)
     parser.add_argument(
         "--web-output",
@@ -161,8 +195,22 @@ def _send_existing_daily_result(args: argparse.Namespace, settings: Settings) ->
         "feishu-daily",
     )
     if digest.items:
-        HistoryStore(settings.state_path).record(digest.items)
-        EventHistoryStore(settings.event_history_path).record_digest(digest)
+        try:
+            HistoryStore(settings.state_path).record(digest.items)
+        except Exception as error:
+            LOGGER.warning(
+                "Could not record sent URL history after successful delivery: %s",
+                error,
+            )
+        try:
+            EventHistoryStore(
+                settings.event_history_path
+            ).record_digest(digest)
+        except Exception as error:
+            LOGGER.warning(
+                "Could not record sent event history after successful delivery: %s",
+                error,
+            )
     LOGGER.info("Sent %d persisted item(s) to Feishu", len(digest.items))
     return 0
 
@@ -171,8 +219,6 @@ def run(args: argparse.Namespace) -> int:
     settings = Settings.from_env()
     if args.send_existing:
         return _send_existing_daily_result(args, settings)
-    if args.target_count is not None:
-        settings.target_news_count = args.target_count
     if args.lookback_hours is not None:
         settings.lookback_hours = args.lookback_hours
     if args.skip_ai:
@@ -181,32 +227,48 @@ def run(args: argparse.Namespace) -> int:
         )
     sources = load_sources(args.sources)
     history = HistoryStore(settings.state_path)
+    generation_now = datetime.now(UTC)
 
-    collected = _collect_candidates(
+    current_outcome = _collect_candidates(
         sources, settings, settings.lookback_hours, include_github=True
     )
+    collected = current_outcome.candidates
     unique = _prepare_candidates(collected, history, settings.max_candidates)
     fallback_used = False
 
     if (
-        len(unique) < settings.target_news_count
+        _should_expand_lookback(unique, generation_now)
         and settings.fallback_lookback_hours > settings.lookback_hours
     ):
         LOGGER.info(
-            "Only %d current candidate(s); expanding lookback from %d to %d hours",
-            len(unique),
+            "No current candidate passed shortlist; expanding lookback "
+            "from %d to %d hours",
             settings.lookback_hours,
             settings.fallback_lookback_hours,
         )
-        older = _collect_candidates(
-            sources,
-            settings,
-            settings.fallback_lookback_hours,
-            include_github=False,
-        )
-        collected = hard_dedupe(collected + older)
-        unique = _prepare_candidates(collected, history, settings.max_candidates)
-        fallback_used = True
+        try:
+            older_outcome = _collect_candidates(
+                sources,
+                settings,
+                settings.fallback_lookback_hours,
+                include_github=False,
+            )
+        except AllCollectorsUnavailableError as error:
+            LOGGER.warning(
+                "Expanded-lookback collection failed after a healthy "
+                "current collection: %s",
+                error,
+            )
+        else:
+            collected = hard_dedupe(
+                collected + older_outcome.candidates
+            )
+            unique = _prepare_candidates(
+                collected,
+                history,
+                settings.max_candidates,
+            )
+            fallback_used = older_outcome.succeeded > 0
     LOGGER.info(
         "Collected %d; %d unseen unique candidate(s) remain", len(collected), len(unique)
     )
@@ -225,7 +287,7 @@ def run(args: argparse.Namespace) -> int:
     result = run_editorial_pipeline(
         unique,
         dependencies=dependencies,
-        now=datetime.now(UTC),
+        now=generation_now,
     )
     _write_digest(result.digest, settings, args.web_output)
     write_audit(result.audit, settings.audit_path)

@@ -1,11 +1,37 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from datetime import UTC, date, datetime
 from pathlib import Path
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from .models import EditorialDigest
+
+
+def _valid_success_entry(key: Any, value: Any) -> bool:
+    if not isinstance(key, str) or not isinstance(value, dict):
+        return False
+    day_text, separator, target = key.partition("|")
+    if not separator or not target.strip():
+        return False
+    try:
+        date.fromisoformat(day_text)
+    except ValueError:
+        return False
+    sent_at = value.get("sent_at")
+    if not isinstance(sent_at, str):
+        return False
+    try:
+        datetime.fromisoformat(sent_at)
+    except ValueError:
+        return False
+    return value.get("run_status") in {
+        "published",
+        "no_qualifying_items",
+    }
 
 
 class SendLedger:
@@ -20,7 +46,14 @@ class SendLedger:
     def _load(self) -> dict[str, dict[str, str]]:
         try:
             value = json.loads(self.path.read_text(encoding="utf-8"))
-            return dict(value.get("successful_sends", {}))
+            successful_sends = value.get("successful_sends", {})
+            if not isinstance(successful_sends, dict):
+                return {}
+            return {
+                key: entry
+                for key, entry in successful_sends.items()
+                if _valid_success_entry(key, entry)
+            }
         except (
             AttributeError,
             OSError,
@@ -50,12 +83,39 @@ class SendLedger:
             "sent_at": timestamp.isoformat(),
             "run_status": digest.run_status,
         }
+        self._write(data)
+
+    def _write(self, data: dict[str, dict[str, str]]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(
+        serialized = (
             json.dumps(
                 {"successful_sends": data},
                 ensure_ascii=False,
                 indent=2,
-            ),
-            encoding="utf-8",
+            )
+            + "\n"
         )
+        temp_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=self.path.parent,
+                prefix=f".{self.path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                temp_path = Path(handle.name)
+                handle.write(serialized)
+                handle.flush()
+                try:
+                    os.fsync(handle.fileno())
+                except OSError:
+                    pass
+            os.replace(temp_path, self.path)
+        finally:
+            if temp_path is not None:
+                try:
+                    temp_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
