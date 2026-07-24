@@ -4,6 +4,8 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from openai import LengthFinishReasonError, OpenAIError
+from openai.types.chat import ChatCompletion
 
 from ai_news_bot.evidence import (
     EVIDENCE_SYSTEM_PROMPT,
@@ -16,6 +18,15 @@ from ai_news_bot.source_fetcher import FetchedSource
 
 
 NOW = datetime(2026, 7, 23, 12, 0, tzinfo=UTC)
+LENGTH_FINISH_ERROR = LengthFinishReasonError(
+    completion=ChatCompletion(
+        id="completion-one",
+        choices=[],
+        created=0,
+        model="test-model",
+        object="chat.completion",
+    )
+)
 
 
 def candidate() -> Candidate:
@@ -32,9 +43,9 @@ def candidate() -> Candidate:
     )
 
 
-def fetched(*, status: str = "verified") -> FetchedSource:
+def fetched(*, status: str = "verified", candidate_id: str = "one") -> FetchedSource:
     return FetchedSource(
-        candidate_id="one",
+        candidate_id=candidate_id,
         requested_url="https://example.test/pricing",
         final_url="https://example.test/pricing-v2",
         status=status,
@@ -120,6 +131,35 @@ class FakeStructuredClient:
         return result
 
 
+class FakeRawChatCompletions:
+    def __init__(
+        self,
+        owner: "FakeRawGitHubClient",
+        responses: list[SimpleNamespace | Exception],
+    ) -> None:
+        self.owner = owner
+        self.responses = iter(responses)
+
+    def parse(self, **kwargs: Any) -> SimpleNamespace:
+        self.owner.calls += 1
+        result = next(self.responses)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+
+class FakeRawGitHubClient:
+    def __init__(self, responses: list[SimpleNamespace | Exception]) -> None:
+        self.calls = 0
+        completions = FakeRawChatCompletions(self, responses)
+        self.chat = SimpleNamespace(completions=completions)
+
+
+def github_response(record: EvidenceRecord) -> SimpleNamespace:
+    message = SimpleNamespace(parsed=record)
+    return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+
 def test_extractor_retries_once_then_returns_record() -> None:
     client = FakeStructuredClient([ValueError("bad json"), valid_record()])
 
@@ -143,6 +183,68 @@ def test_extractor_stops_after_second_parse_failure() -> None:
     assert str(raised.value.__cause__) == "bad again"
 
 
+@pytest.mark.parametrize(
+    "first_response",
+    [
+        LENGTH_FINISH_ERROR,
+        OpenAIError("structured parser rejected the response"),
+        SimpleNamespace(choices=[]),
+        SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace())]),
+    ],
+    ids=["length-finish-reason", "openai-error", "empty-choices", "missing-parsed"],
+)
+def test_extractor_retries_controlled_parser_and_adapter_failures(
+    first_response: SimpleNamespace | Exception,
+) -> None:
+    client = FakeRawGitHubClient([first_response, github_response(valid_record())])
+
+    result = extract_evidence(
+        candidate(),
+        fetched(),
+        client,
+        "github-model",
+        base_url="https://models.github.ai/inference",
+    )
+
+    assert result.candidate_id == "one"
+    assert client.calls == 2
+
+
+@pytest.mark.parametrize(
+    ("second_response", "expected_cause"),
+    [
+        (OpenAIError("second OpenAI parse failure"), OpenAIError),
+        (SimpleNamespace(choices=[]), IndexError),
+        (
+            SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace())]),
+            AttributeError,
+        ),
+    ],
+    ids=["openai-error", "empty-choices", "missing-parsed"],
+)
+def test_extractor_wraps_second_controlled_failure_as_extraction_error(
+    second_response: SimpleNamespace | Exception,
+    expected_cause: type[Exception],
+) -> None:
+    client = FakeRawGitHubClient(
+        [OpenAIError("first OpenAI parse failure"), second_response]
+    )
+
+    with pytest.raises(
+        EvidenceExtractionError, match="model evidence parsing failed twice"
+    ) as raised:
+        extract_evidence(
+            candidate(),
+            fetched(),
+            client,
+            "github-model",
+            base_url="https://models.github.ai/inference",
+        )
+
+    assert client.calls == 2
+    assert isinstance(raised.value.__cause__, expected_cause)
+
+
 def test_extractor_retries_a_mismatched_candidate_id() -> None:
     mismatched = valid_record().model_copy(update={"candidate_id": "another"})
     client = FakeStructuredClient([mismatched, valid_record()])
@@ -151,6 +253,20 @@ def test_extractor_retries_a_mismatched_candidate_id() -> None:
 
     assert result.candidate_id == "one"
     assert client.calls == 2
+
+
+def test_extractor_rejects_candidate_source_mismatch_before_model_call() -> None:
+    client = FakeStructuredClient([valid_record()])
+
+    with pytest.raises(EvidenceExtractionError, match="candidate and source IDs"):
+        extract_evidence(
+            candidate(),
+            fetched(candidate_id="another"),
+            client,
+            "test-model",
+        )
+
+    assert client.calls == 0
 
 
 def test_extractor_uses_github_models_structured_chat_parse() -> None:

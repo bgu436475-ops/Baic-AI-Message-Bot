@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from openai import OpenAIError
 from pydantic import BaseModel
 
 from .models import Candidate, EvidenceRecord
@@ -83,6 +84,8 @@ def extract_evidence(
     model: str,
     base_url: str | None = None,
 ) -> EvidenceRecord:
+    if source.candidate_id != candidate.id:
+        raise EvidenceExtractionError("candidate and source IDs do not match")
     messages = [
         {"role": "system", "content": EVIDENCE_SYSTEM_PROMPT},
         {
@@ -107,6 +110,6 @@ def extract_evidence(
             if parsed is None or parsed.candidate_id != candidate.id:
                 raise ValueError("missing or mismatched evidence record")
             return validate_anchors(parsed, source)
-        except (ValueError, TypeError) as error:
+        except (ValueError, TypeError, AttributeError, IndexError, OpenAIError) as error:
             last_error = error
     raise EvidenceExtractionError("model evidence parsing failed twice") from last_error
