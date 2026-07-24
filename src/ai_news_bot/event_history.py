@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
-import re
+import os
+import tempfile
+import unicodedata
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel
@@ -14,7 +17,6 @@ from .models import EditorialDigest, EditorialNewsItem, EvidenceRecord
 
 BEIJING = ZoneInfo("Asia/Shanghai")
 RETENTION_DAYS = 7
-_WORD_TOKEN = re.compile(r"[$€£¥]?\w+%?", flags=re.UNICODE)
 
 
 class DuplicateAssessment(BaseModel):
@@ -23,8 +25,10 @@ class DuplicateAssessment(BaseModel):
 
 
 def _slug(value: str) -> str:
-    normalized = value.casefold().replace("_", " ")
-    return "-".join(_WORD_TOKEN.findall(normalized))
+    normalized = " ".join(
+        unicodedata.normalize("NFKC", value).casefold().split()
+    )
+    return quote(normalized, safe="-$")
 
 
 def event_fingerprint(record: EvidenceRecord) -> str:
@@ -48,10 +52,39 @@ def _recorded_at(entry: dict[str, Any]) -> datetime:
     return _aware(datetime.fromisoformat(str(entry["recorded_at"])))
 
 
+def _valid_entry(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    string_fields = (
+        "fingerprint",
+        "recorded_at",
+        "change_signature",
+        "version_or_metric",
+        "effective_date",
+        "source_url",
+    )
+    if any(not isinstance(value.get(field), str) for field in string_fields):
+        return False
+    entities = value.get("entities")
+    if not isinstance(entities, list) or not all(
+        isinstance(entity, str) for entity in entities
+    ):
+        return False
+    for field in ("resource_available", "scientific_verified"):
+        if field in value and not isinstance(value[field], bool):
+            return False
+    try:
+        _recorded_at(value)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
 def _is_active(entry: dict[str, Any], now: datetime) -> bool:
     recorded_day = _recorded_at(entry).astimezone(BEIJING).date()
     current_day = _aware(now).astimezone(BEIJING).date()
-    return (current_day - recorded_day).days <= RETENTION_DAYS
+    age_days = (current_day - recorded_day).days
+    return 0 <= age_days <= RETENTION_DAYS
 
 
 def _entities(
@@ -105,11 +138,16 @@ class EventHistoryStore:
     def _load(self) -> list[dict[str, Any]]:
         if not self.path.exists():
             return []
-        payload = json.loads(self.path.read_text(encoding="utf-8"))
+        try:
+            payload = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            return []
+        if not isinstance(payload, dict):
+            return []
         events = payload.get("events", [])
         if not isinstance(events, list):
-            raise ValueError("event history events must be a list")
-        return events
+            return []
+        return [entry for entry in events if _valid_entry(entry)]
 
     def _active(self, now: datetime) -> list[dict[str, Any]]:
         return [entry for entry in self._load() if _is_active(entry, now)]
@@ -210,7 +248,30 @@ class EventHistoryStore:
             key=lambda entry: (_recorded_at(entry), str(entry["fingerprint"])),
         )
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(
-            json.dumps({"events": ordered}, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
+        serialized = (
+            json.dumps({"events": ordered}, ensure_ascii=False, indent=2) + "\n"
         )
+        temp_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=self.path.parent,
+                prefix=f".{self.path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                temp_path = Path(handle.name)
+                handle.write(serialized)
+                handle.flush()
+                try:
+                    os.fsync(handle.fileno())
+                except OSError:
+                    pass
+            os.replace(temp_path, self.path)
+        finally:
+            if temp_path is not None:
+                try:
+                    temp_path.unlink(missing_ok=True)
+                except OSError:
+                    pass

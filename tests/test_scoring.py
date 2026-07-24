@@ -241,6 +241,51 @@ def test_specificity_adds_concrete_version_and_date_signals_with_cap(
 
 
 @pytest.mark.parametrize(
+    (
+        "version_or_metric",
+        "effective_date",
+        "specificity",
+        "penalties",
+        "total",
+    ),
+    [
+        ("   ", None, 0, -10, 67),
+        ("", "   ", 0, -10, 67),
+        ("", "not-a-date", 0, -10, 67),
+        ("", "2026-02-30", 0, -10, 67),
+        (" v2 ", None, 4, -10, 71),
+        ("", " 2026-08-01 ", 4, 0, 81),
+        (" v2 ", "invalid", 4, -10, 71),
+    ],
+)
+def test_specificity_and_staleness_require_semantically_valid_fields(
+    version_or_metric: str,
+    effective_date: str | None,
+    specificity: int,
+    penalties: int,
+    total: int,
+) -> None:
+    record = valid_record().model_copy(
+        update={
+            "concrete_changes": [],
+            "version_or_metric": version_or_metric,
+            "effective_date": effective_date,
+        }
+    )
+
+    result = score_record(
+        record,
+        DuplicateAssessment(status="unique"),
+        published_at=NOW - timedelta(hours=80),
+        now=NOW,
+    )
+
+    assert result.specificity == specificity
+    assert result.penalties == penalties
+    assert result.total == total
+
+
+@pytest.mark.parametrize(
     ("age_hours", "expected"),
     [(-1, 10), (24, 10), (24.01, 7), (72, 7), (72.01, 2)],
 )

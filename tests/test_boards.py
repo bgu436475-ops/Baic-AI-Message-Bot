@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from ai_news_bot.boards import ScoredEditorialCandidate, build_boards
 from ai_news_bot.event_history import DuplicateAssessment
+from ai_news_bot.gatekeeper import evaluate_gates
 from ai_news_bot.models import (
     ChangeFact,
     EditorialDraft,
@@ -12,6 +15,7 @@ from ai_news_bot.models import (
     GateDecision,
     ScoreBreakdown,
 )
+from ai_news_bot.scoring import score_record
 
 
 NOW = datetime(2026, 7, 23, 1, 5, tzinfo=UTC)
@@ -296,6 +300,47 @@ def test_watch_only_secondary_cannot_leak_into_main_or_try() -> None:
     assert ids(result.watch) == ["secondary"]
 
 
+@pytest.mark.parametrize("original_status", ["unavailable", "blocked"])
+def test_real_secondary_gate_decision_routes_to_watch(
+    original_status: str,
+) -> None:
+    base = scored(
+        f"secondary-{original_status}",
+        resource=True,
+        horizon=1,
+    )
+    record = base.record.model_copy(
+        update={
+            "source_type": "trusted_secondary",
+            "original_source_status": original_status,
+        }
+    )
+    assessment = DuplicateAssessment(status="unique")
+    decision = evaluate_gates(record, assessment.status)
+    score = score_record(
+        record,
+        assessment,
+        published_at=NOW,
+        now=NOW,
+    )
+    candidate = ScoredEditorialCandidate(
+        record=record,
+        decision=decision,
+        assessment=assessment,
+        draft=base.draft.model_copy(update={"score": score}),
+    )
+
+    result = build_boards([candidate])
+
+    assert not decision.eligible_main_try
+    assert decision.eligible_watch
+    assert decision.rejection_reasons == ["unverified_primary_source"]
+    assert score.evidence_quality == 8
+    assert result.must_read == []
+    assert result.try_now == []
+    assert ids(result.watch) == [record.candidate_id]
+
+
 def test_ineligible_candidate_is_excluded_from_every_board() -> None:
     result = build_boards(
         [
@@ -440,6 +485,29 @@ def test_duplicate_fingerprint_is_selected_only_once() -> None:
     assert ids(result.flatten()) == ["higher"]
 
 
+def test_complete_sort_tie_is_independent_of_input_order() -> None:
+    alpha = scored(
+        "alpha",
+        total=80,
+        company="Alpha",
+        published_at=NOW,
+        fingerprint="same-event",
+    )
+    zeta = scored(
+        "zeta",
+        total=80,
+        company="Zeta",
+        published_at=NOW,
+        fingerprint="same-event",
+    )
+
+    forward = build_boards([zeta, alpha])
+    reverse = build_boards([alpha, zeta])
+
+    assert forward.model_dump() == reverse.model_dump()
+    assert ids(forward.flatten()) == ["alpha"]
+
+
 def test_third_item_from_same_company_cannot_enter_main_or_try() -> None:
     result = build_boards(
         [
@@ -474,6 +542,20 @@ def test_company_cap_skip_does_not_block_other_companies() -> None:
 
     assert ids(result.must_read) == ["a", "b", "d"]
     assert ids(result.watch) == ["c"]
+
+
+def test_company_cap_canonicalizes_punctuation_and_unicode_variants() -> None:
+    result = build_boards(
+        [
+            scored("a", total=90, company="Acme, Inc."),
+            scored("b", total=85, company="ACME INC"),
+            scored("c", total=80, company="ＡＣＭＥ，　ＩＮＣ．"),
+            scored("d", total=75, company="ACME\u200b INC"),
+        ]
+    )
+
+    assert ids(result.must_read + result.try_now) == ["a", "b"]
+    assert ids(result.watch) == ["c", "d"]
 
 
 def test_material_update_link_is_copied_to_selected_editorial_item() -> None:

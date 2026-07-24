@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from .event_history import DuplicateAssessment
 from .models import EvidenceRecord, ScoreBreakdown
@@ -25,12 +25,24 @@ EVIDENCE = {
 }
 
 
+def _has_valid_effective_date(value: str | None) -> bool:
+    if value is None:
+        return False
+    try:
+        date.fromisoformat(value.strip())
+    except ValueError:
+        return False
+    return True
+
+
 def score_record(
     record: EvidenceRecord,
     assessment: DuplicateAssessment,
     published_at: datetime,
     now: datetime,
 ) -> ScoreBreakdown:
+    has_version_or_metric = bool(record.version_or_metric.strip())
+    has_effective_date = _has_valid_effective_date(record.effective_date)
     actionability = (
         20
         if (
@@ -45,8 +57,8 @@ def score_record(
     specificity = min(
         15,
         len(record.concrete_changes) * 7
-        + (4 if record.version_or_metric else 0)
-        + (4 if record.effective_date else 0),
+        + (4 if has_version_or_metric else 0)
+        + (4 if has_effective_date else 0),
     )
     age_hours = max(0, (now - published_at).total_seconds() / 3600)
     time_sensitivity = 10 if age_hours <= 24 else 7 if age_hours <= 72 else 2
@@ -57,7 +69,7 @@ def score_record(
         penalties -= 15
     if record.marketing_exaggeration:
         penalties -= 10
-    if age_hours > 72 and not record.effective_date:
+    if age_hours > 72 and not has_effective_date:
         penalties -= 10
     return ScoreBreakdown(
         relevance=RELEVANCE[record.relevance_signal],

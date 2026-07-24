@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -156,6 +157,42 @@ def test_fingerprint_and_persisted_fields_are_normalized_deterministically(
     ]
 
 
+@pytest.mark.parametrize(
+    ("left", "right"),
+    [
+        (
+            event(product_or_model="C++", event_entities=["Acme", "C++"]),
+            event(product_or_model="C#", event_entities=["Acme", "C#"]),
+        ),
+        (
+            event(version_or_metric="v1.2"),
+            event(version_or_metric="v1-2"),
+        ),
+    ],
+)
+def test_fingerprint_preserves_meaningful_punctuation(
+    left: EvidenceRecord,
+    right: EvidenceRecord,
+) -> None:
+    assert event_fingerprint(left) != event_fingerprint(right)
+
+
+def test_punctuation_distinct_metric_is_not_swallowed_by_exact_match(
+    tmp_path: Path,
+) -> None:
+    store = EventHistoryStore(tmp_path / "events.json")
+    old = event(version_or_metric="v1.2")
+    store.record([old], NOW)
+
+    result = store.classify(
+        event(version_or_metric="v1-2"),
+        NOW + timedelta(days=1),
+    )
+
+    assert result.status == "material_update"
+    assert result.update_of == event_fingerprint(old)
+
+
 def test_exact_event_with_no_new_fact_is_duplicate(tmp_path: Path) -> None:
     store = EventHistoryStore(tmp_path / "events.json")
     store.record([event()], NOW)
@@ -244,6 +281,31 @@ def test_event_exactly_seven_beijing_days_old_still_dedupes(
     assert store.classify(event(), NOW).status == "duplicate"
 
 
+@pytest.mark.parametrize("future_days", [1, 365])
+def test_future_events_do_not_participate_in_dedupe(
+    tmp_path: Path,
+    future_days: int,
+) -> None:
+    store = EventHistoryStore(tmp_path / "events.json")
+    store.record([event()], NOW + timedelta(days=future_days))
+
+    assert store.classify(event(), NOW).status == "unique"
+
+
+def test_record_prunes_future_events_from_persisted_state(tmp_path: Path) -> None:
+    path = tmp_path / "events.json"
+    store = EventHistoryStore(path)
+    store.record([event()], NOW + timedelta(days=365))
+    current = event(version_or_metric="v3-$1")
+
+    store.record([current], NOW)
+
+    stored = json.loads(path.read_text(encoding="utf-8"))["events"]
+    assert [entry["fingerprint"] for entry in stored] == [
+        event_fingerprint(current)
+    ]
+
+
 def test_record_prunes_events_older_than_seven_beijing_days(
     tmp_path: Path,
 ) -> None:
@@ -268,3 +330,101 @@ def test_record_digest_writes_selected_post_send_state(tmp_path: Path) -> None:
     store.record_digest(digest_with(record), now=NOW)
 
     assert store.classify(record, NOW + timedelta(days=1)).status == "duplicate"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        '{"events": [',
+        "[]",
+        '{"events": {}}',
+    ],
+)
+def test_corrupt_or_wrong_root_history_recovers_on_next_record(
+    tmp_path: Path,
+    payload: str,
+) -> None:
+    path = tmp_path / "events.json"
+    path.write_text(payload, encoding="utf-8")
+    store = EventHistoryStore(path)
+
+    assert store.classify(event(), NOW).status == "unique"
+    store.record([event()], NOW)
+
+    assert json.loads(path.read_text(encoding="utf-8"))["events"][0][
+        "fingerprint"
+    ] == event_fingerprint(event())
+
+
+def test_invalid_entries_are_skipped_without_losing_valid_entries(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "events.json"
+    store = EventHistoryStore(path)
+    old = event(version_or_metric="v1-$2")
+    store.record([old], NOW)
+    valid = json.loads(path.read_text(encoding="utf-8"))["events"][0]
+    invalid_entries = [
+        None,
+        "not-an-entry",
+        {},
+        {**valid, "recorded_at": "not-a-datetime"},
+        {**valid, "recorded_at": 123},
+        {**valid, "fingerprint": ["not", "a", "string"]},
+        {**valid, "entities": "acme"},
+        {**valid, "resource_available": "yes"},
+    ]
+    path.write_text(
+        json.dumps({"events": [*invalid_entries, valid]}),
+        encoding="utf-8",
+    )
+
+    assert store.classify(old, NOW).status == "duplicate"
+    current = event(version_or_metric="v2-$1")
+    store.record([current], NOW)
+
+    stored = json.loads(path.read_text(encoding="utf-8"))["events"]
+    assert {entry["fingerprint"] for entry in stored} == {
+        event_fingerprint(old),
+        event_fingerprint(current),
+    }
+
+
+def test_state_write_uses_same_directory_atomic_replace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "events.json"
+    calls: list[tuple[Path, Path]] = []
+    real_replace = os.replace
+
+    def observed_replace(source: str | Path, target: str | Path) -> None:
+        calls.append((Path(source), Path(target)))
+        real_replace(source, target)
+
+    monkeypatch.setattr(os, "replace", observed_replace)
+
+    EventHistoryStore(path).record([event()], NOW)
+
+    assert len(calls) == 1
+    source, target = calls[0]
+    assert source.parent == path.parent
+    assert target == path
+    assert list(path.parent.glob(f".{path.name}.*.tmp")) == []
+
+
+def test_atomic_write_cleans_temp_file_when_replace_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "events.json"
+
+    def failed_replace(source: str | Path, target: str | Path) -> None:
+        raise OSError("replace failed")
+
+    monkeypatch.setattr(os, "replace", failed_replace)
+
+    with pytest.raises(OSError, match="replace failed"):
+        EventHistoryStore(path).record([event()], NOW)
+
+    assert list(path.parent.glob(f".{path.name}.*.tmp")) == []

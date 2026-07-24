@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import unicodedata
 from collections.abc import Callable
 from typing import Literal
 
@@ -24,7 +26,7 @@ class ScoredEditorialCandidate(BaseModel):
 
 def _sort_key(
     candidate: ScoredEditorialCandidate,
-) -> tuple[int, int, int, float, str]:
+) -> tuple[int, int, int, float, str, str, str, str, str, str]:
     score = candidate.draft.score
     return (
         -score.total,
@@ -32,6 +34,16 @@ def _sort_key(
         -score.evidence_quality,
         -candidate.draft.published_at.timestamp(),
         candidate.draft.event_fingerprint,
+        candidate.draft.candidate_id,
+        candidate.draft.evidence_url,
+        candidate.draft.title_zh,
+        candidate.draft.source,
+        json.dumps(
+            candidate.model_dump(mode="json"),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
     )
 
 
@@ -66,7 +78,18 @@ def _eligible_watch(candidate: ScoredEditorialCandidate) -> bool:
 
 
 def _company_key(candidate: ScoredEditorialCandidate) -> str:
-    return " ".join(candidate.record.primary_entity.casefold().split())
+    normalized = unicodedata.normalize(
+        "NFKC",
+        candidate.record.primary_entity,
+    ).casefold()
+    canonical: list[str] = []
+    for character in normalized:
+        category = unicodedata.category(character)
+        if category.startswith("P"):
+            canonical.append(" ")
+        elif category != "Cf":
+            canonical.append(character)
+    return " ".join("".join(canonical).split())
 
 
 def _to_item(
