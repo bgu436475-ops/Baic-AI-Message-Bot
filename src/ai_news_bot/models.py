@@ -247,6 +247,17 @@ class DigestBoards(BaseModel):
     try_now: list[EditorialNewsItem] = Field(default_factory=list, max_length=3)
     watch: list[EditorialNewsItem] = Field(default_factory=list, max_length=3)
 
+    @model_validator(mode="after")
+    def validate_item_board_membership(self) -> "DigestBoards":
+        for board, items in (
+            ("must_read", self.must_read),
+            ("try_now", self.try_now),
+            ("watch", self.watch),
+        ):
+            if any(item.board != board for item in items):
+                raise ValueError("board items must match their board")
+        return self
+
     def flatten(self) -> list[EditorialNewsItem]:
         return [*self.must_read, *self.try_now, *self.watch]
 

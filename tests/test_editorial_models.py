@@ -109,3 +109,8 @@ def test_schema_v3_rejects_duplicate_or_mismatched_boards() -> None:
                 rejected_count=0,
             ),
         )
+
+
+def test_schema_v3_rejects_item_in_wrong_named_board() -> None:
+    with pytest.raises(ValidationError):
+        DigestBoards(must_read=[item(board="try_now")])
