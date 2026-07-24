@@ -142,6 +142,10 @@ const PUBLISHED_V2_DIGEST = {
   generated_at: "2026-07-20T01:05:00Z",
   candidate_count: 1,
   source_count: 1,
+  latest_published_at: "2099-01-01T00:00:00Z",
+  fresh_count_24h: 999,
+  lookback_hours: 36,
+  fallback_used: false,
   items: [LEGACY_V2_ITEM],
 };
 
@@ -213,6 +217,7 @@ test("NewsDashboard renders schema v3 boards, evidence and legal empty results",
   assert.match(publishedHtml, /具体变化/);
   assert.match(publishedHtml, /建议行动/);
   assert.match(publishedHtml, /https:\/\/example\.com\/Model-X/);
+  assert.match(publishedHtml, /已核验证据/);
   assert.match(publishedHtml, /证据暂未完整核验/);
   assert.match(publishedHtml, /总分 100/);
 
@@ -230,6 +235,9 @@ test("NewsDashboard renders schema v3 boards, evidence and legal empty results",
   assert.equal(normalized.schema_version, 3);
   assert.equal(normalized.boards.must_read.length, 1);
   assert.equal(normalized.boards.must_read[0].evidence_url, "https://example.com/legacy");
+  assert.equal(normalized.latest_published_at, LEGACY_V2_ITEM.published_at);
+  assert.equal(normalized.fresh_count_24h, 1);
+  assert.equal(isDigest(normalized), true);
 });
 
 test("schema v3 validator rejects caps, identity conflicts, unsafe evidence and impossible counts", async () => {
@@ -303,6 +311,161 @@ test("schema v2 compatibility is narrow and rejects malformed legacy data", asyn
     ...PUBLISHED_V2_DIGEST,
     items: [{ ...LEGACY_V2_ITEM, url: "http://example.com/legacy" }],
   }));
+  assert.throws(() => normalizeDigest({ ...PUBLISHED_V2_DIGEST, unknown: true }));
+  const missingField = structuredClone(PUBLISHED_V2_DIGEST);
+  delete missingField.fallback_used;
+  assert.throws(() => normalizeDigest(missingField));
+});
+
+test("schema validator requires real RFC3339 datetimes and calendar dates", async () => {
+  const { isDigest } = await vite.ssrLoadModule("/app/news-data.ts");
+  const updateStory = (digest, field, value) => {
+    digest.boards.must_read[0][field] = value;
+    digest.items.find((story) => story.candidate_id === MUST_READ_ITEM.candidate_id)[field] = value;
+  };
+
+  for (const invalid of [
+    "1",
+    "2026-02-30T01:05:00Z",
+    "2026-07-20T01:05:00",
+    "2026-07-20T25:00:00Z",
+    "2026-07-20T01:05:00+24:00",
+  ]) {
+    assert.equal(isDigest({ ...structuredClone(PUBLISHED_DIGEST), generated_at: invalid }), false);
+    const invalidPublished = structuredClone(PUBLISHED_DIGEST);
+    updateStory(invalidPublished, "published_at", invalid);
+    assert.equal(isDigest(invalidPublished), false);
+  }
+
+  for (const invalid of ["1", "2026-02-30", "2026-07-20T00:00:00Z"]) {
+    const invalidEffective = structuredClone(PUBLISHED_DIGEST);
+    updateStory(invalidEffective, "effective_date", invalid);
+    assert.equal(isDigest(invalidEffective), false);
+  }
+
+  const precisePythonDatetime = structuredClone(PUBLISHED_DIGEST);
+  precisePythonDatetime.generated_at = "2026-07-20T01:05:00.366572+00:00";
+  assert.equal(isDigest(precisePythonDatetime), true);
+
+  const leapDate = structuredClone(PUBLISHED_DIGEST);
+  updateStory(leapDate, "effective_date", "2024-02-29");
+  assert.equal(isDigest(leapDate), true);
+});
+
+test("schema validators reject unknown, missing and over-cap nested fields", async () => {
+  const { isDigest } = await vite.ssrLoadModule("/app/news-data.ts");
+  const updateStory = (digest, mutate) => {
+    const boardStory = digest.boards.must_read[0];
+    const flatStory = digest.items.find(
+      (story) => story.candidate_id === MUST_READ_ITEM.candidate_id,
+    );
+    mutate(boardStory);
+    mutate(flatStory);
+  };
+
+  assert.equal(isDigest({ ...structuredClone(PUBLISHED_DIGEST), unknown: true }), false);
+
+  const unknownBoard = structuredClone(PUBLISHED_DIGEST);
+  unknownBoard.boards.unknown = [];
+  assert.equal(isDigest(unknownBoard), false);
+
+  const unknownItem = structuredClone(PUBLISHED_DIGEST);
+  updateStory(unknownItem, (story) => { story.unknown = true; });
+  assert.equal(isDigest(unknownItem), false);
+
+  const unknownScore = structuredClone(PUBLISHED_DIGEST);
+  updateStory(unknownScore, (story) => { story.score.unknown = 1; });
+  assert.equal(isDigest(unknownScore), false);
+
+  const unknownStats = structuredClone(PUBLISHED_DIGEST);
+  unknownStats.pipeline_stats.unknown = 1;
+  assert.equal(isDigest(unknownStats), false);
+
+  const missingItemField = structuredClone(PUBLISHED_DIGEST);
+  updateStory(missingItemField, (story) => { delete story.title_en; });
+  assert.equal(isDigest(missingItemField), false);
+
+  const overlongCandidateId = structuredClone(PUBLISHED_DIGEST);
+  updateStory(overlongCandidateId, (story) => { story.candidate_id = "x".repeat(161); });
+  assert.equal(isDigest(overlongCandidateId), false);
+
+  const tooManyActions = structuredClone(PUBLISHED_DIGEST);
+  updateStory(tooManyActions, (story) => {
+    story.recommended_action = Array.from({ length: 6 }, () => "Test");
+  });
+  assert.equal(isDigest(tooManyActions), false);
+
+  const overlongAction = structuredClone(PUBLISHED_DIGEST);
+  updateStory(overlongAction, (story) => {
+    story.recommended_action = ["x".repeat(301)];
+  });
+  assert.equal(isDigest(overlongAction), false);
+});
+
+test("unverified evidence uses a neutral label for every warning status", async () => {
+  const { evidenceLabel } = await vite.ssrLoadModule("/app/news-dashboard.tsx");
+  const watchItems = ["unavailable", "blocked", "insufficient"].map((status, index) =>
+    item("watch", `Watch-${index}`, {
+      verification_status: status,
+      resource_available: false,
+      score: {
+        relevance: 18,
+        actionability: 12,
+        specificity: 10,
+        information_gain: 10,
+        evidence_quality: 5,
+        time_sensitivity: 8,
+        penalties: -5,
+        total: 58,
+      },
+    }));
+  const digest = {
+    ...structuredClone(PUBLISHED_DIGEST),
+    candidate_count: 3,
+    source_count: 1,
+    boards: { must_read: [], try_now: [], watch: watchItems },
+    items: watchItems,
+    pipeline_stats: {
+      candidate_count: 3,
+      shortlist_count: 3,
+      source_verified_count: 0,
+      rejected_count: 0,
+      top_rejection_reasons: {},
+    },
+  };
+
+  const html = await renderDashboard(digest);
+  assert.equal((html.match(/证据暂未完整核验/g) ?? []).length, 3);
+  assert.equal((html.match(/>证据来源 /g) ?? []).length, 3);
+  assert.doesNotMatch(html, /已核验证据/);
+  assert.equal(evidenceLabel("verified", "en"), "Verified evidence");
+  assert.equal(evidenceLabel("unavailable", "en"), "Evidence source");
+  assert.equal(evidenceLabel("blocked", "en"), "Evidence source");
+  assert.equal(evidenceLabel("insufficient", "en"), "Evidence source");
+});
+
+test("summary ranks immutably and uses change, impact and action without vague filler", async () => {
+  const { buildSummary } = await vite.ssrLoadModule("/app/summary.ts");
+  const digest = structuredClone(PUBLISHED_DIGEST);
+  digest.items.reverse();
+  const originalOrder = digest.items.map((story) => story.candidate_id);
+
+  const report = buildSummary(digest, "weekly", "zh");
+
+  assert.deepEqual(digest.items.map((story) => story.candidate_id), originalOrder);
+  assert.deepEqual(report.narratives.map((story) => story.score), [100, 90, 58]);
+  assert.match(report.narratives[0].summary, new RegExp(MUST_READ_ITEM.concrete_change));
+  assert.match(report.narratives[0].summary, /API 开发者/);
+  assert.match(report.narratives[0].summary, /本周验证 Model-X API 配额/);
+  for (const prohibited of [
+    "这对行业具有重要意义",
+    "这展示了 AI 的巨大潜力",
+    "这预示着未来的发展方向",
+    "这可能推动相关应用",
+    "值得持续关注",
+  ]) {
+    assert.doesNotMatch(JSON.stringify(report), new RegExp(prohibited));
+  }
 });
 
 test("summary API exposes a Feishu-ready daily and weekly payload", async () => {

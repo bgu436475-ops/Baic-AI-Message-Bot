@@ -29,8 +29,8 @@ export type NewsItem = {
   candidate_id: string;
   board: BoardName;
   original_title: string;
-  title_en?: string;
-  summary_en?: string;
+  title_en: string;
+  summary_en: string;
   title_zh: string;
   summary_zh: string;
   concrete_change: string;
@@ -40,12 +40,12 @@ export type NewsItem = {
   evidence_url: string;
   verification_status: "verified" | "unavailable" | "blocked" | "insufficient";
   event_fingerprint: string;
-  update_of?: string | null;
+  update_of: string | null;
   primary_entity: string;
   event_entities: string[];
   change_signature: string;
   version_or_metric: string;
-  effective_date?: string | null;
+  effective_date: string | null;
   resource_available: boolean;
   scientific_verified: boolean;
   source: string;
@@ -86,8 +86,8 @@ export type Digest = {
 
 type LegacyNewsItemV2 = {
   original_title: string;
-  title_en?: string;
-  summary_en?: string;
+  title_en: string;
+  summary_en: string;
   title_zh: string;
   summary_zh: string;
   url: string;
@@ -104,10 +104,10 @@ export type LegacyDigestV2 = {
   generated_at: string;
   candidate_count: number;
   source_count: number;
-  latest_published_at?: string | null;
-  fresh_count_24h?: number;
-  lookback_hours?: number;
-  fallback_used?: boolean;
+  latest_published_at: string | null;
+  fresh_count_24h: number;
+  lookback_hours: number;
+  fallback_used: boolean;
   items: LegacyNewsItemV2[];
 };
 
@@ -129,36 +129,138 @@ const VERIFICATION_STATUSES = new Set([
   "blocked",
   "insufficient",
 ]);
+const DIGEST_KEYS = new Set([
+  "schema_version", "run_status", "generated_at", "candidate_count",
+  "source_count", "latest_published_at", "fresh_count_24h",
+  "lookback_hours", "fallback_used", "boards", "items", "pipeline_stats",
+]);
+const BOARD_KEYS = new Set(["must_read", "try_now", "watch"]);
+const ITEM_KEYS = new Set([
+  "candidate_id", "board", "original_title", "title_en", "summary_en",
+  "title_zh", "summary_zh", "concrete_change", "affected_audience",
+  "affected_area", "recommended_action", "evidence_url",
+  "verification_status", "event_fingerprint", "update_of", "primary_entity",
+  "event_entities", "change_signature", "version_or_metric",
+  "effective_date", "resource_available", "scientific_verified", "source",
+  "published_at", "category", "extra_categories", "score",
+]);
+const SCORE_KEYS = new Set([
+  "relevance", "actionability", "specificity", "information_gain",
+  "evidence_quality", "time_sensitivity", "penalties", "total",
+]);
+const PIPELINE_KEYS = new Set([
+  "candidate_count", "shortlist_count", "source_verified_count",
+  "rejected_count", "top_rejection_reasons",
+]);
+const LEGACY_DIGEST_KEYS = new Set([
+  "schema_version", "run_status", "generated_at", "candidate_count",
+  "source_count", "latest_published_at", "fresh_count_24h",
+  "lookback_hours", "fallback_used", "items",
+]);
+const LEGACY_ITEM_KEYS = new Set([
+  "original_title", "title_en", "summary_en", "title_zh", "summary_zh",
+  "url", "source", "published_at", "category", "extra_categories",
+  "importance",
+]);
+const RFC3339_PATTERN =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})$/;
+const DATE_ONLY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0;
+function hasExactKeys(value: Record<string, unknown>, expected: Set<string>): boolean {
+  const keys = Object.keys(value);
+  return keys.length === expected.size && keys.every((key) => expected.has(key));
 }
 
-function isString(value: unknown): value is string {
-  return typeof value === "string";
+function isBoundedString(
+  value: unknown,
+  maxLength: number,
+  requireContent = false,
+): value is string {
+  return typeof value === "string"
+    && value.length <= maxLength
+    && (!requireContent || value.trim().length > 0);
 }
 
-function isStringArray(value: unknown, maxLength: number, allowEmpty = true): value is string[] {
+function isStringArray(
+  value: unknown,
+  maxLength: number,
+  itemMaxLength: number,
+  allowEmpty = true,
+): value is string[] {
   return Array.isArray(value)
     && value.length <= maxLength
     && (allowEmpty || value.length > 0)
-    && value.every(isNonEmptyString);
+    && value.every((item) => isBoundedString(item, itemMaxLength, true));
 }
 
 function isNonNegativeInteger(value: unknown): value is number {
   return Number.isInteger(value) && Number(value) >= 0;
 }
 
-function isIsoDate(value: unknown): value is string {
-  return typeof value === "string" && value.trim() !== "" && Number.isFinite(Date.parse(value));
+function calendarPartsAreReal(year: number, month: number, day: number): boolean {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
+  date.setUTCHours(0, 0, 0, 0);
+  return date.getUTCFullYear() === year
+    && date.getUTCMonth() === month - 1
+    && date.getUTCDate() === day;
+}
+
+function isDateOnly(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const match = DATE_ONLY_PATTERN.exec(value);
+  if (!match) return false;
+  return calendarPartsAreReal(Number(match[1]), Number(match[2]), Number(match[3]));
+}
+
+function isRfc3339DateTime(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const match = RFC3339_PATTERN.exec(value);
+  if (!match) return false;
+  const [
+    , yearText, monthText, dayText, hourText, minuteText, secondText,
+    fraction = "", zone,
+  ] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const second = Number(secondText);
+  if (
+    !calendarPartsAreReal(year, month, day)
+    || hour > 23
+    || minute > 59
+    || second > 59
+  ) {
+    return false;
+  }
+  let offsetMinutes = 0;
+  if (zone !== "Z") {
+    const offsetHour = Number(zone.slice(1, 3));
+    const offsetMinute = Number(zone.slice(4, 6));
+    if (offsetHour > 23 || offsetMinute > 59) return false;
+    offsetMinutes = (offsetHour * 60 + offsetMinute) * (zone[0] === "+" ? 1 : -1);
+  }
+  const local = new Date(0);
+  local.setUTCFullYear(year, month - 1, day);
+  local.setUTCHours(
+    hour,
+    minute,
+    second,
+    Number((fraction + "000").slice(0, 3)),
+  );
+  const expected = local.getTime() - offsetMinutes * 60_000;
+  return Number.isFinite(expected) && Date.parse(value) === expected;
 }
 
 function isHttpsUrl(value: unknown): value is string {
-  if (typeof value !== "string") return false;
+  if (!isBoundedString(value, 1000, true)) return false;
   try {
     const url = new URL(value);
     return url.protocol === "https:" && Boolean(url.hostname);
@@ -172,7 +274,7 @@ function isCategory(value: unknown): value is Exclude<Category, "all"> {
 }
 
 function isScore(value: unknown): value is ScoreBreakdown {
-  if (!isRecord(value)) return false;
+  if (!isRecord(value) || !hasExactKeys(value, SCORE_KEYS)) return false;
   const caps = {
     relevance: 25,
     actionability: 20,
@@ -196,29 +298,31 @@ function isScore(value: unknown): value is ScoreBreakdown {
 }
 
 function isNewsItem(value: unknown, expectedBoard?: BoardName): value is NewsItem {
-  if (!isRecord(value)) return false;
+  if (!isRecord(value) || !hasExactKeys(value, ITEM_KEYS)) return false;
   if (!BOARD_NAMES.includes(value.board as BoardName)) return false;
   if (expectedBoard && value.board !== expectedBoard) return false;
   if (
-    !isNonEmptyString(value.candidate_id)
-    || !isNonEmptyString(value.original_title)
-    || !isString(value.title_zh)
-    || !isString(value.summary_zh)
-    || !isNonEmptyString(value.concrete_change)
-    || !isStringArray(value.affected_audience, 5, false)
-    || !isStringArray(value.affected_area, 5, false)
-    || !isStringArray(value.recommended_action, 5, false)
+    !isBoundedString(value.candidate_id, 160, true)
+    || !isBoundedString(value.original_title, 120, true)
+    || !isBoundedString(value.title_en, 120)
+    || !isBoundedString(value.summary_en, 320)
+    || !isBoundedString(value.title_zh, 80)
+    || !isBoundedString(value.summary_zh, 220)
+    || !isBoundedString(value.concrete_change, 1200, true)
+    || !isStringArray(value.affected_audience, 5, 160, false)
+    || !isStringArray(value.affected_area, 5, 160, false)
+    || !isStringArray(value.recommended_action, 5, 300, false)
     || !isHttpsUrl(value.evidence_url)
     || !VERIFICATION_STATUSES.has(value.verification_status as string)
-    || !isNonEmptyString(value.event_fingerprint)
-    || !isNonEmptyString(value.primary_entity)
-    || !isStringArray(value.event_entities, 10, false)
-    || !isNonEmptyString(value.change_signature)
-    || !isString(value.version_or_metric)
+    || !isBoundedString(value.event_fingerprint, 1000, true)
+    || !isBoundedString(value.primary_entity, 160, true)
+    || !isStringArray(value.event_entities, 10, 160, false)
+    || !isBoundedString(value.change_signature, 160, true)
+    || !isBoundedString(value.version_or_metric, 120)
     || typeof value.resource_available !== "boolean"
     || typeof value.scientific_verified !== "boolean"
-    || !isNonEmptyString(value.source)
-    || !isIsoDate(value.published_at)
+    || !isBoundedString(value.source, 120, true)
+    || !isRfc3339DateTime(value.published_at)
     || !isCategory(value.category)
     || !Array.isArray(value.extra_categories)
     || value.extra_categories.length > 3
@@ -227,10 +331,8 @@ function isNewsItem(value: unknown, expectedBoard?: BoardName): value is NewsIte
   ) {
     return false;
   }
-  if (value.title_en !== undefined && !isString(value.title_en)) return false;
-  if (value.summary_en !== undefined && !isString(value.summary_en)) return false;
-  if (value.update_of !== undefined && value.update_of !== null && !isString(value.update_of)) return false;
-  if (value.effective_date !== undefined && value.effective_date !== null && !isIsoDate(value.effective_date)) return false;
+  if (value.update_of !== null && !isBoundedString(value.update_of, 500)) return false;
+  if (value.effective_date !== null && !isDateOnly(value.effective_date)) return false;
   return true;
 }
 
@@ -238,7 +340,11 @@ function isPipelineStats(
   value: unknown,
   candidateCount: number,
 ): value is PipelineStats {
-  if (!isRecord(value) || !isRecord(value.top_rejection_reasons)) return false;
+  if (
+    !isRecord(value)
+    || !hasExactKeys(value, PIPELINE_KEYS)
+    || !isRecord(value.top_rejection_reasons)
+  ) return false;
   const { shortlist_count, source_verified_count, rejected_count } = value;
   if (
     value.candidate_count !== candidateCount
@@ -252,7 +358,7 @@ function isPipelineStats(
     return false;
   }
   return Object.entries(value.top_rejection_reasons).every(
-    ([reason, count]) => reason.trim() !== "" && isNonNegativeInteger(count),
+    ([reason, count]) => isBoundedString(reason, 160, true) && isNonNegativeInteger(count),
   );
 }
 
@@ -272,20 +378,21 @@ function deepEqual(left: unknown, right: unknown): boolean {
 }
 
 export function isDigest(value: unknown): value is Digest {
-  if (!isRecord(value)) return false;
+  if (!isRecord(value) || !hasExactKeys(value, DIGEST_KEYS)) return false;
   const candidate = value;
   if (!(candidate.schema_version === 3)) return false;
   if (
     (candidate.run_status !== "published" && candidate.run_status !== "no_qualifying_items")
-    || !isIsoDate(candidate.generated_at)
+    || !isRfc3339DateTime(candidate.generated_at)
     || !isNonNegativeInteger(candidate.candidate_count)
     || !isNonNegativeInteger(candidate.source_count)
     || candidate.source_count > candidate.candidate_count
-    || (candidate.latest_published_at !== null && !isIsoDate(candidate.latest_published_at))
+    || (candidate.latest_published_at !== null && !isRfc3339DateTime(candidate.latest_published_at))
     || !isNonNegativeInteger(candidate.fresh_count_24h)
     || !isNonNegativeInteger(candidate.lookback_hours)
     || typeof candidate.fallback_used !== "boolean"
     || !isRecord(candidate.boards)
+    || !hasExactKeys(candidate.boards, BOARD_KEYS)
     || !Array.isArray(candidate.items)
     || !isPipelineStats(candidate.pipeline_stats, candidate.candidate_count)
   ) {
@@ -341,33 +448,33 @@ export function isDigest(value: unknown): value is Digest {
 }
 
 function isLegacyItemV2(value: unknown): value is LegacyNewsItemV2 {
-  if (!isRecord(value)) return false;
+  if (!isRecord(value) || !hasExactKeys(value, LEGACY_ITEM_KEYS)) return false;
   return (
-    isNonEmptyString(value.original_title)
-    && isString(value.title_zh)
-    && isString(value.summary_zh)
-    && (value.title_en === undefined || isString(value.title_en))
-    && (value.summary_en === undefined || isString(value.summary_en))
+    isBoundedString(value.original_title, 120, true)
+    && isBoundedString(value.title_zh, 80)
+    && isBoundedString(value.summary_zh, 220)
+    && isBoundedString(value.title_en, 120)
+    && isBoundedString(value.summary_en, 320)
     && isHttpsUrl(value.url)
-    && isNonEmptyString(value.source)
-    && isIsoDate(value.published_at)
+    && isBoundedString(value.source, 120, true)
+    && isRfc3339DateTime(value.published_at)
     && isCategory(value.category)
     && Array.isArray(value.extra_categories)
     && value.extra_categories.length <= 3
     && value.extra_categories.every(isCategory)
-    && Number.isFinite(value.importance)
-    && Number(value.importance) >= 0
+    && Number.isInteger(value.importance)
+    && Number(value.importance) >= 1
     && Number(value.importance) <= 100
   );
 }
 
 export function isLegacyDigestV2(value: unknown): value is LegacyDigestV2 {
-  if (!isRecord(value)) return false;
+  if (!isRecord(value) || !hasExactKeys(value, LEGACY_DIGEST_KEYS)) return false;
   const candidate = value;
   if (!(candidate.schema_version === 2)) return false;
   if (
     (candidate.run_status !== "published" && candidate.run_status !== "no_qualifying_items")
-    || !isIsoDate(candidate.generated_at)
+    || !isRfc3339DateTime(candidate.generated_at)
     || !isNonNegativeInteger(candidate.candidate_count)
     || !isNonNegativeInteger(candidate.source_count)
     || candidate.source_count > candidate.candidate_count
@@ -377,10 +484,10 @@ export function isLegacyDigestV2(value: unknown): value is LegacyDigestV2 {
   ) {
     return false;
   }
-  if (candidate.latest_published_at !== undefined && candidate.latest_published_at !== null && !isIsoDate(candidate.latest_published_at)) return false;
-  if (candidate.fresh_count_24h !== undefined && !isNonNegativeInteger(candidate.fresh_count_24h)) return false;
-  if (candidate.lookback_hours !== undefined && !isNonNegativeInteger(candidate.lookback_hours)) return false;
-  if (candidate.fallback_used !== undefined && typeof candidate.fallback_used !== "boolean") return false;
+  if (candidate.latest_published_at !== null && !isRfc3339DateTime(candidate.latest_published_at)) return false;
+  if (!isNonNegativeInteger(candidate.fresh_count_24h)) return false;
+  if (!isNonNegativeInteger(candidate.lookback_hours)) return false;
+  if (typeof candidate.fallback_used !== "boolean") return false;
   return (
     (candidate.run_status === "published" && candidate.items.length > 0)
     || (candidate.run_status === "no_qualifying_items" && candidate.items.length === 0)
@@ -452,19 +559,26 @@ export function normalizeDigest(value: unknown): Digest {
     throw new TypeError("Invalid AI news digest");
   }
   const mustRead = value.items.map(normalizeLegacyItem);
-  return {
+  const generatedAt = Date.parse(value.generated_at);
+  const latestPublishedAt = mustRead.length
+    ? mustRead.reduce((latest, item) =>
+      Date.parse(item.published_at) > Date.parse(latest) ? item.published_at : latest,
+    mustRead[0].published_at)
+    : null;
+  const freshCount24h = mustRead.filter((item) => {
+    const age = generatedAt - Date.parse(item.published_at);
+    return age >= 0 && age <= 24 * 60 * 60 * 1000;
+  }).length;
+  const normalized: Digest = {
     schema_version: 3,
     run_status: value.run_status,
     generated_at: value.generated_at,
     candidate_count: value.candidate_count,
     source_count: value.source_count,
-    latest_published_at: value.latest_published_at
-      ?? (mustRead.length ? mustRead.reduce((latest, item) =>
-        Date.parse(item.published_at) > Date.parse(latest) ? item.published_at : latest,
-      mustRead[0].published_at) : null),
-    fresh_count_24h: Math.min(value.fresh_count_24h ?? 0, mustRead.length),
-    lookback_hours: value.lookback_hours ?? 36,
-    fallback_used: value.fallback_used ?? false,
+    latest_published_at: latestPublishedAt,
+    fresh_count_24h: freshCount24h,
+    lookback_hours: value.lookback_hours,
+    fallback_used: value.fallback_used,
     boards: { must_read: mustRead, try_now: [], watch: [] },
     items: mustRead,
     pipeline_stats: {
@@ -475,6 +589,10 @@ export function normalizeDigest(value: unknown): Digest {
       top_rejection_reasons: {},
     },
   };
+  if (!isDigest(normalized)) {
+    throw new TypeError("Legacy digest cannot be normalized safely");
+  }
+  return normalized;
 }
 
 export const CATEGORY_LABELS: Record<"zh" | "en", Record<Category, string>> = {

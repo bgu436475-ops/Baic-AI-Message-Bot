@@ -1,4 +1,4 @@
-import { digest as staticDigest, isDigest, type Digest } from "../app/news-data";
+import { digest as staticDigest, normalizeDigest, type Digest } from "../app/news-data";
 
 type RuntimeEnv = {
   DB?: D1Database;
@@ -33,6 +33,14 @@ export async function digestUpdateSecret() {
   return (await runtimeEnv()).DIGEST_UPDATE_SECRET?.trim() ?? "";
 }
 
+export function parseStoredDigest(payload: string): Digest | null {
+  try {
+    return normalizeDigest(JSON.parse(payload) as unknown);
+  } catch {
+    return null;
+  }
+}
+
 export async function getLatestDigest(): Promise<Digest> {
   try {
     const db = await database();
@@ -42,8 +50,7 @@ export async function getLatestDigest(): Promise<Digest> {
       .bind(1)
       .first<{ payload: string }>();
     if (!row) return staticDigest;
-    const parsed: unknown = JSON.parse(row.payload);
-    return isDigest(parsed) ? parsed : staticDigest;
+    return parseStoredDigest(row.payload) ?? staticDigest;
   } catch {
     return staticDigest;
   }

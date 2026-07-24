@@ -42,7 +42,8 @@ const COPY = {
     concreteChange: "具体变化",
     impact: "影响对象 / 范围",
     action: "建议行动",
-    evidence: "核查证据",
+    verifiedEvidence: "已核验证据",
+    evidenceSource: "证据来源",
     score: "总分",
     unverified: "证据暂未完整核验，请先阅读原始来源再行动。",
     legalEmpty: "今日无内容通过硬门槛",
@@ -114,7 +115,8 @@ const COPY = {
     concreteChange: "Specific change",
     impact: "Affected audience / area",
     action: "Recommended action",
-    evidence: "Verified evidence",
+    verifiedEvidence: "Verified evidence",
+    evidenceSource: "Evidence source",
     score: "Total score",
     unverified: "Evidence is not fully verified. Read the original source before acting.",
     legalEmpty: "No item passed today’s hard gates",
@@ -183,6 +185,14 @@ function localizedSummary(item: NewsItem, language: Language) {
   return item.summary_zh || item.summary_en || "—";
 }
 
+export function evidenceLabel(
+  status: NewsItem["verification_status"],
+  language: Language,
+) {
+  const copy = COPY[language];
+  return status === "verified" ? copy.verifiedEvidence : copy.evidenceSource;
+}
+
 function formatTime(value: string, language: Language) {
   return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-GB", {
     month: "short",
@@ -198,6 +208,7 @@ function StoryCard({ item, index, language }: { item: NewsItem; index: number; l
   const copy = COPY[language];
   const labels = CATEGORY_LABELS[language];
   const title = localizedTitle(item, language);
+  const evidence = evidenceLabel(item.verification_status, language);
   return (
     <article className="story-card">
       <div className="story-index">{String(index + 1).padStart(2, "0")}</div>
@@ -236,8 +247,8 @@ function StoryCard({ item, index, language }: { item: NewsItem; index: number; l
             ))}
             <span className="mini-tag">{copy.score} {item.score.total}</span>
           </div>
-          <a href={item.evidence_url} target="_blank" rel="noreferrer" aria-label={`${copy.evidence}: ${title}`}>
-            {copy.evidence} <span aria-hidden="true">↗</span>
+          <a href={item.evidence_url} target="_blank" rel="noreferrer" aria-label={`${evidence}: ${title}`}>
+            {evidence} <span aria-hidden="true">↗</span>
           </a>
         </div>
       </div>
