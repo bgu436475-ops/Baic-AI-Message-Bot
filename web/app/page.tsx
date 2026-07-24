@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
+import { getLatestDigest } from "../db/digest-store";
 import { NewsDashboard } from "./news-dashboard";
-import { digest } from "./news-data";
 
 export const metadata: Metadata = {
   title: "AI SIGNAL｜AI 每日情报",
-  description: "每天筛选约 10 条值得关注的 AI 新闻，覆盖模型、编程、Agent、生成式 AI、开源项目与行业动态。",
+  description: "每天严格核查高决策价值 AI 信息，宁缺毋滥。",
 };
 
-export default function Home() {
-  return <NewsDashboard initialDigest={digest} />;
+export default async function Home() {
+  return <NewsDashboard initialDigest={await getLatestDigest()} />;
 }

@@ -4,42 +4,145 @@ import { createServer } from "vite";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+function item(board, id, overrides = {}) {
+  return {
+    candidate_id: id,
+    board,
+    original_title: `${id} release`,
+    title_en: `${id} release`,
+    summary_en: `${id} changes a concrete API limit.`,
+    title_zh: `${id} 发布`,
+    summary_zh: `${id} 带来可核查的 API 变化。`,
+    concrete_change: `${id} API 上限从 10 提升到 20。`,
+    affected_audience: ["API 开发者"],
+    affected_area: ["调用配额"],
+    recommended_action: [`本周验证 ${id} API 配额`],
+    evidence_url: `https://example.com/${id}`,
+    verification_status: "verified",
+    event_fingerprint: `example|${id}|api-limit|20|2026-07-20`,
+    update_of: null,
+    primary_entity: "Example",
+    event_entities: ["Example", id],
+    change_signature: "api-limit",
+    version_or_metric: "20",
+    effective_date: "2026-07-20",
+    resource_available: true,
+    scientific_verified: false,
+    source: "Example",
+    published_at: "2026-07-20T00:30:00Z",
+    category: "new_models",
+    extra_categories: [],
+    score: {
+      relevance: 25,
+      actionability: 20,
+      specificity: 15,
+      information_gain: 15,
+      evidence_quality: 15,
+      time_sensitivity: 10,
+      penalties: 0,
+      total: 100,
+    },
+    ...overrides,
+  };
+}
+
+const MUST_READ_ITEM = item("must_read", "Model-X");
+const TRY_NOW_ITEM = item("try_now", "Tool-Y", {
+  category: "ai_coding",
+  score: {
+    relevance: 20,
+    actionability: 20,
+    specificity: 15,
+    information_gain: 12,
+    evidence_quality: 15,
+    time_sensitivity: 8,
+    penalties: 0,
+    total: 90,
+  },
+});
+const WATCH_ITEM = item("watch", "Policy-Z", {
+  category: "industry_business",
+  verification_status: "unavailable",
+  resource_available: false,
+  score: {
+    relevance: 18,
+    actionability: 12,
+    specificity: 10,
+    information_gain: 10,
+    evidence_quality: 5,
+    time_sensitivity: 8,
+    penalties: -5,
+    total: 58,
+  },
+});
+
 const PUBLISHED_DIGEST = {
+  schema_version: 3,
+  run_status: "published",
+  generated_at: "2026-07-20T01:05:00Z",
+  candidate_count: 8,
+  source_count: 3,
+  latest_published_at: "2026-07-20T00:30:00Z",
+  fresh_count_24h: 3,
+  lookback_hours: 36,
+  fallback_used: false,
+  boards: {
+    must_read: [MUST_READ_ITEM],
+    try_now: [TRY_NOW_ITEM],
+    watch: [WATCH_ITEM],
+  },
+  items: [MUST_READ_ITEM, TRY_NOW_ITEM, WATCH_ITEM],
+  pipeline_stats: {
+    candidate_count: 8,
+    shortlist_count: 3,
+    source_verified_count: 2,
+    rejected_count: 0,
+    top_rejection_reasons: {},
+  },
+};
+
+const EMPTY_DIGEST = {
+  schema_version: 3,
+  run_status: "no_qualifying_items",
+  generated_at: "2026-07-20T01:05:00Z",
+  candidate_count: 8,
+  source_count: 3,
+  latest_published_at: null,
+  fresh_count_24h: 0,
+  lookback_hours: 36,
+  fallback_used: false,
+  boards: { must_read: [], try_now: [], watch: [] },
+  items: [],
+  pipeline_stats: {
+    candidate_count: 8,
+    shortlist_count: 3,
+    source_verified_count: 2,
+    rejected_count: 3,
+    top_rejection_reasons: { missing_action: 3 },
+  },
+};
+
+const LEGACY_V2_ITEM = {
+  original_title: "Legacy release",
+  title_en: "Legacy release",
+  summary_en: "A legacy rendered-test item.",
+  title_zh: "旧版发布",
+  summary_zh: "用于兼容性测试的旧版条目。",
+  url: "https://example.com/legacy",
+  source: "Example",
+  published_at: "2026-07-20T00:30:00Z",
+  category: "new_models",
+  extra_categories: [],
+  importance: 90,
+};
+
+const PUBLISHED_V2_DIGEST = {
   schema_version: 2,
   run_status: "published",
   generated_at: "2026-07-20T01:05:00Z",
   candidate_count: 1,
   source_count: 1,
-  latest_published_at: "2026-07-20T00:30:00Z",
-  fresh_count_24h: 1,
-  lookback_hours: 36,
-  fallback_used: false,
-  items: [{
-    original_title: "Example release",
-    title_en: "Example release",
-    summary_en: "A deterministic rendered-test item.",
-    title_zh: "示例发布",
-    summary_zh: "用于稳定渲染测试的确定性条目。",
-    url: "https://example.com/news",
-    source: "Example",
-    published_at: "2026-07-20T00:30:00Z",
-    category: "new_models",
-    extra_categories: [],
-    importance: 90,
-  }],
-};
-
-const EMPTY_DIGEST = {
-  schema_version: 2,
-  run_status: "no_qualifying_items",
-  generated_at: "2026-07-20T01:05:00Z",
-  candidate_count: 0,
-  source_count: 0,
-  latest_published_at: null,
-  fresh_count_24h: 0,
-  lookback_hours: 36,
-  fallback_used: false,
-  items: [],
+  items: [LEGACY_V2_ITEM],
 };
 
 let vite;
@@ -84,17 +187,19 @@ test("server-renders the AI news dashboard", async () => {
   assert.match(html, /今日值得关注/);
   assert.match(html, /三层去重/);
   assert.match(html, /<section class="feed" aria-live="polite">/);
-  assert.match(html, /每天约 10 条/);
+  assert.match(html, /每天严格核查高决策价值 AI 信息，宁缺毋滥/);
+  assert.doesNotMatch(html, /每天约 10 条/);
   assert.match(html, /切换到英文/);
   assert.match(html, /中/);
   assert.match(html, /EN/);
   assert.match(html, /最后检查/);
   assert.match(html, /近 24 小时/);
   assert.match(html, /一键总结/);
+  assert.doesNotMatch(html, /class="story-index">00</);
 });
 
-test("NewsDashboard renders published and empty v2 results deterministically", async () => {
-  const { isDigest } = await vite.ssrLoadModule("/app/news-data.ts");
+test("NewsDashboard renders schema v3 boards, evidence and legal empty results", async () => {
+  const { isDigest, normalizeDigest } = await vite.ssrLoadModule("/app/news-data.ts");
 
   assert.equal(isDigest(PUBLISHED_DIGEST), true);
   assert.equal(isDigest(EMPTY_DIGEST), true);
@@ -102,14 +207,102 @@ test("NewsDashboard renders published and empty v2 results deterministically", a
   assert.equal(isDigest({ ...EMPTY_DIGEST, items: PUBLISHED_DIGEST.items }), false);
 
   const publishedHtml = await renderDashboard(PUBLISHED_DIGEST);
-  assert.match(publishedHtml, /<div class="story-list">/);
-  assert.match(publishedHtml, /<article class="story-card">[\s\S]*?<h2>示例发布<\/h2>/);
-  assert.match(publishedHtml, /aria-label="阅读原文: 示例发布"/);
+  assert.match(publishedHtml, /今日必看/);
+  assert.match(publishedHtml, /值得试用/);
+  assert.match(publishedHtml, /观察项/);
+  assert.match(publishedHtml, /具体变化/);
+  assert.match(publishedHtml, /建议行动/);
+  assert.match(publishedHtml, /https:\/\/example\.com\/Model-X/);
+  assert.match(publishedHtml, /证据暂未完整核验/);
+  assert.match(publishedHtml, /总分 100/);
 
   const emptyHtml = await renderDashboard(EMPTY_DIGEST);
   assert.match(emptyHtml, /<div class="empty-state">/);
-  assert.match(emptyHtml, /没有找到匹配的新闻/);
+  assert.match(emptyHtml, /今日无内容通过硬门槛/);
+  assert.match(emptyHtml, /候选 8/);
+  assert.match(emptyHtml, /粗筛 3/);
+  assert.match(emptyHtml, /已核查 2/);
+  assert.match(emptyHtml, /淘汰 3/);
   assert.doesNotMatch(emptyHtml, /class="story-card"/);
+
+  assert.equal(isDigest(PUBLISHED_V2_DIGEST), false);
+  const normalized = normalizeDigest(PUBLISHED_V2_DIGEST);
+  assert.equal(normalized.schema_version, 3);
+  assert.equal(normalized.boards.must_read.length, 1);
+  assert.equal(normalized.boards.must_read[0].evidence_url, "https://example.com/legacy");
+});
+
+test("schema v3 validator rejects caps, identity conflicts, unsafe evidence and impossible counts", async () => {
+  const { isDigest } = await vite.ssrLoadModule("/app/news-data.ts");
+  const clone = () => structuredClone(PUBLISHED_DIGEST);
+
+  const tooMany = clone();
+  tooMany.boards.must_read = Array.from({ length: 6 }, (_, index) =>
+    item("must_read", `cap-${index}`));
+  tooMany.items = [...tooMany.boards.must_read, ...tooMany.boards.try_now, ...tooMany.boards.watch];
+  assert.equal(isDigest(tooMany), false);
+
+  const wrongBoard = clone();
+  wrongBoard.boards.must_read[0].board = "try_now";
+  assert.equal(isDigest(wrongBoard), false);
+
+  const duplicateCandidate = clone();
+  duplicateCandidate.boards.try_now[0].candidate_id = duplicateCandidate.boards.must_read[0].candidate_id;
+  duplicateCandidate.items = [
+    ...duplicateCandidate.boards.must_read,
+    ...duplicateCandidate.boards.try_now,
+    ...duplicateCandidate.boards.watch,
+  ];
+  assert.equal(isDigest(duplicateCandidate), false);
+
+  const duplicateFingerprint = clone();
+  duplicateFingerprint.boards.try_now[0].event_fingerprint =
+    duplicateFingerprint.boards.must_read[0].event_fingerprint;
+  duplicateFingerprint.items = [
+    ...duplicateFingerprint.boards.must_read,
+    ...duplicateFingerprint.boards.try_now,
+    ...duplicateFingerprint.boards.watch,
+  ];
+  assert.equal(isDigest(duplicateFingerprint), false);
+
+  const reordered = clone();
+  reordered.items = [...reordered.items].reverse();
+  assert.equal(isDigest(reordered), false);
+
+  const unsafeEvidence = clone();
+  unsafeEvidence.boards.must_read[0].evidence_url = "http://example.com/Model-X";
+  unsafeEvidence.items[0].evidence_url = "http://example.com/Model-X";
+  assert.equal(isDigest(unsafeEvidence), false);
+
+  const negativeCount = clone();
+  negativeCount.pipeline_stats.rejected_count = -1;
+  assert.equal(isDigest(negativeCount), false);
+
+  const impossibleCount = clone();
+  impossibleCount.pipeline_stats.source_verified_count = 4;
+  assert.equal(isDigest(impossibleCount), false);
+
+  const impossibleAccounting = clone();
+  impossibleAccounting.pipeline_stats.rejected_count = 1;
+  assert.equal(isDigest(impossibleAccounting), false);
+
+  const missingLatest = clone();
+  missingLatest.latest_published_at = null;
+  assert.equal(isDigest(missingLatest), false);
+
+  assert.equal(isDigest({ ...EMPTY_DIGEST, latest_published_at: PUBLISHED_DIGEST.generated_at }), false);
+});
+
+test("schema v2 compatibility is narrow and rejects malformed legacy data", async () => {
+  const { isLegacyDigestV2, normalizeDigest } = await vite.ssrLoadModule("/app/news-data.ts");
+
+  assert.equal(isLegacyDigestV2(PUBLISHED_V2_DIGEST), true);
+  assert.throws(() => normalizeDigest({ ...PUBLISHED_V2_DIGEST, schema_version: undefined }));
+  assert.throws(() => normalizeDigest({ ...PUBLISHED_V2_DIGEST, items: [] }));
+  assert.throws(() => normalizeDigest({
+    ...PUBLISHED_V2_DIGEST,
+    items: [{ ...LEGACY_V2_ITEM, url: "http://example.com/legacy" }],
+  }));
 });
 
 test("summary API exposes a Feishu-ready daily and weekly payload", async () => {
@@ -136,14 +329,10 @@ test("digest API serves a fallback and protects updates", async () => {
   assert.equal(getResponse.status, 200);
   assert.equal(getResponse.headers.get("cache-control"), "no-store");
   const digest = await getResponse.json();
-  if (digest.schema_version === 2) {
-    assert.ok(["published", "no_qualifying_items"].includes(digest.run_status));
-    assert.equal(digest.run_status === "published", digest.items.length > 0);
-  } else {
-    assert.equal(digest.schema_version, undefined);
-    assert.ok(digest.items.length > 0);
-  }
-  assert.ok(digest.items.every((item) => item.url.startsWith("https://")));
+  assert.equal(digest.schema_version, 3);
+  assert.ok(["published", "no_qualifying_items"].includes(digest.run_status));
+  assert.equal(digest.run_status === "published", digest.items.length > 0);
+  assert.ok(digest.items.every((item) => item.evidence_url.startsWith("https://")));
 
   const postResponse = await request("/api/digest", "application/json", {
     method: "POST",

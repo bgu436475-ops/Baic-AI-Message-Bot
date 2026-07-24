@@ -4,11 +4,15 @@ import test from "node:test";
 
 const newsDataPath = new URL("../app/news-data.ts", import.meta.url);
 
-test("digest data contract supports valid schema-v2 empty results", async () => {
+test("digest data contract declares schema v3 boards and narrow v2 compatibility", async () => {
   const source = await readFile(newsDataPath, "utf8");
 
-  assert.match(source, /schema_version\??:\s*2/);
-  assert.match(source, /run_status\??:\s*"published"\s*\|\s*"no_qualifying_items"/);
+  assert.match(source, /schema_version:\s*3/);
+  assert.match(source, /boards:\s*DigestBoards/);
+  assert.match(source, /must_read:\s*NewsItem\[\]/);
+  assert.match(source, /candidate\.schema_version\s*===\s*3/);
+  assert.match(source, /candidate\.items\.length\s*===\s*flattened\.length/);
   assert.match(source, /candidate\.schema_version\s*===\s*2/);
-  assert.match(source, /candidate\.run_status\s*===\s*"no_qualifying_items"/);
+  assert.match(source, /normalizeDigest\(latestDigest\)/);
+  assert.doesNotMatch(source, /latestDigest\s+as\s+Digest/);
 });

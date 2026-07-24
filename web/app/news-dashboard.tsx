@@ -4,9 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import {
   CATEGORY_LABELS,
   categories,
-  isDigest,
   type Category,
   type Digest,
+  type DigestBoards,
   type NewsItem,
 } from "./news-data";
 import { buildSummary, type SummaryPeriod } from "./summary";
@@ -34,8 +34,23 @@ const COPY = {
     searchAria: "搜索新闻",
     searchPlaceholder: "搜索标题、摘要或来源",
     signals: "今日值得关注",
+    boardMustRead: "今日必看",
+    boardTryNow: "值得试用",
+    boardWatch: "观察项",
     result: "条结果",
     original: "阅读原文",
+    concreteChange: "具体变化",
+    impact: "影响对象 / 范围",
+    action: "建议行动",
+    evidence: "核查证据",
+    score: "总分",
+    unverified: "证据暂未完整核验，请先阅读原始来源再行动。",
+    legalEmpty: "今日无内容通过硬门槛",
+    legalEmptyHelp: "系统已完成候选采集与原文核查，未使用低价值内容补足数量。",
+    pipelineCandidates: "候选",
+    shortlist: "粗筛",
+    verified: "已核查",
+    rejected: "淘汰",
     noSignal: "没有找到匹配的新闻",
     noSignalHelp: "换一个关键词或查看全部分类。",
     clear: "清除筛选",
@@ -91,8 +106,23 @@ const COPY = {
     searchAria: "Search news",
     searchPlaceholder: "Search title, summary, or source",
     signals: "Signals worth your attention",
+    boardMustRead: "Must read",
+    boardTryNow: "Worth trying",
+    boardWatch: "Watch",
     result: "results",
     original: "Original source",
+    concreteChange: "Specific change",
+    impact: "Affected audience / area",
+    action: "Recommended action",
+    evidence: "Verified evidence",
+    score: "Total score",
+    unverified: "Evidence is not fully verified. Read the original source before acting.",
+    legalEmpty: "No item passed today’s hard gates",
+    legalEmptyHelp: "Collection and source checks completed; low-value items were not used to fill the digest.",
+    pipelineCandidates: "Candidates",
+    shortlist: "Shortlisted",
+    verified: "Verified",
+    rejected: "Rejected",
     noSignal: "No matching signal",
     noSignalHelp: "Try another keyword or view all categories.",
     clear: "Clear filters",
@@ -182,14 +212,32 @@ function StoryCard({ item, index, language }: { item: NewsItem; index: number; l
         </div>
         <h2>{title}</h2>
         <p>{localizedSummary(item, language)}</p>
+        {item.verification_status !== "verified" && (
+          <div className="summary-fallback"><span />{copy.unverified}</div>
+        )}
+        <dl>
+          <div>
+            <dt><strong>{copy.concreteChange}</strong></dt>
+            <dd>{item.concrete_change}</dd>
+          </div>
+          <div>
+            <dt><strong>{copy.impact}</strong></dt>
+            <dd>{[...item.affected_audience, ...item.affected_area].join(" · ")}</dd>
+          </div>
+          <div>
+            <dt><strong>{copy.action}</strong></dt>
+            <dd>{item.recommended_action.join("；")}</dd>
+          </div>
+        </dl>
         <div className="story-footer">
           <div className="tag-row">
             {item.extra_categories.slice(0, 2).map((category) => (
               <span className="mini-tag" key={category}>{labels[category]}</span>
             ))}
+            <span className="mini-tag">{copy.score} {item.score.total}</span>
           </div>
-          <a href={item.url} target="_blank" rel="noreferrer" aria-label={`${copy.original}: ${title}`}>
-            {copy.original} <span aria-hidden="true">↗</span>
+          <a href={item.evidence_url} target="_blank" rel="noreferrer" aria-label={`${copy.evidence}: ${title}`}>
+            {copy.evidence} <span aria-hidden="true">↗</span>
           </a>
         </div>
       </div>
@@ -198,7 +246,7 @@ function StoryCard({ item, index, language }: { item: NewsItem; index: number; l
 }
 
 export function NewsDashboard({ initialDigest }: { initialDigest: Digest }) {
-  const [currentDigest, setCurrentDigest] = useState(initialDigest);
+  const currentDigest = initialDigest;
   const [language, setLanguage] = useState<Language>("zh");
   const [activeCategory, setActiveCategory] = useState<Category>("all");
   const [query, setQuery] = useState("");
@@ -207,20 +255,6 @@ export function NewsDashboard({ initialDigest }: { initialDigest: Digest }) {
   const [summaryPeriod, setSummaryPeriod] = useState<SummaryPeriod>("daily");
   const copy = COPY[language];
   const labels = CATEGORY_LABELS[language];
-
-  useEffect(() => {
-    const controller = new AbortController();
-    fetch("/api/digest", { signal: controller.signal, cache: "no-store" })
-      .then((response) => {
-        if (!response.ok) throw new Error("Latest digest is unavailable");
-        return response.json() as Promise<Digest>;
-      })
-      .then((latest) => {
-        if (isDigest(latest)) setCurrentDigest(latest);
-      })
-      .catch(() => undefined);
-    return () => controller.abort();
-  }, []);
 
   useEffect(() => {
     document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
@@ -249,14 +283,27 @@ export function NewsDashboard({ initialDigest }: { initialDigest: Digest }) {
     return () => window.removeEventListener("keydown", handleShortcut);
   }, []);
 
-  const items = useMemo(() => {
+  const visibleBoards = useMemo<DigestBoards>(() => {
     const keyword = query.trim().toLowerCase();
-    return currentDigest.items.filter((item) => {
+    const filterItems = (boardItems: NewsItem[]) => boardItems.filter((item) => {
       const matchesCategory = activeCategory === "all" || item.category === activeCategory || item.extra_categories.includes(activeCategory);
-      const matchesQuery = !keyword || `${item.title_zh} ${item.summary_zh} ${item.title_en ?? ""} ${item.summary_en ?? ""} ${item.source}`.toLowerCase().includes(keyword);
+      const matchesQuery = !keyword || `${item.title_zh} ${item.summary_zh} ${item.title_en ?? ""} ${item.summary_en ?? ""} ${item.concrete_change} ${item.affected_audience.join(" ")} ${item.affected_area.join(" ")} ${item.recommended_action.join(" ")} ${item.source}`.toLowerCase().includes(keyword);
       return matchesCategory && matchesQuery;
     });
-  }, [activeCategory, currentDigest.items, query]);
+    return {
+      must_read: filterItems(currentDigest.boards.must_read),
+      try_now: filterItems(currentDigest.boards.try_now),
+      watch: filterItems(currentDigest.boards.watch),
+    };
+  }, [activeCategory, currentDigest.boards, query]);
+  const items = useMemo(
+    () => [...visibleBoards.must_read, ...visibleBoards.try_now, ...visibleBoards.watch],
+    [visibleBoards],
+  );
+  const itemPositions = useMemo(
+    () => new Map(currentDigest.items.map((item, index) => [item.candidate_id, index])),
+    [currentDigest.items],
+  );
 
   const categoryCounts = useMemo(() => {
     const counts: Partial<Record<Category, number>> = {};
@@ -365,9 +412,40 @@ export function NewsDashboard({ initialDigest }: { initialDigest: Digest }) {
             <div><span className="eyebrow">TODAY&apos;S SIGNALS</span><h2>{copy.signals}</h2></div>
             <span className="result-count">{items.length} {copy.result}</span>
           </div>
-          {items.length ? (
+          {currentDigest.run_status === "no_qualifying_items" ? (
+            <div className="empty-state">
+              <span>HARD GATE</span><h2>{copy.legalEmpty}</h2><p>{copy.legalEmptyHelp}</p>
+              <p>
+                {copy.pipelineCandidates} {currentDigest.pipeline_stats.candidate_count} ·{" "}
+                {copy.shortlist} {currentDigest.pipeline_stats.shortlist_count} ·{" "}
+                {copy.verified} {currentDigest.pipeline_stats.source_verified_count} ·{" "}
+                {copy.rejected} {currentDigest.pipeline_stats.rejected_count}
+              </p>
+            </div>
+          ) : items.length ? (
             <div className="story-list">
-              {items.map((item) => <StoryCard item={item} index={currentDigest.items.indexOf(item)} language={language} key={item.url} />)}
+              {([
+                ["must_read", copy.boardMustRead],
+                ["try_now", copy.boardTryNow],
+                ["watch", copy.boardWatch],
+              ] as const).map(([board, label]) => (
+                visibleBoards[board].length > 0 && (
+                  <section key={board} aria-labelledby={`board-${board}`}>
+                    <div className="section-heading">
+                      <h2 id={`board-${board}`}>{label}</h2>
+                      <span className="result-count">{visibleBoards[board].length} {copy.result}</span>
+                    </div>
+                    {visibleBoards[board].map((item) => (
+                      <StoryCard
+                        item={item}
+                        index={itemPositions.get(item.candidate_id) ?? 0}
+                        language={language}
+                        key={item.candidate_id}
+                      />
+                    ))}
+                  </section>
+                )
+              ))}
             </div>
           ) : (
             <div className="empty-state">

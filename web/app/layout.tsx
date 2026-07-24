@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "AI SIGNAL｜AI 每日情报",
-  description: "每天约 10 条值得关注的 AI 新闻，附中文摘要和原始链接。",
+  description: "每天严格核查高决策价值 AI 信息，宁缺毋滥。",
   icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
   openGraph: {
     title: "AI SIGNAL｜AI 每日情报",
@@ -15,7 +15,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "AI SIGNAL｜AI 每日情报",
-    description: "每天约 10 条值得关注的 AI 新闻。",
+    description: "每天严格核查高决策价值 AI 信息，宁缺毋滥。",
     images: ["/og.png"],
   },
 };
