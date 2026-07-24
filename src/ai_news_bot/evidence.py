@@ -26,6 +26,8 @@ obligation into policy_terms; do not substitute a summary-level direction for sp
 verification_status describes whether the supplied source itself was verified. For a
 trusted_secondary source, original_source_status separately describes the primary source's
 availability or verification state; never use one field as a substitute for the other.
+original_source_status is overwritten by the program from a separately fetched original
+source, so you must not infer or claim its value.
 """
 
 
@@ -89,9 +91,13 @@ def extract_evidence(
     client: Any,
     model: str,
     base_url: str | None = None,
+    *,
+    original_source: FetchedSource | None = None,
 ) -> EvidenceRecord:
     if source.candidate_id != candidate.id:
         raise EvidenceExtractionError("candidate and source IDs do not match")
+    if original_source is not None and original_source.candidate_id != candidate.id:
+        raise EvidenceExtractionError("candidate and original source IDs do not match")
     messages = [
         {"role": "system", "content": EVIDENCE_SYSTEM_PROMPT},
         {
@@ -115,7 +121,13 @@ def extract_evidence(
             parsed = _parse_response(client, model, messages, base_url)
             if parsed is None or parsed.candidate_id != candidate.id:
                 raise ValueError("missing or mismatched evidence record")
-            return validate_anchors(parsed, source)
+            return validate_anchors(parsed, source).model_copy(
+                update={
+                    "original_source_status": (
+                        original_source.status if original_source is not None else None
+                    )
+                }
+            )
         except (ValueError, TypeError, AttributeError, IndexError, OpenAIError) as error:
             last_error = error
     raise EvidenceExtractionError("model evidence parsing failed twice") from last_error

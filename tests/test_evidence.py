@@ -1,7 +1,7 @@
 import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from openai import LengthFinishReasonError, OpenAIError
@@ -13,6 +13,7 @@ from ai_news_bot.evidence import (
     extract_evidence,
     validate_anchors,
 )
+from ai_news_bot.gatekeeper import evaluate_gates
 from ai_news_bot.models import Candidate, ChangeFact, EvidenceAnchor, EvidenceRecord
 from ai_news_bot.source_fetcher import FetchedSource
 
@@ -269,6 +270,87 @@ def test_extractor_rejects_candidate_source_mismatch_before_model_call() -> None
     assert client.calls == 0
 
 
+def test_extractor_clears_model_claimed_original_status_without_original_source() -> None:
+    claimed = valid_record().model_copy(
+        update={
+            "source_type": "trusted_secondary",
+            "original_source_status": "unavailable",
+        }
+    )
+    client = FakeStructuredClient([claimed])
+
+    result = extract_evidence(candidate(), fetched(), client, "test-model")
+
+    assert result.original_source_status is None
+    assert not evaluate_gates(result, "unique").eligible_watch
+
+
+def test_extractor_uses_fetched_original_status_for_verified_secondary_watch() -> None:
+    claimed = valid_record().model_copy(
+        update={
+            "source_type": "trusted_secondary",
+            "original_source_status": "verified",
+        }
+    )
+    client = FakeStructuredClient([claimed])
+
+    result = extract_evidence(
+        candidate(),
+        fetched(),
+        client,
+        "test-model",
+        original_source=fetched(status="unavailable"),
+    )
+
+    decision = evaluate_gates(result, "unique")
+
+    assert result.original_source_status == "unavailable"
+    assert not decision.eligible_main_try
+    assert decision.eligible_watch
+    assert decision.rejection_reasons == ["unverified_primary_source"]
+
+
+@pytest.mark.parametrize("original_status", ["verified", "insufficient"])
+def test_extractor_does_not_watch_verified_secondary_when_original_is_accessible(
+    original_status: Literal["verified", "insufficient"],
+) -> None:
+    claimed = valid_record().model_copy(
+        update={
+            "source_type": "trusted_secondary",
+            "original_source_status": "unavailable",
+        }
+    )
+    client = FakeStructuredClient([claimed])
+
+    result = extract_evidence(
+        candidate(),
+        fetched(),
+        client,
+        "test-model",
+        original_source=fetched(status=original_status),
+    )
+
+    assert result.original_source_status == original_status
+    assert not evaluate_gates(result, "unique").eligible_watch
+
+
+def test_extractor_rejects_original_source_mismatch_before_model_call() -> None:
+    client = FakeStructuredClient([valid_record()])
+
+    with pytest.raises(
+        EvidenceExtractionError, match="candidate and original source IDs"
+    ):
+        extract_evidence(
+            candidate(),
+            fetched(),
+            client,
+            "test-model",
+            original_source=fetched(candidate_id="another"),
+        )
+
+    assert client.calls == 0
+
+
 def test_extractor_uses_github_models_structured_chat_parse() -> None:
     client = FakeStructuredClient([valid_record()])
 
@@ -319,6 +401,8 @@ def test_extractor_uses_responses_structured_parse_and_constrained_payload() -> 
     assert "policy_terms" in prompt
     assert "original_source_status" in prompt
     assert "secondary" in prompt
+    assert "program" in prompt
+    assert "must not infer" in prompt
 
 
 def test_anchor_validator_accepts_normalized_literal_quote() -> None:

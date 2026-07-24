@@ -1,11 +1,32 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Literal
 
 from .models import EvidenceRecord, GateDecision, RejectionCode
 
 
 DuplicateStatus = Literal["unique", "material_update", "minor_update", "duplicate"]
+
+
+def _has_nonblank_policy_term(policy_terms: list[str]) -> bool:
+    return any(term.strip() for term in policy_terms)
+
+
+def _has_valid_effective_date(effective_date: str | None) -> bool:
+    if effective_date is None:
+        return False
+    try:
+        date.fromisoformat(effective_date.strip())
+    except ValueError:
+        return False
+    return True
+
+
+def _has_valid_policy_terms_and_date(record: EvidenceRecord) -> bool:
+    return _has_nonblank_policy_term(record.policy_terms) and _has_valid_effective_date(
+        record.effective_date
+    )
 
 
 def evaluate_gates(
@@ -18,7 +39,7 @@ def evaluate_gates(
         (record.funding_only, "funding_only"),
         (record.opinion_only, "opinion_without_evidence"),
         (
-            record.policy_claim and (not record.policy_terms or not record.effective_date),
+            record.policy_claim and not _has_valid_policy_terms_and_date(record),
             "policy_without_terms_or_date",
         ),
         (record.vague_claim_without_evidence, "vague_claim_without_evidence"),

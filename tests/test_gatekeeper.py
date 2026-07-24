@@ -106,6 +106,34 @@ def test_policy_claim_with_terms_and_date_can_pass() -> None:
     assert decision.rejection_reasons == []
 
 
+@pytest.mark.parametrize(
+    ("policy_terms", "effective_date"),
+    [
+        ([], "2026-08-01"),
+        (["   "], "2026-08-01"),
+        (["API providers must register"], None),
+        (["API providers must register"], "   "),
+        (["API providers must register"], "not-a-date"),
+        (["API providers must register"], "2026-02-30"),
+    ],
+)
+def test_policy_claim_requires_nonblank_terms_and_a_valid_iso_date(
+    policy_terms: list[str], effective_date: str | None
+) -> None:
+    record = valid_record().model_copy(
+        update={
+            "policy_claim": True,
+            "policy_terms": policy_terms,
+            "effective_date": effective_date,
+        }
+    )
+
+    decision = evaluate_gates(record, "unique")
+
+    assert not decision.eligible_main_try
+    assert decision.rejection_reasons == ["policy_without_terms_or_date"]
+
+
 @pytest.mark.parametrize("secondary_status", ["unavailable", "blocked"])
 def test_unverified_trusted_secondary_is_rejected_from_watch(
     secondary_status: str,
