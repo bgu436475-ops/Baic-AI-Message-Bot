@@ -190,11 +190,13 @@ function isStringArray(
   maxLength: number,
   itemMaxLength: number,
   allowEmpty = true,
+  requireItemContent = true,
 ): value is string[] {
   return Array.isArray(value)
     && value.length <= maxLength
     && (allowEmpty || value.length > 0)
-    && value.every((item) => isBoundedString(item, itemMaxLength, true));
+    && value.every((item) =>
+      isBoundedString(item, itemMaxLength, requireItemContent));
 }
 
 function isNonNegativeInteger(value: unknown): value is number {
@@ -316,7 +318,7 @@ function isNewsItem(value: unknown, expectedBoard?: BoardName): value is NewsIte
     || !VERIFICATION_STATUSES.has(value.verification_status as string)
     || !isBoundedString(value.event_fingerprint, 1000, true)
     || !isBoundedString(value.primary_entity, 160, true)
-    || !isStringArray(value.event_entities, 10, 160, false)
+    || !isStringArray(value.event_entities, 10, 160, true, false)
     || !isBoundedString(value.change_signature, 160, true)
     || !isBoundedString(value.version_or_metric, 120)
     || typeof value.resource_available !== "boolean"

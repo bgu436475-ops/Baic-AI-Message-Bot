@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
+import { readFile } from "node:fs/promises";
 import { createServer } from "vite";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -350,6 +351,30 @@ test("schema validator requires real RFC3339 datetimes and calendar dates", asyn
   const leapDate = structuredClone(PUBLISHED_DIGEST);
   updateStory(leapDate, "effective_date", "2024-02-29");
   assert.equal(isDigest(leapDate), true);
+});
+
+test("web accepts the exact schema v3 fixture generated and validated by Python", async () => {
+  const { isDigest, normalizeDigest } = await vite.ssrLoadModule("/app/news-data.ts");
+  const fixture = JSON.parse(await readFile(
+    new URL("./fixtures/python-empty-event-entities-v3.json", import.meta.url),
+    "utf8",
+  ));
+
+  assert.deepEqual(fixture.items[0].event_entities, []);
+  assert.deepEqual(fixture.items[1].event_entities, [""]);
+  assert.equal(isDigest(fixture), true);
+  assert.equal(normalizeDigest(fixture), fixture);
+
+  const tooManyEntities = structuredClone(fixture);
+  const elevenEntities = Array.from({ length: 11 }, (_, index) => `entity-${index}`);
+  tooManyEntities.boards.must_read[0].event_entities = elevenEntities;
+  tooManyEntities.items[0].event_entities = elevenEntities;
+  assert.equal(isDigest(tooManyEntities), false);
+
+  const overlongEntity = structuredClone(fixture);
+  overlongEntity.boards.must_read[0].event_entities = ["x".repeat(161)];
+  overlongEntity.items[0].event_entities = ["x".repeat(161)];
+  assert.equal(isDigest(overlongEntity), false);
 });
 
 test("schema validators reject unknown, missing and over-cap nested fields", async () => {
