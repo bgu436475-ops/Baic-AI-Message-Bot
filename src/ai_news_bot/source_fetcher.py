@@ -11,19 +11,41 @@ from pydantic import BaseModel
 from .models import Candidate
 
 
+RESPONSE_CHUNK_BYTES = 64 * 1024
 SENSITIVE_QUERY_PARAMETERS = frozenset(
     {
         "token",
-        "access_token",
-        "api_key",
+        "accesstoken",
+        "apikey",
         "key",
         "signature",
         "sig",
         "secret",
         "auth",
         "authorization",
-        "x-amz-signature",
-        "x-goog-signature",
+        "xamzsignature",
+        "xgoogsignature",
+        "credential",
+        "securitytoken",
+        "sessiontoken",
+        "password",
+        "clientsecret",
+        "accesskey",
+        "awsaccesskey",
+        "awsaccesskeyid",
+        "awssecretaccesskey",
+        "awssecuritytoken",
+        "awssessiontoken",
+        "xamzcredential",
+        "xamzsecuritytoken",
+        "gcpcredential",
+        "gcpsecuritytoken",
+        "googleaccesstoken",
+        "gcpaccesstoken",
+        "googcredential",
+        "googsecuritytoken",
+        "xgoogcredential",
+        "xgoogsecuritytoken",
     }
 )
 
@@ -62,15 +84,13 @@ class SourceFetcher:
 
     def _read_response_body(self, response: requests.Response) -> tuple[bytes, bool]:
         body = bytearray()
-        for chunk in response.iter_content(chunk_size=1):
+        for chunk in response.iter_content(chunk_size=RESPONSE_CHUNK_BYTES):
             if not chunk:
                 continue
-            remaining = self.max_response_bytes - len(body)
-            if len(chunk) > remaining:
-                body.extend(chunk[:remaining])
-                return bytes(body), True
-            body.extend(chunk)
-            if len(body) == self.max_response_bytes:
+            remaining = self.max_response_bytes + 1 - len(body)
+            body.extend(chunk[:remaining])
+            if len(body) > self.max_response_bytes:
+                del body[self.max_response_bytes :]
                 return bytes(body), True
         return bytes(body), False
 
@@ -78,6 +98,7 @@ class SourceFetcher:
         now = datetime.now(UTC)
         response_url = candidate.url
         status_code: int | None = None
+        response: requests.Response | None = None
         try:
             response = self.session.get(
                 candidate.url,
@@ -131,6 +152,9 @@ class SourceFetcher:
                 fetched_at=now,
                 error=type(error).__name__,
             )
+        finally:
+            if response is not None:
+                response.close()
 
     def fetch_many(self, candidates: list[Candidate]) -> list[FetchedSource]:
         results = [self.fetch_one(candidate) for candidate in candidates]
@@ -143,8 +167,18 @@ def _sanitize_url(url: str) -> str:
     parsed = urlsplit(url)
     query = urlencode(
         [
-            (name, "REDACTED" if name.casefold() in SENSITIVE_QUERY_PARAMETERS else value)
+            (
+                name,
+                "REDACTED"
+                if _normalize_parameter_name(name) in SENSITIVE_QUERY_PARAMETERS
+                else value,
+            )
             for name, value in parse_qsl(parsed.query, keep_blank_values=True)
         ]
     )
-    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, query, ""))
+    netloc = parsed.netloc.rsplit("@", maxsplit=1)[-1]
+    return urlunsplit((parsed.scheme, netloc, parsed.path, query, ""))
+
+
+def _normalize_parameter_name(name: str) -> str:
+    return name.casefold().replace("-", "").replace("_", "")

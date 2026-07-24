@@ -18,6 +18,7 @@ class FakeResponse:
         text: str,
         status_code: int = 200,
         content_type: str = "text/html; charset=utf-8",
+        iter_content_error: requests.RequestException | None = None,
     ) -> None:
         self.url = url
         self._body = text.encode()
@@ -25,6 +26,9 @@ class FakeResponse:
         self.headers = {"content-type": content_type}
         self.bytes_yielded = 0
         self.iter_content_chunk_sizes: list[int] = []
+        self.iter_content_error = iter_content_error
+        self.closed = False
+        self.close_calls = 0
 
     @property
     def text(self) -> str:
@@ -32,10 +36,16 @@ class FakeResponse:
 
     def iter_content(self, *, chunk_size: int) -> object:
         self.iter_content_chunk_sizes.append(chunk_size)
+        if self.iter_content_error:
+            raise self.iter_content_error
         for index in range(0, len(self._body), chunk_size):
             chunk = self._body[index : index + chunk_size]
             self.bytes_yielded += len(chunk)
             yield chunk
+
+    def close(self) -> None:
+        self.closed = True
+        self.close_calls += 1
 
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
@@ -165,18 +175,31 @@ def test_fetch_sources_preserves_redirect_details_for_http_errors(status_code: i
 def test_fetch_sources_reads_only_the_configured_raw_byte_limit() -> None:
     response = FakeResponse(
         url="https://example.test/one",
-        text="<p>" + "Long original source text. " * 20 + "</p>",
+        text="<p>" + "Long original source text. " * 5_000 + "</p>",
     )
     session = FakeSession([response])
 
     result = SourceFetcher(session=session, max_response_bytes=100, max_chars=20).fetch_one(one())
 
     assert session.calls[0][3] is True
-    assert response.bytes_yielded == 100
-    assert response.iter_content_chunk_sizes == [1]
+    assert response.bytes_yielded == 64 * 1024
+    assert response.bytes_yielded <= 100 + 64 * 1024
+    assert response.iter_content_chunk_sizes == [64 * 1024]
     assert result.truncated is True
     assert result.status == "insufficient"
     assert len(result.text) == 20
+
+
+def test_fetch_sources_does_not_mark_an_exact_byte_limit_at_eof_as_truncated() -> None:
+    response = FakeResponse(url="https://example.test/one", text="x" * 100)
+    session = FakeSession([response])
+
+    result = SourceFetcher(session=session, max_response_bytes=100).fetch_one(one())
+
+    assert response.bytes_yielded == 100
+    assert response.iter_content_chunk_sizes == [64 * 1024]
+    assert result.truncated is False
+    assert result.status == "verified"
 
 
 def test_fetch_sources_marks_short_html_as_insufficient() -> None:
@@ -218,16 +241,31 @@ def test_fetch_sources_redacts_sensitive_query_values_and_fragments() -> None:
         "auth-value",
         "authorization-value",
         "goog-secret",
+        "aws-credential",
+        "aws-security-token",
+        "aws-access-key",
+        "aws-secret-key",
+        "aws-session-token",
+        "gcp-credential",
+        "gcp-security-token",
+        "password-value",
+        "client-secret-value",
+        "access-key-value",
     ]
     requested_url = (
-        "https://example.test/one?token=client-token&visible=keep"
-        "&X-Amz-Signature=client-signature#requested-fragment"
+        "https://request-user:request-password@example.test/one?token=client-token"
+        "&visible=keep&X-Amz-Signature=client-signature&aws_access_key_id=aws-access-key"
+        "&aws-secret-access-key=aws-secret-key&AWS-SESSION-TOKEN=aws-session-token"
+        "&Password=password-value&client-secret=client-secret-value"
+        "&access_key=access-key-value#requested-fragment"
     )
     final_url = (
-        "https://example.com/final?access_token=access-secret&api_key=api-secret"
+        "https://final-user:final-password@example.com/final?access_token=access-secret&api_key=api-secret"
         "&key=key-secret&signature=signature-secret&sig=sig-secret&secret=secret-value"
         "&auth=auth-value&authorization=authorization-value"
-        "&X-Goog-Signature=goog-secret&visible=final#response-fragment"
+        "&X-Goog-Signature=goog-secret&X-Amz-Credential=aws-credential"
+        "&X-Amz-Security-Token=aws-security-token&x_goog_credential=gcp-credential"
+        "&X_GOOG_SECURITY_TOKEN=gcp-security-token&visible=final#response-fragment"
     )
     session = FakeSession([FakeResponse(url=final_url, text="Not found", status_code=404)])
 
@@ -244,6 +282,66 @@ def test_fetch_sources_redacts_sensitive_query_values_and_fragments() -> None:
     assert "X-Amz-Signature=REDACTED" in result.requested_url
     assert "access_token=REDACTED" in result.final_url
     assert "X-Goog-Signature=REDACTED" in result.final_url
+    assert "request-user" not in result.requested_url
+    assert "request-password" not in result.requested_url
+    assert "final-user" not in result.final_url
+    assert "final-password" not in result.final_url
+    assert "aws_access_key_id=REDACTED" in result.requested_url
+    assert "aws-secret-access-key=REDACTED" in result.requested_url
+    assert "X-Amz-Credential=REDACTED" in result.final_url
+    assert "X-Amz-Security-Token=REDACTED" in result.final_url
+    assert "x_goog_credential=REDACTED" in result.final_url
+    assert "X_GOOG_SECURITY_TOKEN=REDACTED" in result.final_url
     assert client_secret not in serialized
     assert "client-signature" not in serialized
     assert all(secret not in serialized for secret in response_secrets)
+    assert "request-password" not in serialized
+    assert "final-password" not in serialized
+    assert "HTTPError" == result.error
+
+
+@pytest.mark.parametrize(
+    ("response", "fetcher_kwargs", "expected_status"),
+    [
+        (FakeResponse(url="https://example.test/blocked", text="", status_code=403), {}, "blocked"),
+        (FakeResponse(url="https://example.test/missing", text="", status_code=404), {}, "unavailable"),
+        (
+            FakeResponse(
+                url="https://example.test/json",
+                text="{}",
+                content_type="application/json",
+            ),
+            {},
+            "unavailable",
+        ),
+        (
+            FakeResponse(url="https://example.test/capped", text="x" * 200),
+            {"max_response_bytes": 100},
+            "insufficient",
+        ),
+        (FakeResponse(url="https://example.test/success", text="x" * 100), {}, "verified"),
+    ],
+)
+def test_fetch_sources_closes_responses_on_every_result_path(
+    response: FakeResponse, fetcher_kwargs: dict[str, int], expected_status: str
+) -> None:
+    result = SourceFetcher(session=FakeSession([response]), **fetcher_kwargs).fetch_one(one())
+
+    assert result.status == expected_status
+    assert response.closed is True
+    assert response.close_calls == 1
+
+
+def test_fetch_sources_closes_response_after_streaming_exception() -> None:
+    response = FakeResponse(
+        url="https://example.test/stream",
+        text="x" * 100,
+        iter_content_error=requests.ConnectionError("stream interrupted"),
+    )
+
+    result = SourceFetcher(session=FakeSession([response])).fetch_one(one())
+
+    assert result.status == "unavailable"
+    assert result.error == "ConnectionError"
+    assert response.closed is True
+    assert response.close_calls == 1
