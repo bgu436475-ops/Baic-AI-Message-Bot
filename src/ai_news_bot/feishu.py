@@ -3,8 +3,9 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import json
 import time
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
 import requests
@@ -17,6 +18,17 @@ from .models import (
     EditorialNewsItem,
 )
 SHANGHAI = ZoneInfo("Asia/Shanghai")
+EDITORIAL_MARKDOWN_LIMIT_BYTES = 18_000
+FEISHU_BODY_LIMIT_BYTES = 20_000
+EVIDENCE_URL_LIMIT_BYTES = 512
+
+EDITORIAL_FIELD_LIMITS = {
+    "title": 120,
+    "concrete_change": 300,
+    "affected_audience": 120,
+    "affected_area": 120,
+    "recommended_action": 240,
+}
 
 BOARD_LABELS = {
     "must_read": "今日必看",
@@ -55,6 +67,70 @@ def _truncate_utf8(value: str, max_bytes: int) -> str:
     return encoded[: max_bytes - 5].decode("utf-8", errors="ignore").rstrip() + "\n\n…"
 
 
+def _bounded_markdown_text(value: str, max_bytes: int) -> str:
+    normalized = " ".join(value.split())
+    units: list[str] = []
+    for character in normalized:
+        if character == "\\":
+            units.append("\\\\")
+        elif character in {"[", "]", "*", "_", "`"}:
+            units.append(f"\\{character}")
+        else:
+            units.append(character)
+    escaped = "".join(units)
+    if len(escaped.encode("utf-8")) <= max_bytes:
+        return escaped
+
+    suffix = "…"
+    remaining = max_bytes - len(suffix.encode("utf-8"))
+    kept: list[str] = []
+    for unit in units:
+        unit_size = len(unit.encode("utf-8"))
+        if unit_size > remaining:
+            break
+        kept.append(unit)
+        remaining -= unit_size
+    return "".join(kept).rstrip() + suffix
+
+
+def _safe_evidence_url(value: str) -> str:
+    if value != value.strip() or any(
+        ord(character) < 32 or ord(character) == 127
+        for character in value
+    ):
+        raise ValueError("证据链接格式无效")
+    parsed = urlsplit(value)
+    if (
+        parsed.scheme.lower() not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        raise ValueError("证据链接必须是有效的 HTTP(S) 原始来源")
+    try:
+        port = parsed.port
+        hostname = parsed.hostname.encode("idna").decode("ascii")
+    except (UnicodeError, ValueError) as error:
+        raise ValueError("证据链接格式无效") from error
+    if ":" in hostname:
+        hostname = f"[{hostname}]"
+    netloc = hostname if port is None else f"{hostname}:{port}"
+    safe_url = urlunsplit(
+        (
+            parsed.scheme.lower(),
+            netloc,
+            quote(parsed.path, safe="/:@!$&'*+,;=%~._-"),
+            quote(parsed.query, safe="/?:@!$&'*+,;=%~._-"),
+            quote(parsed.fragment, safe="/?:@!$&'*+,;=%~._-"),
+        )
+    )
+    if len(safe_url.encode("utf-8")) > EVIDENCE_URL_LIMIT_BYTES:
+        raise ValueError(
+            "证据链接过长，无法在不破坏原始地址的情况下安全发送"
+        )
+    return safe_url
+
+
 def make_signature(timestamp: int, secret: str) -> str:
     string_to_sign = f"{timestamp}\n{secret}"
     digest = hmac.new(string_to_sign.encode("utf-8"), b"", hashlib.sha256).digest()
@@ -89,17 +165,27 @@ def _render_editorial_item(
     item: EditorialNewsItem,
     index: int,
 ) -> list[str]:
-    title = _escape_markdown(item.title_zh)
-    concrete_change = _escape_markdown(item.concrete_change)
-    affected_audience = "、".join(
-        _escape_markdown(value) for value in item.affected_audience
+    title = _bounded_markdown_text(
+        item.title_zh,
+        EDITORIAL_FIELD_LIMITS["title"],
     )
-    affected_area = "、".join(
-        _escape_markdown(value) for value in item.affected_area
+    concrete_change = _bounded_markdown_text(
+        item.concrete_change,
+        EDITORIAL_FIELD_LIMITS["concrete_change"],
     )
-    recommended_action = "；".join(
-        _escape_markdown(value) for value in item.recommended_action
+    affected_audience = _bounded_markdown_text(
+        "、".join(item.affected_audience),
+        EDITORIAL_FIELD_LIMITS["affected_audience"],
     )
+    affected_area = _bounded_markdown_text(
+        "、".join(item.affected_area),
+        EDITORIAL_FIELD_LIMITS["affected_area"],
+    )
+    recommended_action = _bounded_markdown_text(
+        "；".join(item.recommended_action),
+        EDITORIAL_FIELD_LIMITS["recommended_action"],
+    )
+    evidence_url = _safe_evidence_url(item.evidence_url)
     warning = (
         "  ⚠ 原始来源暂不可核查"
         if (
@@ -109,14 +195,11 @@ def _render_editorial_item(
         else ""
     )
     return [
-        (
-            f"**{index}. [{title}]({item.evidence_url})**  "
-            f"`总分 {item.score.total}`"
-        ),
+        f"**{index}. {title}**  `总分 {item.score.total}`",
         f"具体变化：{concrete_change}",
         f"影响：{affected_audience} · {affected_area}",
         f"建议行动：{recommended_action}",
-        f"[核查原文]({item.evidence_url}){warning}",
+        f"[核查原文]({evidence_url}){warning}",
         "",
     ]
 
@@ -151,8 +234,19 @@ def _editorial_digest_markdown(
                 f"- {REJECTION_LABELS.get(code, code)}：{count}"
                 for code, count in reasons
             )
+        elif any(
+            (
+                stats.candidate_count,
+                stats.shortlist_count,
+                stats.source_verified_count,
+                stats.rejected_count,
+            )
+        ):
+            lines.append(
+                "- 未记录可归类淘汰原因；本轮内容未达到最终分榜阈值"
+            )
         else:
-            lines.append("- 无：本轮未产生可筛选候选")
+            lines.append("- 无：本轮未产生候选")
         return "\n".join(lines)
 
     for board_name, items in (
@@ -165,7 +259,10 @@ def _editorial_digest_markdown(
         lines.extend([f"## {BOARD_LABELS[board_name]}", ""])
         for index, item in enumerate(items, start=1):
             lines.extend(_render_editorial_item(item, index))
-    return "\n".join(lines).rstrip()
+    content = "\n".join(lines).rstrip()
+    if len(content.encode("utf-8")) > EDITORIAL_MARKDOWN_LIMIT_BYTES:
+        raise ValueError("飞书卡片内容超过安全预算，未发送不完整简报")
+    return content
 
 
 def digest_markdown(
@@ -181,7 +278,8 @@ def build_card(digest: DailyDigest | EditorialDigest) -> dict[str, object]:
     date_text = digest.generated_at.astimezone(SHANGHAI).strftime("%Y-%m-%d")
     content = digest_markdown(digest, include_title=False)
     # Feishu custom-bot requests are limited to 20 KB; leave room for card JSON.
-    content = _truncate_utf8(content, 18_000)
+    if isinstance(digest, DailyDigest):
+        content = _truncate_utf8(content, EDITORIAL_MARKDOWN_LIMIT_BYTES)
     subtitle = (
         "严格筛选完成 · AI 增长内部群"
         if (
@@ -242,7 +340,19 @@ def send_to_feishu(
         payload["timestamp"] = str(timestamp)
         payload["sign"] = make_signature(timestamp, signing_secret)
 
-    response = requests.post(webhook_url, json=payload, timeout=timeout)
+    body = json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    if len(body) >= FEISHU_BODY_LIMIT_BYTES:
+        raise ValueError("飞书请求体超过 20 KB，拒绝发送不完整简报")
+    response = requests.post(
+        webhook_url,
+        data=body,
+        headers={"Content-Type": "application/json; charset=utf-8"},
+        timeout=timeout,
+    )
     response.raise_for_status()
     data = response.json()
     if data.get("code", data.get("StatusCode", 0)) != 0:

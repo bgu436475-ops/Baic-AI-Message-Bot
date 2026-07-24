@@ -1,6 +1,14 @@
+import json
 from datetime import UTC, datetime
 
-from ai_news_bot.feishu import build_card, digest_markdown, make_signature
+import pytest
+
+from ai_news_bot.feishu import (
+    build_card,
+    digest_markdown,
+    make_signature,
+    send_to_feishu,
+)
 from ai_news_bot.models import (
     DailyDigest,
     DigestBoards,
@@ -127,6 +135,15 @@ def test_build_card_uses_v2_interactive_schema() -> None:
     assert not content.startswith("# AI 每日新闻")
 
 
+def test_schema_v2_markdown_remains_exactly_compatible() -> None:
+    assert digest_markdown(sample_digest(), include_title=False) == (
+        "**1. 🧠 [Model X 发布](https://example.com/model-x)**  `新模型`\n"
+        "这是摘要。\n"
+        "*来源：Example · 重要性 95*\n\n"
+        "共从 12 个有效来源的 42 条候选中筛选。"
+    )
+
+
 def test_signature_is_stable() -> None:
     assert make_signature(1_700_000_000, "secret") == make_signature(1_700_000_000, "secret")
 
@@ -184,3 +201,241 @@ def test_legal_empty_card_is_sent_as_normal_success_content() -> None:
         card["card"]["header"]["subtitle"]["content"]
         == "严格筛选完成 · AI 增长内部群"
     )
+
+
+def maximum_legal_digest() -> EditorialDigest:
+    board_specs = (
+        ("must_read", 5),
+        ("try_now", 3),
+        ("watch", 3),
+    )
+    boards: dict[str, list[EditorialNewsItem]] = {
+        "must_read": [],
+        "try_now": [],
+        "watch": [],
+    }
+    all_items: list[EditorialNewsItem] = []
+    item_number = 0
+    for board, count in board_specs:
+        for _ in range(count):
+            item_number += 1
+            candidate_id = f"完整条目-{item_number:02d}"
+            item = editorial_item(candidate_id, board).model_copy(
+                update={
+                    "title_zh": candidate_id + "·" + "标题字段" * 30,
+                    "concrete_change": (
+                        f"{candidate_id} API 从 2 美元降至 1 美元；"
+                        + "具体参数变化" * 160
+                    ),
+                    "affected_audience": [
+                        f"{candidate_id} API 开发者" + "受影响对象" * 20
+                    ],
+                    "affected_area": [
+                        f"{candidate_id} 推理成本" + "受影响内容" * 20
+                    ],
+                    "recommended_action": [
+                        f"{candidate_id} 本周重新计算成本" + "执行步骤" * 50
+                    ],
+                    "evidence_url": (
+                        f"https://example.com/evidence/{item_number}?"
+                        + "source=" + "a" * 430
+                    ),
+                }
+            )
+            boards[board].append(item)
+            all_items.append(item)
+    return EditorialDigest(
+        generated_at=datetime(2026, 7, 23, 1, 5, tzinfo=UTC),
+        candidate_count=80,
+        source_count=20,
+        boards=DigestBoards(**boards),
+        items=all_items,
+        pipeline_stats=PipelineStats(
+            candidate_count=80,
+            shortlist_count=20,
+            source_verified_count=20,
+            rejected_count=9,
+        ),
+    )
+
+
+def test_maximum_editorial_card_keeps_all_items_and_required_blocks_complete() -> None:
+    content = build_card(maximum_legal_digest())["card"]["body"]["elements"][0][
+        "content"
+    ]
+
+    assert len(content.encode("utf-8")) <= 18_000
+    assert content.count("## 今日必看") == 1
+    assert content.count("## 值得试用") == 1
+    assert content.count("## 观察项") == 1
+    assert content.count("`总分 ") == 11
+    assert content.count("具体变化：") == 11
+    assert content.count("影响：") == 11
+    assert content.count(" · ") == 11
+    assert content.count("建议行动：") == 11
+    assert content.count("[核查原文](") == 11
+    for item_number in range(1, 12):
+        assert f"完整条目-{item_number:02d}" in content
+    assert not content.endswith("…")
+
+
+@pytest.mark.parametrize(
+    ("board", "verification_status", "has_warning"),
+    [
+        ("watch", "blocked", True),
+        ("watch", "unavailable", True),
+        ("watch", "verified", False),
+        ("must_read", "blocked", False),
+    ],
+)
+def test_original_source_warning_is_watch_only(
+    board: str,
+    verification_status: str,
+    has_warning: bool,
+) -> None:
+    item = editorial_item(
+        f"{board}-{verification_status}",
+        board,
+        verification_status=verification_status,
+    )
+    digest = EditorialDigest(
+        generated_at=datetime(2026, 7, 23, 1, 5, tzinfo=UTC),
+        candidate_count=1,
+        source_count=1,
+        boards=DigestBoards(**{board: [item]}),
+        items=[item],
+        pipeline_stats=PipelineStats(
+            candidate_count=1,
+            shortlist_count=1,
+            source_verified_count=1,
+            rejected_count=0,
+        ),
+    )
+
+    content = digest_markdown(digest, include_title=False)
+
+    assert ("⚠ 原始来源暂不可核查" in content) is has_warning
+
+
+def test_empty_rejection_reasons_use_stable_tie_order() -> None:
+    digest = legal_empty_digest().model_copy(
+        update={
+            "pipeline_stats": PipelineStats(
+                candidate_count=12,
+                shortlist_count=6,
+                source_verified_count=3,
+                rejected_count=6,
+                top_rejection_reasons={
+                    "missing_action": 2,
+                    "invalid_evidence_anchor": 2,
+                },
+            )
+        }
+    )
+
+    content = digest_markdown(digest, include_title=False)
+
+    assert content.index("证据无法核查：2") < content.index("缺少可执行行动：2")
+
+
+def test_nonzero_empty_result_without_reason_counts_is_not_contradictory() -> None:
+    digest = legal_empty_digest().model_copy(
+        update={
+            "pipeline_stats": PipelineStats(
+                candidate_count=12,
+                shortlist_count=6,
+                source_verified_count=3,
+                rejected_count=6,
+                top_rejection_reasons={},
+            )
+        }
+    )
+
+    content = digest_markdown(digest, include_title=False)
+
+    assert "未记录可归类淘汰原因" in content
+    assert "未产生可筛选候选" not in content
+
+
+def test_overlong_evidence_url_fails_closed_instead_of_rendering_broken_link() -> None:
+    item = editorial_item("long-url", "must_read").model_copy(
+        update={"evidence_url": "https://example.com/?" + "q=" + "a" * 900}
+    )
+    digest = EditorialDigest(
+        generated_at=datetime(2026, 7, 23, 1, 5, tzinfo=UTC),
+        candidate_count=1,
+        source_count=1,
+        boards=DigestBoards(must_read=[item]),
+        items=[item],
+        pipeline_stats=PipelineStats(
+            candidate_count=1,
+            shortlist_count=1,
+            source_verified_count=1,
+            rejected_count=0,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="证据链接过长"):
+        build_card(digest)
+
+
+def test_send_serializes_compact_utf8_body_below_feishu_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, int]:
+            return {"code": 0}
+
+    def fake_post(url: str, **kwargs: object) -> Response:
+        captured["url"] = url
+        captured.update(kwargs)
+        return Response()
+
+    monkeypatch.setattr("ai_news_bot.feishu.requests.post", fake_post)
+
+    send_to_feishu(
+        maximum_legal_digest(),
+        "https://open.feishu.cn/open-apis/bot/v2/hook/test",
+        signing_secret="secret",
+    )
+
+    body = captured["data"]
+    assert isinstance(body, bytes)
+    assert len(body) < 20_000
+    assert captured["headers"] == {
+        "Content-Type": "application/json; charset=utf-8"
+    }
+    assert "json" not in captured
+    assert json.loads(body)["msg_type"] == "interactive"
+
+
+@pytest.mark.parametrize(
+    "webhook_url",
+    [
+        "",
+        "http://open.feishu.cn/open-apis/bot/v2/hook/test",
+        "https://evil.example/open-apis/bot/v2/hook/test",
+        "https://open.feishu.cn.evil.example/open-apis/bot/v2/hook/test",
+    ],
+)
+def test_webhook_validation_rejects_non_official_urls_before_http(
+    webhook_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called = False
+
+    def fake_post(*args: object, **kwargs: object) -> None:
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr("ai_news_bot.feishu.requests.post", fake_post)
+
+    with pytest.raises(ValueError):
+        send_to_feishu(sample_digest(), webhook_url)
+
+    assert not called
