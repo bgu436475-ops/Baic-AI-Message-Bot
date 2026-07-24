@@ -57,7 +57,6 @@ class Settings(BaseModel):
     feishu_webhook_url: str = ""
     feishu_signing_secret: str = ""
     github_token: str = ""
-    target_news_count: int = Field(default=10, ge=1, le=20)
     lookback_hours: int = Field(default=36, ge=6, le=168)
     fallback_lookback_hours: int = Field(default=168, ge=24, le=336)
     max_candidates: int = Field(default=80, ge=10, le=80)
@@ -81,7 +80,6 @@ class Settings(BaseModel):
             feishu_webhook_url=os.getenv("FEISHU_WEBHOOK_URL", "").strip(),
             feishu_signing_secret=os.getenv("FEISHU_SIGNING_SECRET", "").strip(),
             github_token=os.getenv("GITHUB_TOKEN", "").strip(),
-            target_news_count=int(os.getenv("TARGET_NEWS_COUNT", "10")),
             lookback_hours=int(os.getenv("LOOKBACK_HOURS", "36")),
             fallback_lookback_hours=int(os.getenv("FALLBACK_LOOKBACK_HOURS", "168")),
             max_candidates=int(os.getenv("MAX_CANDIDATES", "80")),

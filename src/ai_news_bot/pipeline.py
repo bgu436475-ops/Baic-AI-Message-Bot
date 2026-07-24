@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Annotated, Literal, Protocol
 
 from pydantic import BaseModel, Field
 
@@ -51,7 +51,11 @@ MAX_POLICY_TERMS = 10
 
 _ASSIGNED_SECRET = re.compile(
     r"""(?ix)
-    \b(api[_-]?key|token|secret|password)
+    (?<![A-Za-z0-9_-])
+    (
+        (?:[A-Za-z][A-Za-z0-9_-]*[_-])?
+        (?:api[_-]?key|access[_-]?token|token|secret|password)
+    )
     \s*[:=]\s*
     (?:"[^"]*"|'[^']*'|[^\s,;]+)
     """
@@ -238,11 +242,16 @@ class PipelineDependencies:
 
 
 class AuditEntry(BaseModel):
-    candidate_id: str
-    source_url: str
+    candidate_id: str = Field(max_length=160)
+    source_url: str = Field(max_length=1000)
     fetch_status: VerificationStatus
-    anchor_locators: list[str] = Field(default_factory=list)
-    gate_reasons: list[RejectionCode] = Field(default_factory=list)
+    anchor_locators: list[
+        Annotated[str, Field(max_length=120)]
+    ] = Field(default_factory=list, max_length=MAX_ANCHORS)
+    gate_reasons: list[RejectionCode] = Field(
+        default_factory=list,
+        max_length=20,
+    )
     duplicate_status: DuplicateAuditStatus
     score_breakdown: ScoreBreakdown | None = None
     selected_board: BoardName | None = None
@@ -250,9 +259,12 @@ class AuditEntry(BaseModel):
 
 class PipelineAudit(BaseModel):
     generated_at: datetime
-    entries: list[AuditEntry]
-    rejected: list[AuditEntry]
-    rejection_reason_counts: dict[str, int] = Field(default_factory=dict)
+    entries: list[AuditEntry] = Field(max_length=20)
+    rejected: list[AuditEntry] = Field(max_length=20)
+    rejection_reason_counts: dict[str, int] = Field(
+        default_factory=dict,
+        max_length=20,
+    )
 
 
 class PipelineResult(BaseModel):
@@ -316,7 +328,10 @@ def _prepare_draft(
             )
             else record.verification_status
         ),
-        event_fingerprint=event_fingerprint(record),
+        event_fingerprint=_safe_text(
+            event_fingerprint(record),
+            1000,
+        ),
         update_of=(
             _safe_text(assessment.update_of, 500)
             if assessment.update_of is not None
@@ -359,7 +374,9 @@ def _audit_entry(
             else "not_evaluated"
         ),
         score_breakdown=value.score,
-        selected_board=selected_boards.get(value.candidate.id),
+        selected_board=selected_boards.get(
+            _safe_text(value.candidate.id, 160)
+        ),
     )
 
 

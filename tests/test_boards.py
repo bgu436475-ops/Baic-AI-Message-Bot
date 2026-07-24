@@ -559,17 +559,17 @@ def test_company_cap_canonicalizes_punctuation_and_unicode_variants() -> None:
 
 
 def test_material_update_link_is_copied_to_selected_editorial_item() -> None:
-    result = build_boards(
-        [
-            scored(
-                "update",
-                assessment=DuplicateAssessment(
-                    status="material_update",
-                    update_of="old-event-fingerprint",
-                ),
-            )
-        ]
+    candidate = scored(
+        "update",
+        assessment=DuplicateAssessment(
+            status="material_update",
+            update_of="ACCESS_TOKEN=raw-secret",
+        ),
     )
+    candidate.draft = candidate.draft.model_copy(
+        update={"update_of": "ACCESS_TOKEN=[REDACTED]"}
+    )
+    result = build_boards([candidate])
 
-    assert result.must_read[0].update_of == "old-event-fingerprint"
+    assert result.must_read[0].update_of == "ACCESS_TOKEN=[REDACTED]"
     assert result.must_read[0].board == "must_read"

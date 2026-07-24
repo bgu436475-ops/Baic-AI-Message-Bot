@@ -3,7 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -29,7 +30,12 @@ from ai_news_bot.models import (
     PipelineStats,
     ScoreBreakdown,
 )
-from ai_news_bot.pipeline import PipelineAudit, PipelineResult
+from ai_news_bot.pipeline import (
+    PipelineAudit,
+    PipelineDependencies,
+    PipelineResult,
+)
+from ai_news_bot.source_fetcher import FetchedSource
 
 
 NOW = datetime(2026, 7, 23, 1, 5, tzinfo=UTC)
@@ -59,7 +65,6 @@ def _settings(tmp_path: Path) -> Settings:
         event_history_path=state / "events.json",
         send_ledger_path=state / "daily_sends.json",
         audit_path=state / "latest_audit.json",
-        target_news_count=1,
         max_candidates=10,
     )
 
@@ -349,6 +354,129 @@ def test_fallback_expands_only_when_current_shortlist_is_empty() -> None:
     assert not cli._should_expand_lookback([qualifying], NOW)
     assert cli._should_expand_lookback([nonspecific], NOW)
     assert cli._should_expand_lookback([], NOW)
+
+
+def test_run_keeps_older_strong_candidate_ahead_of_eighty_current_weak(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    collected_at = datetime.now(UTC)
+    alphabetic_hash = str.maketrans(
+        "0123456789abcdef",
+        "ghijklmnopqrstuv",
+    )
+    current_weak = [
+        _candidate().model_copy(
+            update={
+                "id": f"current-weak-{index:02d}",
+                "title": sha256(
+                    str(index).encode()
+                ).hexdigest().translate(
+                    alphabetic_hash
+                ),
+                "summary": "General commentary without a concrete change.",
+                "url": f"https://example.com/current/{index:02d}",
+                "published_at": collected_at - timedelta(minutes=index),
+            }
+        )
+        for index in range(80)
+    ]
+    older_strong = _candidate().model_copy(
+        update={
+            "id": "older-strong",
+            "url": "https://example.com/older-strong",
+            "published_at": collected_at - timedelta(days=3),
+        }
+    )
+    outcomes = iter(
+        [
+            CollectionOutcome(
+                candidates=current_weak,
+                attempted=1,
+                succeeded=1,
+            ),
+            CollectionOutcome(
+                candidates=[older_strong],
+                attempted=1,
+                succeeded=1,
+            ),
+        ]
+    )
+    settings = _settings(tmp_path).model_copy(
+        update={"max_candidates": 80}
+    )
+    web_output = tmp_path / "fallback.json"
+
+    def fetched_sources(values: list[Candidate]) -> list[FetchedSource]:
+        return [
+            FetchedSource(
+                candidate_id=value.id,
+                requested_url=value.url,
+                final_url=value.url,
+                status="verified",
+                status_code=200,
+                title=value.title,
+                text=(
+                    "Model-X API v2 is available now for one dollar."
+                ),
+                fetched_at=collected_at,
+            )
+            for value in values
+        ]
+
+    def extract(
+        candidate: Candidate,
+        source: FetchedSource,
+        original_source: FetchedSource | None,
+    ) -> EvidenceRecord:
+        return _model_record().model_copy(
+            update={
+                "candidate_id": candidate.id,
+                "source_url": candidate.url,
+            }
+        )
+
+    dependencies = PipelineDependencies(
+        shortlist=cli.shortlist_candidates,
+        source_fetcher=SimpleNamespace(fetch_many=fetched_sources),
+        extract=extract,
+        gates=cli.evaluate_gates,
+        classify=lambda record, now: DuplicateAssessment(
+            status="unique"
+        ),
+        score=lambda record, assessment, published_at, now: _score(),
+        boards=cli.build_boards,
+        lookback_hours=settings.fallback_lookback_hours,
+        fallback_used=True,
+    )
+    monkeypatch.setattr(cli.Settings, "from_env", lambda: settings)
+    monkeypatch.setattr(
+        cli,
+        "load_sources",
+        lambda path: SourcesConfig(rss=[]),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_collect_candidates",
+        lambda *args, **kwargs: next(outcomes),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_build_pipeline_dependencies",
+        lambda *args, **kwargs: dependencies,
+    )
+
+    assert cli.run(_args(web_output)) == 0
+
+    digest = EditorialDigest.model_validate_json(
+        web_output.read_text(encoding="utf-8")
+    )
+    assert digest.candidate_count == 80
+    assert digest.fallback_used is True
+    assert [
+        item.candidate_id
+        for item in digest.boards.must_read
+    ] == ["older-strong"]
 
 
 class _PipelineHTTPResponse:

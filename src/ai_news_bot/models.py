@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, computed_field, model_validator
 
@@ -212,31 +212,42 @@ class ScoreBreakdown(BaseModel):
 
 
 class EditorialDraft(BaseModel):
-    candidate_id: str
-    original_title: str
-    title_en: str = ""
-    summary_en: str = ""
-    title_zh: str
-    summary_zh: str
-    concrete_change: str
-    affected_audience: list[str]
-    affected_area: list[str]
-    recommended_action: list[str]
-    evidence_url: str
+    candidate_id: str = Field(max_length=160)
+    original_title: str = Field(max_length=120)
+    title_en: str = Field(default="", max_length=120)
+    summary_en: str = Field(default="", max_length=320)
+    title_zh: str = Field(max_length=80)
+    summary_zh: str = Field(max_length=220)
+    concrete_change: str = Field(max_length=1200)
+    affected_audience: list[
+        Annotated[str, Field(max_length=160)]
+    ] = Field(max_length=5)
+    affected_area: list[
+        Annotated[str, Field(max_length=160)]
+    ] = Field(max_length=5)
+    recommended_action: list[
+        Annotated[str, Field(max_length=300)]
+    ] = Field(max_length=5)
+    evidence_url: str = Field(max_length=1000)
     verification_status: VerificationStatus
-    event_fingerprint: str
-    update_of: str | None = None
-    primary_entity: str
-    event_entities: list[str]
-    change_signature: str
-    version_or_metric: str = ""
-    effective_date: str | None = None
+    event_fingerprint: str = Field(max_length=1000)
+    update_of: str | None = Field(default=None, max_length=500)
+    primary_entity: str = Field(max_length=160)
+    event_entities: list[
+        Annotated[str, Field(max_length=160)]
+    ] = Field(max_length=10)
+    change_signature: str = Field(max_length=160)
+    version_or_metric: str = Field(default="", max_length=120)
+    effective_date: str | None = Field(default=None, max_length=32)
     resource_available: bool = False
     scientific_verified: bool = False
-    source: str
+    source: str = Field(max_length=120)
     published_at: datetime
     category: Category
-    extra_categories: list[Category] = Field(default_factory=list)
+    extra_categories: list[Category] = Field(
+        default_factory=list,
+        max_length=3,
+    )
     score: ScoreBreakdown
 
 
@@ -283,7 +294,7 @@ class EditorialDigest(BaseModel):
     lookback_hours: int = 36
     fallback_used: bool = False
     boards: DigestBoards
-    items: list[EditorialNewsItem]
+    items: list[EditorialNewsItem] = Field(max_length=11)
     pipeline_stats: PipelineStats
 
     @model_validator(mode="after")

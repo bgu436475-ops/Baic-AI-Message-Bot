@@ -65,3 +65,14 @@ def test_environment_cannot_raise_candidate_cap_above_eighty(
 
     with pytest.raises(ValidationError):
         Settings.from_env()
+
+
+def test_settings_has_no_legacy_target_news_count(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("TARGET_NEWS_COUNT", "3")
+
+    settings = Settings.from_env()
+
+    assert "target_news_count" not in Settings.model_fields
+    assert "target_news_count" not in settings.model_dump()

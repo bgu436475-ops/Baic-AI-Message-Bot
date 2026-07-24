@@ -328,6 +328,7 @@ def test_explicit_fetched_original_source_can_enable_secondary_watch() -> None:
 def test_pipeline_bounds_and_redacts_untrusted_model_output() -> None:
     candidate = candidates()[0].model_copy(
         update={
+            "id": "candidate-" + "I" * 500,
             "title": (
                 "Model API token="
                 "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
@@ -410,10 +411,15 @@ def test_pipeline_bounds_and_redacts_untrusted_model_output() -> None:
                     f"entity-{index}-{secrets[2]}"
                     for index in range(30)
                 ],
-                "primary_entity": f"Acme secret={secrets[4]}",
-                "product_or_model": "Model-X " + "M" * 1000,
+                "primary_entity": (
+                    f"Acme FEISHU_SIGNING_SECRET={secrets[4]}"
+                ),
+                "product_or_model": "模型" * 1000,
                 "change_signature": "release " + "S" * 1000,
                 "version_or_metric": f"v2 token={secrets[5]}" + "V" * 1000,
+                "effective_date": (
+                    f"ACCESS_TOKEN={secrets[5]}" + "D" * 1000
+                ),
                 "policy_terms": [
                     f"term-{index} password={secrets[4]}"
                     for index in range(30)
@@ -446,17 +452,85 @@ def test_pipeline_bounds_and_redacts_untrusted_model_output() -> None:
     assert len(item.affected_audience) <= 5
     assert len(item.affected_area) <= 5
     assert len(item.recommended_action) <= 5
+    assert all(
+        len(action) <= 300
+        for action in item.recommended_action
+    )
     assert len(item.event_entities) <= 10
+    assert all(
+        len(entity) <= 160
+        for entity in item.event_entities
+    )
     assert len(item.primary_entity) <= 160
+    assert len(item.change_signature) <= 160
     assert len(item.version_or_metric) <= 120
+    assert item.effective_date is None or len(item.effective_date) <= 32
     assert len(item.source) <= 120
+    assert len(item.event_fingerprint) <= 1000
+    assert len(item.evidence_url) <= 1000
 
     audit = result.audit.entries[0]
+    assert len(audit.candidate_id) <= 160
+    assert len(audit.source_url) <= 1000
+    assert audit.selected_board == "must_read"
+    assert result.audit.rejected == []
     assert len(audit.anchor_locators) <= 8
     assert all(
         len(locator) <= 120
         for locator in audit.anchor_locators
     )
+
+
+def test_pipeline_sanitizes_update_link_env_keys_and_path_credentials() -> None:
+    path_secret = "path-secret-value"
+    update_secret = "update-secret-value"
+    signing_secret = "signing-secret-value"
+    candidate = candidates()[0].model_copy(
+        update={
+            "url": (
+                "https://example.com/hooks/access_token/"
+                f"{path_secret}/release"
+            )
+        }
+    )
+    dependencies = fakes([], qualifying=True)
+
+    def classify(
+        record: EvidenceRecord,
+        now: datetime,
+    ) -> DuplicateAssessment:
+        return DuplicateAssessment(
+            status="material_update",
+            update_of=(
+                f"ACCESS_TOKEN={update_secret} "
+                f"FEISHU_SIGNING_SECRET={signing_secret} "
+                + "U" * 2000
+            ),
+        )
+
+    result = run_editorial_pipeline(
+        [candidate],
+        dependencies=replace(
+            dependencies,
+            classify=classify,
+        ),
+        now=NOW,
+    )
+
+    digest_json = result.digest.model_dump_json()
+    audit_json = result.audit.model_dump_json()
+    for secret in (path_secret, update_secret, signing_secret):
+        assert secret not in digest_json
+        assert secret not in audit_json
+    item = result.digest.items[0]
+    assert item.update_of is not None
+    assert len(item.update_of) <= 500
+    assert "ACCESS_TOKEN=[REDACTED]" in item.update_of
+    assert "FEISHU_SIGNING_SECRET=[REDACTED]" in item.update_of
+    assert item.evidence_url == (
+        "https://example.com/hooks/access_token/REDACTED/release"
+    )
+    assert result.audit.entries[0].source_url == item.evidence_url
 
 
 def test_final_gate_runs_after_event_dedupe_with_real_status() -> None:

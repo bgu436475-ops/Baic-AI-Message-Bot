@@ -22,7 +22,7 @@ from .evidence import extract_evidence
 from .feishu import send_to_feishu
 from .gatekeeper import evaluate_gates
 from .history import HistoryStore
-from .models import EditorialDigest
+from .models import Candidate, EditorialDigest
 from .pipeline import (
     PipelineDependencies,
     run_editorial_pipeline,
@@ -94,6 +94,37 @@ def _should_expand_lookback(
     now: datetime,
 ) -> bool:
     return not shortlist_candidates(candidates, now)
+
+
+def _merge_fallback_candidates(
+    current: list[Candidate],
+    older: list[Candidate],
+    history: HistoryStore,
+    max_candidates: int,
+    now: datetime,
+) -> list[Candidate]:
+    cap = max(0, min(max_candidates, 80))
+    unseen = [
+        candidate
+        for candidate in current + older
+        if not history.contains(candidate.url)
+    ]
+    unique = hard_dedupe(unseen)
+    priority = shortlist_candidates(unique, now)
+    priority_ids = {candidate.id for candidate in priority}
+    remaining = sorted(
+        (
+            candidate
+            for candidate in unique
+            if candidate.id not in priority_ids
+        ),
+        key=lambda candidate: (
+            -candidate.published_at.timestamp(),
+            -candidate.source_weight,
+            candidate.id,
+        ),
+    )
+    return (priority + remaining)[:cap]
 
 
 def _build_pipeline_dependencies(
@@ -260,13 +291,15 @@ def run(args: argparse.Namespace) -> int:
                 error,
             )
         else:
-            collected = hard_dedupe(
-                collected + older_outcome.candidates
-            )
-            unique = _prepare_candidates(
+            unique = _merge_fallback_candidates(
                 collected,
+                older_outcome.candidates,
                 history,
                 settings.max_candidates,
+                generation_now,
+            )
+            collected = hard_dedupe(
+                collected + older_outcome.candidates
             )
             fallback_used = older_outcome.succeeded > 0
     LOGGER.info(

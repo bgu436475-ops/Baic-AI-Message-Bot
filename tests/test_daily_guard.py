@@ -177,10 +177,18 @@ def test_workflow_sends_before_persisting_and_publishing_latest_digest() -> None
         < persist_position
         < publish_position
     )
-    assert "github.event_name == 'workflow_dispatch'" in workflow
-    assert "github.run_id" in workflow
-    assert "daily-ai-news-automatic" in workflow
-    assert "cancel-in-progress: false" in workflow
+
+
+def test_workflow_serializes_manual_and_automatic_runs() -> None:
+    workflow = _workflow()
+    concurrency = workflow[
+        workflow.index("concurrency:") :
+        workflow.index("permissions:")
+    ]
+
+    assert "group: daily-ai-news" in concurrency
+    assert "github.run_id" not in concurrency
+    assert "cancel-in-progress: false" in concurrency
 
 
 def test_workflow_always_saves_whole_state_after_send_success() -> None:

@@ -5,7 +5,11 @@ import pytest
 import requests
 
 from ai_news_bot.models import Candidate
-from ai_news_bot.source_fetcher import AllSourcesUnavailableError, SourceFetcher
+from ai_news_bot.source_fetcher import (
+    AllSourcesUnavailableError,
+    SourceFetcher,
+    _sanitize_url,
+)
 
 
 NOW = datetime(2026, 7, 14, 12, 0, tzinfo=UTC)
@@ -303,6 +307,36 @@ def test_fetch_sources_redacts_presigned_credentials_and_sensitive_query_values(
     assert "request-password" not in serialized
     assert "final-password" not in serialized
     assert "HTTPError" == result.error
+
+
+@pytest.mark.parametrize(
+    ("raw_url", "expected_path"),
+    [
+        (
+            "https://example.test/hooks/access_token/path-secret/releases",
+            "/hooks/access_token/REDACTED/releases",
+        ),
+        (
+            "https://example.test/download/api_key=assignment-secret/file",
+            "/download/api_key=REDACTED/file",
+        ),
+        (
+            "https://example.test/artifacts/"
+            "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890/file",
+            "/artifacts/REDACTED/file",
+        ),
+    ],
+)
+def test_url_sanitizer_redacts_path_carried_credentials(
+    raw_url: str,
+    expected_path: str,
+) -> None:
+    sanitized = _sanitize_url(raw_url)
+
+    assert sanitized == f"https://example.test{expected_path}"
+    assert "path-secret" not in sanitized
+    assert "assignment-secret" not in sanitized
+    assert "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890" not in sanitized
 
 
 @pytest.mark.parametrize(

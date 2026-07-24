@@ -96,9 +96,10 @@ def _to_item(
     candidate: ScoredEditorialCandidate,
     board: Literal["must_read", "try_now", "watch"],
 ) -> EditorialNewsItem:
-    values = candidate.draft.model_dump()
-    values["update_of"] = candidate.assessment.update_of
-    return EditorialNewsItem(**values, board=board)
+    return EditorialNewsItem(
+        **candidate.draft.model_dump(),
+        board=board,
+    )
 
 
 def build_boards(

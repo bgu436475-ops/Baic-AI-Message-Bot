@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Literal
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import (
+    parse_qsl,
+    unquote,
+    urlencode,
+    urlsplit,
+    urlunsplit,
+)
 
 import requests
 from bs4 import BeautifulSoup
@@ -50,6 +57,13 @@ SENSITIVE_QUERY_PARAMETERS = frozenset(
     }
 )
 # Only known secret-bearing keys are redacted so arbitrary evidence URL parameters remain usable.
+_PATH_TOKEN = re.compile(
+    r"(?i)(?:"
+    r"sk-[A-Za-z0-9_-]{8,}|"
+    r"gh[pousr]_[A-Za-z0-9]{20,}|"
+    r"eyJ[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}"
+    r")"
+)
 
 
 class AllSourcesUnavailableError(RuntimeError):
@@ -183,10 +197,48 @@ def _sanitize_url(url: str) -> str:
             ]
         )
         netloc = parsed.netloc.rsplit("@", maxsplit=1)[-1]
-        return urlunsplit((parsed.scheme, netloc, parsed.path, query, ""))
+        return urlunsplit(
+            (
+                parsed.scheme,
+                netloc,
+                _sanitize_path(parsed.path),
+                query,
+                "",
+            )
+        )
     except Exception:
         return f"invalid-url:{sha256(url.encode('utf-8', 'surrogatepass')).hexdigest()[:12]}"
 
 
 def _normalize_parameter_name(name: str) -> str:
     return name.casefold().replace("-", "").replace("_", "")
+
+
+def _sanitize_path(path: str) -> str:
+    segments = path.split("/")
+    redact_next = False
+    sanitized: list[str] = []
+    for raw_segment in segments:
+        decoded = unquote(raw_segment)
+        if redact_next:
+            sanitized.append("REDACTED")
+            redact_next = False
+            continue
+        assignment = re.fullmatch(r"([^=:]+)([:=])(.*)", decoded)
+        if (
+            assignment is not None
+            and _normalize_parameter_name(assignment.group(1))
+            in SENSITIVE_QUERY_PARAMETERS
+        ):
+            sanitized.append(
+                f"{assignment.group(1)}{assignment.group(2)}REDACTED"
+            )
+            continue
+        normalized = _normalize_parameter_name(decoded)
+        sanitized.append(
+            "REDACTED"
+            if _PATH_TOKEN.search(decoded)
+            else raw_segment
+        )
+        redact_next = normalized in SENSITIVE_QUERY_PARAMETERS
+    return "/".join(sanitized)

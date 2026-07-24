@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.event_name == 'workflow_dispatch' && format('daily-ai-news-manual-{0}', github.run_id) || 'daily-ai-news-automatic' }}
+  group: daily-ai-news
   cancel-in-progress: false
 
 permissions:
