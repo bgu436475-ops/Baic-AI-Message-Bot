@@ -18,11 +18,9 @@ from ai_news_bot.models import (
     GateDecision,
     ScoreBreakdown,
 )
-from ai_news_bot.pipeline import (
-    PipelineDependencies,
-    run_editorial_pipeline,
-    write_audit,
-)
+from ai_news_bot import pipeline as pipeline_module
+from ai_news_bot.pipeline import PipelineDependencies, run_editorial_pipeline, write_audit
+from ai_news_bot.scoring import score_record
 from ai_news_bot.source_fetcher import (
     AllSourcesUnavailableError,
     FetchedSource,
@@ -276,8 +274,15 @@ def test_model_cannot_invent_original_source_status_for_secondary_exception() ->
             original_source_status="blocked",
         )
 
+    media_candidate = candidates()[0].model_copy(
+        update={
+            "source_tier": 3,
+            "source": "TechCrunch",
+            "url": "https://techcrunch.com/story",
+        }
+    )
     result = run_editorial_pipeline(
-        [candidates()[0]],
+        [media_candidate],
         dependencies=fakes(
             [],
             qualifying=True,
@@ -323,6 +328,100 @@ def test_explicit_fetched_original_source_can_enable_secondary_watch() -> None:
         candidate.id
     ]
     assert result.digest.items[0].verification_status == "blocked"
+
+
+@pytest.mark.parametrize("publisher", ["TechCrunch", "VentureBeat"])
+def test_tier_three_media_cannot_claim_official_primary_status(
+    publisher: str,
+) -> None:
+    candidate = candidates()[0].model_copy(
+        update={
+            "source": publisher,
+            "source_tier": 3,
+            "url": f"https://{publisher.casefold()}.example/article",
+        }
+    )
+
+    result = run_editorial_pipeline(
+        [candidate],
+        dependencies=fakes([], qualifying=True),
+        now=NOW,
+    )
+
+    assert result.digest.run_status == "no_qualifying_items"
+    assert result.audit.entries[0].gate_reasons == ["unverified_primary_source"]
+
+
+def test_prompt_influenced_source_type_is_downgraded_by_program_provenance() -> None:
+    candidate = candidates()[0].model_copy(
+        update={"source_tier": 3, "url": "https://techcrunch.com/story"}
+    )
+    claimed = evidence(candidate, source_type="official_announcement")
+
+    bound = pipeline_module.bind_program_provenance(
+        candidate,
+        fetched(candidate),
+        claimed,
+        original_source=None,
+    )
+    score = score_record(
+        bound,
+        DuplicateAssessment(status="unique"),
+        candidate.published_at,
+        NOW,
+    )
+
+    assert bound.source_type == "trusted_secondary"
+    assert score.evidence_quality == 8
+
+
+def test_cross_domain_redirect_cannot_retain_primary_provenance() -> None:
+    candidate = candidates()[0].model_copy(
+        update={"url": "https://official.example/release"}
+    )
+    source = fetched(candidate).model_copy(
+        update={"final_url": "https://media.example/copied-release"}
+    )
+
+    bound = pipeline_module.bind_program_provenance(
+        candidate,
+        source,
+        evidence(candidate),
+        original_source=None,
+    )
+
+    assert bound.source_type == "trusted_secondary"
+
+
+def test_same_trusted_tier_one_source_gets_deterministic_primary_type() -> None:
+    candidate = candidates()[0].model_copy(
+        update={"url": "https://official.example/release"}
+    )
+    source = fetched(candidate)
+
+    bound = pipeline_module.bind_program_provenance(
+        candidate,
+        source,
+        evidence(candidate, source_type="official_demo"),
+        original_source=None,
+    )
+
+    assert bound.source_type == "official_announcement"
+
+
+def test_financial_filing_domain_gets_program_owned_source_type() -> None:
+    candidate = candidates()[0].model_copy(
+        update={"url": "https://www.sec.gov/Archives/filing"}
+    )
+
+    bound = pipeline_module.bind_program_provenance(
+        candidate,
+        fetched(candidate),
+        evidence(candidate),
+        original_source=None,
+    )
+
+    assert bound.source_type == "financial_filing"
 
 
 def test_pipeline_bounds_and_redacts_untrusted_model_output() -> None:

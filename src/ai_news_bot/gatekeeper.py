@@ -53,7 +53,11 @@ def evaluate_gates(
         (not record.recommended_action, "missing_action"),
         (not record.affected_audience, "missing_affected_audience"),
         (not record.affected_area, "missing_affected_area"),
-        (not record.evidence_anchors, "invalid_evidence_anchor"),
+        (
+            not record.evidence_anchors
+            or not record.evidence_covers_full_claim,
+            "invalid_evidence_anchor",
+        ),
         (
             duplicate_status in {"duplicate", "minor_update"},
             "duplicate_without_material_update",

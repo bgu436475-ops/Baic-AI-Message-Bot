@@ -25,11 +25,14 @@ class FakeResponse:
         content_type: str = "text/html; charset=utf-8",
         iter_content_error: requests.RequestException | None = None,
         close_error: Exception | None = None,
+        location: str | None = None,
     ) -> None:
         self.url = url
         self._body = text.encode()
         self.status_code = status_code
         self.headers = {"content-type": content_type}
+        if location is not None:
+            self.headers["location"] = location
         self.bytes_yielded = 0
         self.iter_content_chunk_sizes: list[int] = []
         self.iter_content_error = iter_content_error
@@ -66,14 +69,31 @@ class FakeSession:
         self.responses = iter(responses)
         self.calls: list[tuple[str, int, dict[str, str], bool]] = []
 
+    @staticmethod
+    def resolve(hostname: str, port: int) -> list[str]:
+        return ["93.184.216.34"]
+
     def get(
-        self, url: str, *, timeout: int, headers: dict[str, str], stream: bool
+        self,
+        url: str,
+        *,
+        timeout: int,
+        headers: dict[str, str],
+        stream: bool,
+        allow_redirects: bool = True,
     ) -> FakeResponse:
         self.calls.append((url, timeout, headers, stream))
         result = next(self.responses)
         if isinstance(result, requests.RequestException):
             raise result
         return result
+
+
+def resolver(mapping: dict[str, list[str]]):
+    def resolve(hostname: str, port: int) -> list[str]:
+        return mapping.get(hostname, ["93.184.216.34"])
+
+    return resolve
 
 
 def candidate(identifier: str, *, url: str | None = None) -> Candidate:
@@ -125,6 +145,12 @@ def test_fetch_sources_retains_final_redirect_url() -> None:
     session = FakeSession(
         [
             FakeResponse(
+                url="https://example.test/one",
+                text="",
+                status_code=302,
+                location="https://example.com/final",
+            ),
+            FakeResponse(
                 url="https://example.com/final",
                 text="<h1>Model X v2</h1><p>Input price is $1 per million tokens.</p>" * 2,
             )
@@ -137,10 +163,177 @@ def test_fetch_sources_retains_final_redirect_url() -> None:
     assert result[0].final_url == "https://example.com/final"
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://example.com/news",
+        "https://user:password@example.com/news",
+        "https://127.0.0.1/news",
+        "https://[::1]/news",
+        "https://169.254.169.254/latest/meta-data",
+        "https://0.0.0.0/news",
+    ],
+)
+def test_fetch_rejects_non_public_initial_urls_before_request(url: str) -> None:
+    session = FakeSession([])
+
+    result = SourceFetcher(session=session).fetch_one(candidate("unsafe", url=url))
+
+    assert result.status == "unavailable"
+    assert result.error == "UnsafeSourceUrlError"
+    assert session.calls == []
+
+
+def test_fetch_rejects_hostname_that_resolves_to_private_address() -> None:
+    session = FakeSession([])
+
+    result = SourceFetcher(
+        session=session,
+        resolver=resolver({"example.test": ["10.0.0.7"]}),
+    ).fetch_one(one())
+
+    assert result.status == "unavailable"
+    assert result.error == "UnsafeSourceUrlError"
+    assert session.calls == []
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        "https://127.0.0.1/private",
+        "https://localhost/private",
+        "http://example.test/insecure",
+    ],
+)
+def test_fetch_rejects_unsafe_redirect_before_following(location: str) -> None:
+    session = FakeSession([
+        FakeResponse(
+            url="https://example.test/one",
+            text="",
+            status_code=302,
+            location=location,
+        ),
+    ])
+
+    result = SourceFetcher(session=session).fetch_one(one())
+
+    assert result.status == "unavailable"
+    assert result.error == "UnsafeSourceUrlError"
+    assert len(session.calls) == 1
+
+
+def test_fetch_follows_relative_public_redirect_without_forwarding_credentials() -> None:
+    session = FakeSession([
+        FakeResponse(
+            url="https://example.test/start",
+            text="",
+            status_code=302,
+            location="/release",
+        ),
+        FakeResponse(
+            url="https://example.test/release",
+            text="<h1>Release</h1><p>API v2 costs $1 per million tokens.</p>" * 3,
+        ),
+    ])
+
+    result = SourceFetcher(session=session).fetch_one(
+        candidate("redirect", url="https://example.test/start")
+    )
+
+    assert result.status == "verified"
+    assert [call[0] for call in session.calls] == [
+        "https://example.test/start",
+        "https://example.test/release",
+    ]
+    assert all("Authorization" not in call[2] and "Cookie" not in call[2] for call in session.calls)
+
+
+def test_fetcher_disables_session_credentials_cookies_and_environment_auth() -> None:
+    session = FakeSession([
+        FakeResponse(
+            url="https://example.test/one",
+            text="x" * 100,
+        ),
+    ])
+
+    class Cookies:
+        def __init__(self) -> None:
+            self.clear_calls = 0
+
+        def clear(self) -> None:
+            self.clear_calls += 1
+
+    session.auth = ("user", "password")
+    session.trust_env = True
+    session.headers = {
+        "Authorization": "Bearer inherited",
+        "Cookie": "session=inherited",
+    }
+    session.cookies = Cookies()
+
+    result = SourceFetcher(session=session).fetch_one(one())
+
+    assert result.status == "verified"
+    assert session.auth is None
+    assert session.trust_env is False
+    assert session.cookies.clear_calls >= 1
+    assert "Authorization" not in session.headers
+    assert "Cookie" not in session.headers
+
+
+def test_fetch_rejects_redirect_loop() -> None:
+    session = FakeSession([
+        FakeResponse(
+            url="https://example.test/one",
+            text="",
+            status_code=302,
+            location="/two",
+        ),
+        FakeResponse(
+            url="https://example.test/two",
+            text="",
+            status_code=302,
+            location="/one",
+        ),
+    ])
+
+    result = SourceFetcher(session=session).fetch_one(one())
+
+    assert result.status == "unavailable"
+    assert result.error == "UnsafeSourceUrlError"
+    assert len(session.calls) == 2
+
+
+def test_fetch_rejects_too_many_redirect_hops() -> None:
+    session = FakeSession([
+        FakeResponse(
+            url=f"https://example.test/{index}",
+            text="",
+            status_code=302,
+            location=f"/{index + 1}",
+        )
+        for index in range(7)
+    ])
+
+    result = SourceFetcher(session=session, max_redirects=5).fetch_one(
+        candidate("redirects", url="https://example.test/0")
+    )
+
+    assert result.status == "unavailable"
+    assert result.error == "UnsafeSourceUrlError"
+    assert len(session.calls) == 6
+
+
 def test_fetch_sources_keeps_success_when_another_source_times_out() -> None:
     session = FakeSession(
         [
             requests.Timeout("slow"),
+            FakeResponse(
+                url="https://example.test/two",
+                text="",
+                status_code=302,
+                location="https://example.com/final",
+            ),
             FakeResponse(
                 url="https://example.com/final",
                 text="<h1>Model X v2</h1><p>Input price is $1 per million tokens.</p>" * 2,
@@ -166,6 +359,12 @@ def test_fetch_sources_raises_when_every_original_is_unavailable() -> None:
 def test_fetch_sources_preserves_redirect_details_for_http_errors(status_code: int) -> None:
     session = FakeSession(
         [
+            FakeResponse(
+                url="https://example.test/one",
+                text="",
+                status_code=302,
+                location="https://example.com/final?visible=keep#fragment",
+            ),
             FakeResponse(
                 url="https://example.com/final?visible=keep#fragment",
                 text="Not found",
@@ -262,21 +461,29 @@ def test_fetch_sources_redacts_presigned_credentials_and_sensitive_query_values(
         "access-key-value",
     ]
     requested_url = (
-        "https://request-user:request-password@example.test/one?token=client-token"
+        "https://example.test/one?token=client-token"
         "&visible=keep&X-Amz-Signature=client-signature&aws_access_key_id=aws-access-key"
         "&aws-secret-access-key=aws-secret-key&AWS-SESSION-TOKEN=aws-session-token"
         "&Password=password-value&client-secret=client-secret-value"
         "&access_key=access-key-value#requested-fragment"
     )
     final_url = (
-        "https://final-user:final-password@example.com/final?access_token=access-secret&api_key=api-secret"
+        "https://example.com/final?access_token=access-secret&api_key=api-secret"
         "&key=key-secret&signature=signature-secret&sig=sig-secret&secret=secret-value"
         "&auth=auth-value&authorization=authorization-value"
         "&X-Goog-Signature=goog-secret&X-Amz-Credential=aws-credential"
         "&X-Amz-Security-Token=aws-security-token&x_goog_credential=gcp-credential"
         "&X_GOOG_SECURITY_TOKEN=gcp-security-token&visible=final#response-fragment"
     )
-    session = FakeSession([FakeResponse(url=final_url, text="Not found", status_code=404)])
+    session = FakeSession([
+        FakeResponse(
+            url=requested_url,
+            text="",
+            status_code=302,
+            location=final_url,
+        ),
+        FakeResponse(url=final_url, text="Not found", status_code=404),
+    ])
 
     result = SourceFetcher(session=session).fetch_one(candidate("secret", url=requested_url))
 
@@ -291,10 +498,6 @@ def test_fetch_sources_redacts_presigned_credentials_and_sensitive_query_values(
     assert "X-Amz-Signature=REDACTED" in result.requested_url
     assert "access_token=REDACTED" in result.final_url
     assert "X-Goog-Signature=REDACTED" in result.final_url
-    assert "request-user" not in result.requested_url
-    assert "request-password" not in result.requested_url
-    assert "final-user" not in result.final_url
-    assert "final-password" not in result.final_url
     assert "aws_access_key_id=REDACTED" in result.requested_url
     assert "aws-secret-access-key=REDACTED" in result.requested_url
     assert "X-Amz-Credential=REDACTED" in result.final_url
@@ -304,8 +507,6 @@ def test_fetch_sources_redacts_presigned_credentials_and_sensitive_query_values(
     assert client_secret not in serialized
     assert "client-signature" not in serialized
     assert all(secret not in serialized for secret in response_secrets)
-    assert "request-password" not in serialized
-    assert "final-password" not in serialized
     assert "HTTPError" == result.error
 
 
@@ -389,7 +590,7 @@ def test_fetch_sources_closes_response_after_streaming_exception() -> None:
 def test_fetch_sources_uses_safe_placeholder_for_malformed_url_and_continues() -> None:
     malformed_url = "https://[not-an-ipv6]/?token=malformed-secret"
     good_response = FakeResponse(url="https://example.test/two", text="x" * 100)
-    session = FakeSession([requests.ConnectionError("down"), good_response])
+    session = FakeSession([good_response])
 
     result = SourceFetcher(session=session).fetch_many(
         [candidate("bad", url=malformed_url), two()]

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
+import unicodedata
 from typing import Any
 
 from openai import OpenAIError
@@ -20,6 +22,10 @@ do not add outside knowledge, assumptions, or fabricated details.
 Return exactly one EvidenceRecord for the supplied candidate_id. Extract evidence only:
 do not score or rank the candidate, choose a board, or produce score/board fields. Evidence
 quotes must be literal excerpts from the supplied source text.
+Provide at least one literal quote for every concrete_changes entry. Each quote must
+contain that claim's numbers, versions, dates, currency, API/SDK identifiers, and enough
+of its substantive wording to identify the same change. A generic nearby quote is not
+evidence for a different claim; the program independently enforces this binding.
 
 For policy claims, extract each concrete requirement, prohibition, scope, threshold, or
 obligation into policy_terms; do not substitute a summary-level direction for specific terms.
@@ -40,7 +46,125 @@ class EvidenceExtractionError(RuntimeError):
 
 
 def _normalized(value: str) -> str:
-    return " ".join(value.casefold().split())
+    return " ".join(unicodedata.normalize("NFKC", value).casefold().split())
+
+
+_MATERIAL_TOKEN = re.compile(
+    r"""(?x)
+    (?:[$€£¥]\s*\d+(?:[.,]\d+)*(?:\s*[kmb])?)
+    |(?:\b\d+(?:[.,]\d+)*(?:%|x|[kmb])?\b)
+    |(?:\b[Vv]\d+(?:[._-]\d+)*\b)
+    |(?:\b(?:API|SDK|MCP|GPU|CPU|JSON|HTTP|HTTPS|SQL|D1)\b)
+    """,
+    re.IGNORECASE,
+)
+_WORD = re.compile(r"[a-z][a-z0-9_-]{2,}")
+_CJK_RUN = re.compile(r"[\u3400-\u9fff]{2,}")
+_GENERIC_WORDS = frozenset(
+    {
+        "the",
+        "and",
+        "for",
+        "from",
+        "with",
+        "into",
+        "per",
+        "now",
+        "today",
+        "available",
+        "launches",
+        "launched",
+        "cost",
+        "costs",
+    }
+)
+_CJK_CANONICAL = {
+    "模型": "model",
+    "输入": "input",
+    "输出": "output",
+    "价格": "price",
+    "免费": "free",
+    "百万": "million",
+    "美元": "dollar",
+    "发布": "release",
+    "上线": "release",
+    "生效": "effective",
+}
+_CURRENCY_MARKERS = {
+    "dollar": (("$", "美元"), ("usd", "dollar", "dollars")),
+    "euro": (("€", "欧元"), ("eur", "euro", "euros")),
+    "pound": (("£", "英镑"), ("gbp", "pound", "pounds")),
+    "yen": (("¥", "日元", "人民币"), ("jpy", "cny", "rmb", "yen", "yuan")),
+}
+
+
+def _stem_word(value: str) -> str:
+    return value[:-1] if len(value) > 4 and value.endswith("s") else value
+
+
+def _meaningful_units(value: str) -> set[str]:
+    normalized = _normalized(value)
+    words = {
+        _stem_word(word)
+        for word in _WORD.findall(normalized)
+        if word not in _GENERIC_WORDS
+    }
+    cjk = {
+        run[index : index + 2]
+        for run in _CJK_RUN.findall(normalized)
+        for index in range(len(run) - 1)
+    }
+    canonical = {
+        meaning
+        for text, meaning in _CJK_CANONICAL.items()
+        if text in normalized
+    }
+    for symbol, meaning in (
+        ("$", "dollar"),
+        ("€", "euro"),
+        ("£", "pound"),
+        ("¥", "yen"),
+    ):
+        if symbol in normalized:
+            canonical.add(meaning)
+    return words | cjk | canonical
+
+
+def _material_tokens(value: str) -> set[str]:
+    tokens: set[str] = set()
+    for match in _MATERIAL_TOKEN.finditer(unicodedata.normalize("NFKC", value)):
+        token = _normalized(match.group(0)).replace(" ", "")
+        tokens.add(token.lstrip("$€£¥"))
+    return tokens
+
+
+def _currency_units(value: str) -> set[str]:
+    normalized = _normalized(value)
+    words = set(_WORD.findall(normalized))
+    return {
+        currency
+        for currency, (symbols, names) in _CURRENCY_MARKERS.items()
+        if any(symbol in normalized for symbol in symbols)
+        or bool(words.intersection(names))
+    }
+
+
+def _anchor_supports_claim(statement: str, quote: str) -> bool:
+    claim_material = _material_tokens(statement)
+    anchor_material = _material_tokens(quote)
+    if not claim_material.issubset(anchor_material):
+        return False
+    if not _currency_units(statement).issubset(_currency_units(quote)):
+        return False
+    claim_units = _meaningful_units(statement)
+    anchor_units = _meaningful_units(quote)
+    if not claim_units:
+        return False
+    overlap = claim_units.intersection(anchor_units)
+    return bool(overlap) and (
+        len(overlap) / len(claim_units) >= 0.6
+        or (bool(claim_material) and len(overlap) >= 3)
+    )
 
 
 def validate_anchors(
@@ -52,14 +176,23 @@ def validate_anchors(
         for anchor in record.evidence_anchors
         if (quote := _normalized(anchor.quote)) and quote in body
     ]
+    claims_supported = bool(record.concrete_changes) and all(
+        any(
+            _anchor_supports_claim(change.statement, anchor.quote)
+            for anchor in anchors
+        )
+        for change in record.concrete_changes
+    )
+    full_claim = record.evidence_covers_full_claim and claims_supported
     status = record.verification_status
-    if source.status != "verified" or not anchors:
+    if source.status != "verified" or not anchors or not full_claim:
         status = "insufficient" if source.status == "verified" else source.status
     return record.model_copy(
         update={
             "source_url": source.final_url,
             "verification_status": status,
             "evidence_anchors": anchors,
+            "evidence_covers_full_claim": full_claim,
         }
     )
 

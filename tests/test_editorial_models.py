@@ -114,3 +114,47 @@ def test_schema_v3_rejects_duplicate_or_mismatched_boards() -> None:
 def test_schema_v3_rejects_item_in_wrong_named_board() -> None:
     with pytest.raises(ValidationError):
         DigestBoards(must_read=[item(board="try_now")])
+
+
+@pytest.mark.parametrize(
+    "evidence_url",
+    [
+        "http://127.0.0.1/evidence",
+        "http://example.com/evidence",
+        "https://user:password@example.com/evidence",
+        "https://example.com/" + "x" * 240,
+    ],
+)
+def test_editorial_item_rejects_unsafe_or_overlong_evidence_url(
+    evidence_url: str,
+) -> None:
+    with pytest.raises(ValidationError):
+        item().model_copy(update={"evidence_url": evidence_url}).__class__.model_validate(
+            {**item().model_dump(), "evidence_url": evidence_url}
+        )
+
+
+@pytest.mark.parametrize(
+    "effective_date",
+    ["2026-02-30", "2026-2-03", "not-a-date"],
+)
+def test_editorial_item_rejects_invalid_effective_date(
+    effective_date: str,
+) -> None:
+    with pytest.raises(ValidationError):
+        EditorialNewsItem.model_validate(
+            {**item().model_dump(), "effective_date": effective_date}
+        )
+
+
+def test_editorial_item_accepts_valid_https_url_and_calendar_date() -> None:
+    validated = EditorialNewsItem.model_validate(
+        {
+            **item().model_dump(),
+            "evidence_url": "https://example.com/evidence",
+            "effective_date": "2024-02-29",
+        }
+    )
+
+    assert validated.evidence_url == "https://example.com/evidence"
+    assert validated.effective_date == "2024-02-29"

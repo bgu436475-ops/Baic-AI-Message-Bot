@@ -5,9 +5,10 @@ import re
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Annotated, Literal, Protocol
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field
 
@@ -132,6 +133,19 @@ def _sanitize_anchor(anchor: EvidenceAnchor) -> EvidenceAnchor:
     )
 
 
+def _safe_effective_date(value: str | None) -> str | None:
+    if value is None:
+        return None
+    sanitized = _safe_text(value, 32)
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", sanitized):
+        return None
+    try:
+        date.fromisoformat(sanitized)
+    except ValueError:
+        return None
+    return sanitized
+
+
 def _sanitize_record(record: EvidenceRecord) -> EvidenceRecord:
     return record.model_copy(
         update={
@@ -188,11 +202,7 @@ def _sanitize_record(record: EvidenceRecord) -> EvidenceRecord:
                 record.version_or_metric,
                 120,
             ),
-            "effective_date": (
-                _safe_text(record.effective_date, 32)
-                if record.effective_date is not None
-                else None
-            ),
+            "effective_date": _safe_effective_date(record.effective_date),
             "policy_terms": _safe_list(
                 record.policy_terms,
                 max_items=MAX_POLICY_TERMS,
@@ -225,6 +235,67 @@ OriginalSourceResolver = Callable[
     [Candidate, FetchedSource],
     FetchedSource | None,
 ]
+
+
+def _same_provenance_host(requested_url: str, final_url: str) -> bool:
+    try:
+        requested = (urlsplit(requested_url).hostname or "").casefold()
+        final = (urlsplit(final_url).hostname or "").casefold()
+    except ValueError:
+        return False
+    if not requested or not final:
+        return False
+    return requested.removeprefix("www.") == final.removeprefix("www.")
+
+
+def _program_source_type(source_url: str) -> str:
+    hostname = (urlsplit(source_url).hostname or "").casefold()
+    path = urlsplit(source_url).path.casefold()
+    if hostname == "github.com" or hostname.endswith(".github.com"):
+        return "repository"
+    if hostname == "huggingface.co" and "/blob/" in path:
+        return "model_card"
+    if hostname in {"arxiv.org", "openreview.net"}:
+        return "paper"
+    if hostname == "sec.gov" or hostname.endswith(".sec.gov"):
+        return "financial_filing"
+    if hostname.endswith(".gov") or hostname.endswith(".gov.cn"):
+        return "law_or_regulation"
+    return "official_announcement"
+
+
+def bind_program_provenance(
+    candidate: Candidate,
+    source: FetchedSource,
+    record: EvidenceRecord,
+    *,
+    original_source: FetchedSource | None,
+) -> EvidenceRecord:
+    """Replace model-owned source classification with fetched provenance."""
+    explicit_secondary = (
+        record.source_type == "trusted_secondary"
+        and original_source is not None
+    )
+    primary_allowed = (
+        candidate.source_tier <= 2
+        and _same_provenance_host(candidate.url, source.final_url)
+    )
+    source_type = (
+        "trusted_secondary"
+        if explicit_secondary or not primary_allowed
+        else _program_source_type(source.final_url)
+    )
+    return record.model_copy(
+        update={
+            "source_url": source.final_url,
+            "source_type": source_type,
+            "original_source_status": (
+                original_source.status
+                if original_source is not None
+                else None
+            ),
+        }
+    )
 
 
 @dataclass(frozen=True)
@@ -338,6 +409,7 @@ def _prepare_draft(
             else None
         ),
         primary_entity=record.primary_entity,
+        product_or_model=record.product_or_model,
         event_entities=record.event_entities,
         change_signature=record.change_signature,
         version_or_metric=record.version_or_metric,
@@ -418,14 +490,11 @@ def run_editorial_pipeline(
             raise ValueError(
                 "extracted evidence does not match the candidate"
             )
-        record = validate_anchors(record, source).model_copy(
-            update={
-                "original_source_status": (
-                    original_source.status
-                    if original_source is not None
-                    else None
-                )
-            }
+        record = bind_program_provenance(
+            candidate,
+            source,
+            validate_anchors(record, source),
+            original_source=original_source,
         )
         record = _sanitize_record(record)
         prepared.append(

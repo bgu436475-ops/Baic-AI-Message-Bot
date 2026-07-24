@@ -62,7 +62,11 @@ def event(
         affected_audience=["API developers"],
         affected_area=["inference costs"],
         recommended_action=["Recalculate monthly cost"],
-        event_entities=event_entities or ["Model-X", "ACME", "Acme"],
+        event_entities=(
+            event_entities
+            if event_entities is not None
+            else ["Model-X", "ACME", "Acme"]
+        ),
         primary_entity=primary_entity,
         product_or_model=product_or_model,
         change_signature=change_signature,
@@ -99,6 +103,7 @@ def editorial_item(record: EvidenceRecord) -> EditorialNewsItem:
         verification_status=record.verification_status,
         event_fingerprint=event_fingerprint(record),
         primary_entity=record.primary_entity,
+        product_or_model=record.product_or_model,
         event_entities=record.event_entities,
         change_signature=record.change_signature,
         version_or_metric=record.version_or_metric,
@@ -147,6 +152,8 @@ def test_fingerprint_and_persisted_fields_are_normalized_deterministically(
             "fingerprint": "acme|model-x|price|v2-$1|2026-07-23",
             "recorded_at": "2026-07-23T01:05:00+00:00",
             "entities": ["acme", "model-x"],
+            "primary_entity": "acme",
+            "product_or_model": "model-x",
             "change_signature": "price",
             "version_or_metric": "v2-$1",
             "effective_date": "2026-07-23",
@@ -257,6 +264,68 @@ def test_equal_near_duplicate_facts_are_not_promoted_to_material(
     )
 
     assert result.status == "minor_update"
+
+
+def test_distinct_products_at_same_company_do_not_collapse(
+    tmp_path: Path,
+) -> None:
+    store = EventHistoryStore(tmp_path / "events.json")
+    store.record(
+        [
+            event(
+                product_or_model="Model X",
+                event_entities=["Acme", "Model X", "API"],
+                change_signature="price",
+            )
+        ],
+        NOW,
+    )
+
+    result = store.classify(
+        event(
+            product_or_model="Model Y",
+            event_entities=["Acme", "Model Y", "API"],
+            change_signature="price",
+        ),
+        NOW + timedelta(days=1),
+    )
+
+    assert result.status == "unique"
+
+
+def test_empty_event_entities_still_persist_product_identity(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "events.json"
+    record = event(product_or_model="Model X", event_entities=[])
+
+    EventHistoryStore(path).record([record], NOW)
+
+    stored = json.loads(path.read_text(encoding="utf-8"))["events"][0]
+    assert stored["product_or_model"] == "model%20x"
+    assert "model%20x" in stored["entities"]
+
+
+def test_legacy_history_without_product_is_not_used_for_near_match(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "events.json"
+    store = EventHistoryStore(path)
+    store.record([event(product_or_model="Model X")], NOW)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["events"][0].pop("product_or_model", None)
+    payload["events"][0].pop("primary_entity", None)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = store.classify(
+        event(
+            product_or_model="Model X API",
+            event_entities=["Acme", "Model-X"],
+        ),
+        NOW + timedelta(days=1),
+    )
+
+    assert result.status == "unique"
 
 
 def test_retention_uses_beijing_calendar_days_instead_of_elapsed_hours(

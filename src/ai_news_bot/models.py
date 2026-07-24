@@ -1,9 +1,15 @@
 from __future__ import annotations
 
-from datetime import datetime
+import re
+from datetime import date, datetime
 from typing import Annotated, Literal
+from urllib.parse import urlsplit
 
-from pydantic import BaseModel, Field, computed_field, model_validator
+from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
+
+
+EVIDENCE_URL_LIMIT_BYTES = 256
+_DATE_ONLY = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 Category = Literal[
@@ -233,6 +239,7 @@ class EditorialDraft(BaseModel):
     event_fingerprint: str = Field(max_length=1000)
     update_of: str | None = Field(default=None, max_length=500)
     primary_entity: str = Field(max_length=160)
+    product_or_model: str = Field(default="", max_length=160)
     event_entities: list[
         Annotated[str, Field(max_length=160)]
     ] = Field(max_length=10)
@@ -249,6 +256,45 @@ class EditorialDraft(BaseModel):
         max_length=3,
     )
     score: ScoreBreakdown
+
+    @field_validator("evidence_url")
+    @classmethod
+    def validate_evidence_url(cls, value: str) -> str:
+        if (
+            value != value.strip()
+            or len(value.encode("utf-8")) > EVIDENCE_URL_LIMIT_BYTES
+            or any(
+                ord(character) < 32 or ord(character) == 127
+                for character in value
+            )
+        ):
+            raise ValueError("evidence_url is malformed or too long")
+        try:
+            parsed = urlsplit(value)
+            _ = parsed.port
+        except ValueError as error:
+            raise ValueError("evidence_url is malformed") from error
+        if (
+            parsed.scheme.lower() != "https"
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            raise ValueError("evidence_url must be credential-free HTTPS")
+        return value
+
+    @field_validator("effective_date")
+    @classmethod
+    def validate_effective_date(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not _DATE_ONLY.fullmatch(value):
+            raise ValueError("effective_date must be YYYY-MM-DD")
+        try:
+            date.fromisoformat(value)
+        except ValueError as error:
+            raise ValueError("effective_date is not a calendar date") from error
+        return value
 
 
 class EditorialNewsItem(EditorialDraft):

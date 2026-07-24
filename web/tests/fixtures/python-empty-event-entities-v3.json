@@ -32,6 +32,7 @@
         "event_fingerprint": "python|contract|empty-event-entities|v3|2026-07-24",
         "update_of": null,
         "primary_entity": "Python contract",
+        "product_or_model": "Schema v3",
         "event_entities": [],
         "change_signature": "empty-event-entities",
         "version_or_metric": "v3",
@@ -78,6 +79,7 @@
         "event_fingerprint": "python|contract|blank-event-entity|v3|2026-07-24",
         "update_of": null,
         "primary_entity": "Python contract",
+        "product_or_model": "Schema v3",
         "event_entities": [
           ""
         ],
@@ -128,6 +130,7 @@
       "event_fingerprint": "python|contract|empty-event-entities|v3|2026-07-24",
       "update_of": null,
       "primary_entity": "Python contract",
+      "product_or_model": "Schema v3",
       "event_entities": [],
       "change_signature": "empty-event-entities",
       "version_or_metric": "v3",
@@ -172,6 +175,7 @@
       "event_fingerprint": "python|contract|blank-event-entity|v3|2026-07-24",
       "update_of": null,
       "primary_entity": "Python contract",
+      "product_or_model": "Schema v3",
       "event_entities": [
         ""
       ],

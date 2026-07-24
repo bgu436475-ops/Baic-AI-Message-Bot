@@ -14,13 +14,13 @@ from .models import (
     CATEGORY_EMOJI,
     CATEGORY_LABELS,
     DailyDigest,
+    EVIDENCE_URL_LIMIT_BYTES,
     EditorialDigest,
     EditorialNewsItem,
 )
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 EDITORIAL_MARKDOWN_LIMIT_BYTES = 18_000
 FEISHU_BODY_LIMIT_BYTES = 20_000
-EVIDENCE_URL_LIMIT_BYTES = 256
 
 EDITORIAL_FIELD_LIMITS = {
     "title": 120,
@@ -101,12 +101,12 @@ def _safe_evidence_url(value: str) -> str:
         raise ValueError("证据链接格式无效")
     parsed = urlsplit(value)
     if (
-        parsed.scheme.lower() not in {"http", "https"}
+        parsed.scheme.lower() != "https"
         or not parsed.hostname
         or parsed.username is not None
         or parsed.password is not None
     ):
-        raise ValueError("证据链接必须是有效的 HTTP(S) 原始来源")
+        raise ValueError("证据链接必须是有效的 HTTPS 原始来源")
     try:
         port = parsed.port
         hostname = parsed.hostname.encode("idna").decode("ascii")

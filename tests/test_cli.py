@@ -509,6 +509,10 @@ class _PipelineHTTPSession:
         self.calls.append(url)
         return _PipelineHTTPResponse()
 
+    @staticmethod
+    def resolve(hostname: str, port: int) -> list[str]:
+        return ["93.184.216.34"]
+
 
 class _PipelineModelClient:
     def __init__(self, record: EvidenceRecord) -> None:

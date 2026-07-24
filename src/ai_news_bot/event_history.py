@@ -17,6 +17,9 @@ from .models import EditorialDigest, EditorialNewsItem, EvidenceRecord
 
 BEIJING = ZoneInfo("Asia/Shanghai")
 RETENTION_DAYS = 7
+GENERIC_EVENT_ENTITIES = frozenset(
+    {"ai", "api", "sdk", "model", "agent", "release", "update"}
+)
 
 
 class DuplicateAssessment(BaseModel):
@@ -73,6 +76,9 @@ def _valid_entry(value: Any) -> bool:
     for field in ("resource_available", "scientific_verified"):
         if field in value and not isinstance(value[field], bool):
             return False
+    for field in ("primary_entity", "product_or_model"):
+        if field in value and not isinstance(value[field], str):
+            return False
     try:
         _recorded_at(value)
     except (TypeError, ValueError):
@@ -92,7 +98,7 @@ def _entities(
     primary_entity: str,
     product_or_model: str,
 ) -> list[str]:
-    values = event_entities or [primary_entity, product_or_model]
+    values = [*event_entities, primary_entity, product_or_model]
     return sorted({_slug(value) for value in values if _slug(value)})
 
 
@@ -113,7 +119,7 @@ def _snapshot(
     else:
         fingerprint = record.event_fingerprint
         source_url = record.evidence_url
-        product_or_model = ""
+        product_or_model = record.product_or_model
     return {
         "fingerprint": fingerprint,
         "recorded_at": _aware(now).isoformat(),
@@ -122,6 +128,8 @@ def _snapshot(
             record.primary_entity,
             product_or_model,
         ),
+        "primary_entity": _slug(record.primary_entity),
+        "product_or_model": _slug(product_or_model),
         "change_signature": _slug(record.change_signature),
         "version_or_metric": _slug(record.version_or_metric),
         "effective_date": _slug(record.effective_date or ""),
@@ -188,8 +196,25 @@ class EventHistoryStore:
 
         current_entities = set(current["entities"])
         for entry in active:
+            current_product = current.get("product_or_model", "")
+            entry_product = entry.get("product_or_model", "")
+            current_primary = current.get("primary_entity", "")
+            entry_primary = entry.get("primary_entity", "")
+            shared_non_company_entities = (
+                current_entities.intersection(entry.get("entities", []))
+                - {current_primary, entry_primary, "", *GENERIC_EVENT_ENTITIES}
+            )
+            identity_agrees = (
+                bool(current_product)
+                and bool(entry_product)
+                and current_product == entry_product
+            ) or (
+                bool(current_primary)
+                and bool(entry_primary)
+                and bool(shared_non_company_entities)
+            )
             same_event = (
-                bool(current_entities.intersection(entry.get("entities", [])))
+                identity_agrees
                 and entry.get("change_signature") == current["change_signature"]
             )
             if not same_event:

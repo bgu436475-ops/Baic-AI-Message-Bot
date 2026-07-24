@@ -443,6 +443,168 @@ def test_anchor_validator_rejects_quote_empty_after_normalization() -> None:
     assert checked.evidence_anchors == []
 
 
+def test_each_concrete_change_must_be_supported_by_a_bound_anchor() -> None:
+    source = fetched().model_copy(
+        update={
+            "text": (
+                "Model X API input costs $1 per million tokens. "
+                "Model X API v2 launches on 2026-07-24."
+            )
+        }
+    )
+    record = valid_record().model_copy(
+        update={
+            "concrete_changes": [
+                ChangeFact(
+                    change_type="price",
+                    statement="Model X API input costs $1 per million tokens.",
+                ),
+                ChangeFact(
+                    change_type="release",
+                    statement="Model X API v3 launches on 2026-07-24.",
+                ),
+            ],
+            "evidence_anchors": [
+                EvidenceAnchor(
+                    quote="Model X API input costs $1 per million tokens.",
+                    locator="Pricing",
+                ),
+                EvidenceAnchor(
+                    quote="Model X API v2 launches on 2026-07-24.",
+                    locator="Release",
+                ),
+            ],
+        }
+    )
+
+    checked = validate_anchors(record, source)
+
+    assert checked.verification_status == "insufficient"
+    assert checked.evidence_covers_full_claim is False
+
+
+def test_unrelated_literal_quote_cannot_support_a_different_price_claim() -> None:
+    source = fetched().model_copy(
+        update={"text": "Model X API input price is $1 per million tokens."}
+    )
+    record = valid_record().model_copy(
+        update={
+            "concrete_changes": [
+                ChangeFact(
+                    change_type="pricing",
+                    statement="Model X API output is free.",
+                )
+            ],
+            "evidence_anchors": [
+                EvidenceAnchor(
+                    quote="Model X API input price is $1 per million tokens.",
+                    locator="Pricing",
+                )
+            ],
+            "evidence_covers_full_claim": True,
+        }
+    )
+
+    checked = validate_anchors(record, source)
+
+    assert checked.verification_status == "insufficient"
+    assert checked.evidence_covers_full_claim is False
+
+
+@pytest.mark.parametrize(
+    ("statement", "quote"),
+    [
+        ("Model X API v2 costs $1 per million tokens.", "Model X API v2 costs $1 per million tokens."),
+        ("模型 X API v2 输入价格降至每百万 token 1 美元。", "模型 X API v2 输入价格降至每百万 token 1 美元，今日生效。"),
+    ],
+)
+def test_matching_price_version_api_and_cjk_claims_pass(
+    statement: str,
+    quote: str,
+) -> None:
+    source = fetched().model_copy(update={"text": quote})
+    record = valid_record().model_copy(
+        update={
+            "concrete_changes": [
+                ChangeFact(change_type="release", statement=statement)
+            ],
+            "evidence_anchors": [
+                EvidenceAnchor(quote=quote, locator="Release")
+            ],
+        }
+    )
+
+    checked = validate_anchors(record, source)
+
+    assert checked.verification_status == "verified"
+    assert checked.evidence_covers_full_claim is True
+
+
+def test_generic_literal_quote_cannot_support_specific_change() -> None:
+    source = fetched().model_copy(update={"text": "Available today."})
+    record = valid_record().model_copy(
+        update={
+            "concrete_changes": [
+                ChangeFact(
+                    change_type="release",
+                    statement="Model X API v2 is available today.",
+                )
+            ],
+            "evidence_anchors": [
+                EvidenceAnchor(quote="Available today.", locator="Hero")
+            ],
+        }
+    )
+
+    checked = validate_anchors(record, source)
+
+    assert checked.verification_status == "insufficient"
+
+
+def test_lowercase_api_identifier_must_appear_in_bound_anchor() -> None:
+    quote = "Output price is $1 per million tokens."
+    source = fetched().model_copy(update={"text": quote})
+    record = valid_record().model_copy(
+        update={
+            "concrete_changes": [
+                ChangeFact(
+                    change_type="pricing",
+                    statement="api output price is $1 per million tokens.",
+                )
+            ],
+            "evidence_anchors": [
+                EvidenceAnchor(quote=quote, locator="Pricing")
+            ],
+        }
+    )
+
+    checked = validate_anchors(record, source)
+
+    assert checked.verification_status == "insufficient"
+
+
+def test_currency_unit_must_appear_in_bound_anchor() -> None:
+    quote = "Model X API input price is 1 per million tokens."
+    source = fetched().model_copy(update={"text": quote})
+    record = valid_record().model_copy(
+        update={
+            "concrete_changes": [
+                ChangeFact(
+                    change_type="pricing",
+                    statement="Model X API input price is $1 per million tokens.",
+                )
+            ],
+            "evidence_anchors": [
+                EvidenceAnchor(quote=quote, locator="Pricing")
+            ],
+        }
+    )
+
+    checked = validate_anchors(record, source)
+
+    assert checked.verification_status == "insufficient"
+
+
 @pytest.mark.parametrize("status", ["unavailable", "blocked", "insufficient"])
 def test_anchor_validator_preserves_failed_source_status(status: str) -> None:
     checked = validate_anchors(valid_record(), fetched(status=status))

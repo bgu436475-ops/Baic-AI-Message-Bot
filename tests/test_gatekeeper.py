@@ -252,3 +252,14 @@ def test_reasons_accumulate_once_in_fixed_order() -> None:
         "missing_action",
         "duplicate_without_material_update",
     ]
+
+
+def test_claim_anchor_mismatch_is_rejected_as_invalid_evidence_anchor() -> None:
+    record = valid_record().model_copy(
+        update={"evidence_covers_full_claim": False}
+    )
+
+    decision = evaluate_gates(record, "unique")
+
+    assert "invalid_evidence_anchor" in decision.rejection_reasons
+    assert decision.eligible_main_try is False

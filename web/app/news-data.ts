@@ -42,6 +42,7 @@ export type NewsItem = {
   event_fingerprint: string;
   update_of: string | null;
   primary_entity: string;
+  product_or_model: string;
   event_entities: string[];
   change_signature: string;
   version_or_metric: string;
@@ -140,7 +141,7 @@ const ITEM_KEYS = new Set([
   "title_zh", "summary_zh", "concrete_change", "affected_audience",
   "affected_area", "recommended_action", "evidence_url",
   "verification_status", "event_fingerprint", "update_of", "primary_entity",
-  "event_entities", "change_signature", "version_or_metric",
+  "product_or_model", "event_entities", "change_signature", "version_or_metric",
   "effective_date", "resource_available", "scientific_verified", "source",
   "published_at", "category", "extra_categories", "score",
 ]);
@@ -262,10 +263,21 @@ function isRfc3339DateTime(value: unknown): value is string {
 }
 
 function isHttpsUrl(value: unknown): value is string {
-  if (!isBoundedString(value, 1000, true)) return false;
+  if (
+    !isBoundedString(value, 1000, true)
+    || value !== value.trim()
+    || new TextEncoder().encode(value).byteLength > 256
+    || [...value].some((character) => {
+      const code = character.codePointAt(0) ?? 0;
+      return code < 32 || code === 127;
+    })
+  ) return false;
   try {
     const url = new URL(value);
-    return url.protocol === "https:" && Boolean(url.hostname);
+    return url.protocol === "https:"
+      && Boolean(url.hostname)
+      && !url.username
+      && !url.password;
   } catch {
     return false;
   }
@@ -318,6 +330,7 @@ function isNewsItem(value: unknown, expectedBoard?: BoardName): value is NewsIte
     || !VERIFICATION_STATUSES.has(value.verification_status as string)
     || !isBoundedString(value.event_fingerprint, 1000, true)
     || !isBoundedString(value.primary_entity, 160, true)
+    || !isBoundedString(value.product_or_model, 160)
     || !isStringArray(value.event_entities, 10, 160, true, false)
     || !isBoundedString(value.change_signature, 160, true)
     || !isBoundedString(value.version_or_metric, 120)
@@ -481,6 +494,7 @@ export function isLegacyDigestV2(value: unknown): value is LegacyDigestV2 {
     || !isNonNegativeInteger(candidate.source_count)
     || candidate.source_count > candidate.candidate_count
     || !Array.isArray(candidate.items)
+    || candidate.items.length > 10
     || candidate.items.length > candidate.candidate_count
     || !candidate.items.every(isLegacyItemV2)
   ) {
@@ -522,11 +536,15 @@ function compatibilityScore(importance: number): ScoreBreakdown {
   };
 }
 
-function normalizeLegacyItem(item: LegacyNewsItemV2, index: number): NewsItem {
+function normalizeLegacyItem(
+  item: LegacyNewsItemV2,
+  index: number,
+  board: BoardName,
+): NewsItem {
   const candidateId = `legacy-v2-${index + 1}`;
   return {
     candidate_id: candidateId,
-    board: "must_read",
+    board,
     original_title: item.original_title,
     title_en: item.title_en,
     summary_en: item.summary_en,
@@ -541,6 +559,7 @@ function normalizeLegacyItem(item: LegacyNewsItemV2, index: number): NewsItem {
     event_fingerprint: `legacy-v2|${index + 1}|${item.url}`,
     update_of: null,
     primary_entity: item.source,
+    product_or_model: "",
     event_entities: [item.source],
     change_signature: "legacy-v2-import",
     version_or_metric: "",
@@ -560,14 +579,21 @@ export function normalizeDigest(value: unknown): Digest {
   if (!isLegacyDigestV2(value)) {
     throw new TypeError("Invalid AI news digest");
   }
-  const mustRead = value.items.map(normalizeLegacyItem);
+  const normalizedItems = value.items.map((item, index) => normalizeLegacyItem(
+    item,
+    index,
+    index < 5 ? "must_read" : index < 8 ? "try_now" : "watch",
+  ));
+  const mustRead = normalizedItems.slice(0, 5);
+  const tryNow = normalizedItems.slice(5, 8);
+  const watch = normalizedItems.slice(8, 11);
   const generatedAt = Date.parse(value.generated_at);
-  const latestPublishedAt = mustRead.length
-    ? mustRead.reduce((latest, item) =>
+  const latestPublishedAt = normalizedItems.length
+    ? normalizedItems.reduce((latest, item) =>
       Date.parse(item.published_at) > Date.parse(latest) ? item.published_at : latest,
-    mustRead[0].published_at)
+    normalizedItems[0].published_at)
     : null;
-  const freshCount24h = mustRead.filter((item) => {
+  const freshCount24h = normalizedItems.filter((item) => {
     const age = generatedAt - Date.parse(item.published_at);
     return age >= 0 && age <= 24 * 60 * 60 * 1000;
   }).length;
@@ -581,11 +607,11 @@ export function normalizeDigest(value: unknown): Digest {
     fresh_count_24h: freshCount24h,
     lookback_hours: value.lookback_hours,
     fallback_used: value.fallback_used,
-    boards: { must_read: mustRead, try_now: [], watch: [] },
-    items: mustRead,
+    boards: { must_read: mustRead, try_now: tryNow, watch },
+    items: normalizedItems,
     pipeline_stats: {
       candidate_count: value.candidate_count,
-      shortlist_count: mustRead.length,
+      shortlist_count: normalizedItems.length,
       source_verified_count: 0,
       rejected_count: 0,
       top_rejection_reasons: {},

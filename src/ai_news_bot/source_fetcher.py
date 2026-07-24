@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import re
+import socket
 from datetime import UTC, datetime
 from hashlib import sha256
-from typing import Literal
+from ipaddress import ip_address
+from typing import Callable, Literal
 from urllib.parse import (
     parse_qsl,
     unquote,
     urlencode,
+    urljoin,
     urlsplit,
     urlunsplit,
 )
@@ -70,6 +73,67 @@ class AllSourcesUnavailableError(RuntimeError):
     pass
 
 
+class UnsafeSourceUrlError(ValueError):
+    pass
+
+
+Resolver = Callable[[str, int], list[str]]
+REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+
+
+def _resolve_public_addresses(hostname: str, port: int) -> list[str]:
+    return sorted(
+        {
+            str(sockaddr[0])
+            for _family, _socktype, _proto, _canonname, sockaddr in socket.getaddrinfo(
+                hostname,
+                port,
+                type=socket.SOCK_STREAM,
+            )
+        }
+    )
+
+
+def _validated_public_https_url(url: str, resolver: Resolver) -> str:
+    if url != url.strip() or any(
+        ord(character) < 32 or ord(character) == 127 for character in url
+    ):
+        raise UnsafeSourceUrlError("source URL contains unsafe whitespace")
+    try:
+        parsed = urlsplit(url)
+        port = parsed.port or 443
+        hostname = parsed.hostname
+    except ValueError as error:
+        raise UnsafeSourceUrlError("source URL is malformed") from error
+    if (
+        parsed.scheme.lower() != "https"
+        or not hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or hostname.casefold() == "localhost"
+    ):
+        raise UnsafeSourceUrlError("source URL must be public HTTPS")
+    try:
+        ascii_hostname = hostname.encode("idna").decode("ascii")
+        literal = ip_address(ascii_hostname.strip("[]"))
+    except ValueError:
+        literal = None
+    except UnicodeError as error:
+        raise UnsafeSourceUrlError("source hostname is malformed") from error
+    try:
+        addresses = [str(literal)] if literal is not None else resolver(ascii_hostname, port)
+    except (OSError, socket.gaierror) as error:
+        raise UnsafeSourceUrlError("source hostname could not be resolved") from error
+    if not addresses:
+        raise UnsafeSourceUrlError("source hostname has no addresses")
+    try:
+        if any(not ip_address(address).is_global for address in addresses):
+            raise UnsafeSourceUrlError("source hostname resolves outside the public Internet")
+    except ValueError as error:
+        raise UnsafeSourceUrlError("resolver returned an invalid address") from error
+    return url
+
+
 class FetchedSource(BaseModel):
     candidate_id: str
     requested_url: str
@@ -90,6 +154,8 @@ class SourceFetcher:
         timeout: int = 20,
         max_chars: int = 80_000,
         max_response_bytes: int = 1_000_000,
+        max_redirects: int = 5,
+        resolver: Resolver | None = None,
     ) -> None:
         if max_response_bytes < 1:
             raise ValueError("max_response_bytes must be positive")
@@ -97,6 +163,71 @@ class SourceFetcher:
         self.timeout = timeout
         self.max_chars = max_chars
         self.max_response_bytes = max_response_bytes
+        self.max_redirects = max_redirects
+        self.resolver = resolver or getattr(
+            self.session,
+            "resolve",
+            _resolve_public_addresses,
+        )
+        self._drop_session_credentials()
+
+    def _drop_session_credentials(self) -> None:
+        if hasattr(self.session, "auth"):
+            self.session.auth = None
+        if hasattr(self.session, "trust_env"):
+            self.session.trust_env = False
+        headers = getattr(self.session, "headers", None)
+        if headers is not None:
+            headers.pop("Authorization", None)
+            headers.pop("Cookie", None)
+        cookies = getattr(self.session, "cookies", None)
+        if cookies is not None:
+            try:
+                cookies.clear()
+            except (AttributeError, KeyError):
+                pass
+
+    def _get(self, url: str) -> requests.Response:
+        self._drop_session_credentials()
+        return self.session.get(
+            url,
+            timeout=self.timeout,
+            headers={"User-Agent": "AI-News-Bot/0.2 (+evidence verification)"},
+            stream=True,
+            allow_redirects=False,
+        )
+
+    def _request_following_redirects(
+        self,
+        initial_url: str,
+    ) -> tuple[requests.Response, str]:
+        current_url = initial_url
+        visited: set[str] = set()
+        for hop in range(self.max_redirects + 1):
+            _validated_public_https_url(current_url, self.resolver)
+            if current_url in visited:
+                raise UnsafeSourceUrlError("redirect loop")
+            visited.add(current_url)
+            response = self._get(current_url)
+            if response.status_code not in REDIRECT_STATUSES:
+                return response, current_url
+            try:
+                location = response.headers.get("location", "").strip()
+                if not location:
+                    raise UnsafeSourceUrlError("redirect has no location")
+                next_url = urljoin(current_url, location)
+                _validated_public_https_url(next_url, self.resolver)
+                if next_url in visited:
+                    raise UnsafeSourceUrlError("redirect loop")
+                if hop >= self.max_redirects:
+                    raise UnsafeSourceUrlError("too many redirects")
+                current_url = next_url
+            finally:
+                try:
+                    response.close()
+                except Exception:
+                    pass
+        raise UnsafeSourceUrlError("too many redirects")
 
     def _read_response_body(self, response: requests.Response) -> tuple[bytes, bool]:
         body = bytearray()
@@ -116,13 +247,7 @@ class SourceFetcher:
         status_code: int | None = None
         response: requests.Response | None = None
         try:
-            response = self.session.get(
-                candidate.url,
-                timeout=self.timeout,
-                headers={"User-Agent": "AI-News-Bot/0.2 (+evidence verification)"},
-                stream=True,
-            )
-            response_url = response.url
+            response, response_url = self._request_following_redirects(candidate.url)
             status = response.status_code
             status_code = status
             if status in {401, 403, 429}:
@@ -158,7 +283,7 @@ class SourceFetcher:
                 truncated=truncated,
                 fetched_at=now,
             )
-        except (requests.RequestException, ValueError) as error:
+        except (requests.RequestException, ValueError, OSError) as error:
             return FetchedSource(
                 candidate_id=candidate.id,
                 requested_url=_sanitize_url(candidate.url),

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { after, before, test } from "node:test";
 import { createServer } from "vite";
 
@@ -59,5 +60,80 @@ test("persisted malformed rows fail closed so the caller can use its static fall
   assert.equal(store.parseStoredDigest(JSON.stringify({
     ...LEGACY_PERSISTED_DIGEST,
     unknown: true,
+  })), null);
+});
+
+test("actual eight-item production schema v2 digest normalizes into board capacities", async () => {
+  const store = await vite.ssrLoadModule("/db/digest-store.ts");
+  const payload = execFileSync(
+    "git",
+    ["show", "4128027:web/public/data/latest.json"],
+    { cwd: new URL("../..", import.meta.url), encoding: "utf8" },
+  );
+  const legacy = JSON.parse(payload);
+
+  const normalized = store.parseStoredDigest(payload);
+
+  assert.notEqual(normalized, null);
+  assert.equal(normalized.boards.must_read.length, 5);
+  assert.equal(normalized.boards.try_now.length, 3);
+  assert.equal(normalized.boards.watch.length, 0);
+  assert.deepEqual(
+    normalized.items.map((item) => item.original_title),
+    legacy.items.map((item) => item.original_title),
+  );
+  assert.deepEqual(
+    normalized.items.map((item) => item.evidence_url),
+    legacy.items.map((item) => item.url),
+  );
+  assert.deepEqual(
+    normalized.items.map((item) => item.summary_zh),
+    legacy.items.map((item) => item.summary_zh),
+  );
+});
+
+test("legacy compatibility supports at most ten ordered items", async () => {
+  const store = await vite.ssrLoadModule("/db/digest-store.ts");
+  const items = Array.from(
+    { length: 10 },
+    (_, index) => ({
+      ...LEGACY_PERSISTED_DIGEST.items[0],
+      original_title: `Legacy ${index + 1}`,
+      title_en: `Legacy ${index + 1}`,
+      url: `https://example.com/legacy-${index + 1}`,
+      published_at: index === 9
+        ? "2026-07-20T01:00:00Z"
+        : "2026-07-18T00:30:00Z",
+    }),
+  );
+  const normalized = store.parseStoredDigest(JSON.stringify({
+    ...LEGACY_PERSISTED_DIGEST,
+    candidate_count: 10,
+    items,
+  }));
+
+  assert.deepEqual(
+    [
+      normalized.boards.must_read.length,
+      normalized.boards.try_now.length,
+      normalized.boards.watch.length,
+    ],
+    [5, 3, 2],
+  );
+  assert.deepEqual(
+    normalized.items.map((item) => item.original_title),
+    items.map((item) => item.original_title),
+  );
+  assert.equal(normalized.latest_published_at, "2026-07-20T01:00:00Z");
+  assert.equal(normalized.fresh_count_24h, 1);
+  assert.equal(store.parseStoredDigest(JSON.stringify({
+    ...LEGACY_PERSISTED_DIGEST,
+    candidate_count: 11,
+    items: [...items, {
+      ...items[0],
+      original_title: "Legacy 11",
+      title_en: "Legacy 11",
+      url: "https://example.com/legacy-11",
+    }],
   })), null);
 });

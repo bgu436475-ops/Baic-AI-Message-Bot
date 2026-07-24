@@ -23,6 +23,7 @@ function item(board, id, overrides = {}) {
     event_fingerprint: `example|${id}|api-limit|20|2026-07-20`,
     update_of: null,
     primary_entity: "Example",
+    product_or_model: id,
     event_entities: ["Example", id],
     change_signature: "api-limit",
     version_or_metric: "20",
@@ -203,6 +204,20 @@ test("server-renders the AI news dashboard", async () => {
   assert.doesNotMatch(html, /class="story-index">00</);
 });
 
+test("schedule and dedupe copy states operational semantics accurately", async () => {
+  const source = await readFile(
+    new URL("../app/news-dashboard.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /09:05/);
+  assert.match(source, /trigger|触发/i);
+  assert.match(source, /title similarity|标题相似度/i);
+  assert.match(source, /structured-event|结构化事件/i);
+  assert.doesNotMatch(source, /09:00/);
+  assert.doesNotMatch(source, /semantic clustering|语义聚类/i);
+});
+
 test("NewsDashboard renders schema v3 boards, evidence and legal empty results", async () => {
   const { isDigest, normalizeDigest } = await vite.ssrLoadModule("/app/news-data.ts");
 
@@ -302,6 +317,39 @@ test("schema v3 validator rejects caps, identity conflicts, unsafe evidence and 
   assert.equal(isDigest({ ...EMPTY_DIGEST, latest_published_at: PUBLISHED_DIGEST.generated_at }), false);
 });
 
+test("schema v3 accepts the full 5 plus 3 plus 3 board capacity", async () => {
+  const { isDigest } = await vite.ssrLoadModule("/app/news-data.ts");
+  const mustRead = Array.from(
+    { length: 5 },
+    (_, index) => item("must_read", `must-${index}`),
+  );
+  const tryNow = Array.from(
+    { length: 3 },
+    (_, index) => item("try_now", `try-${index}`),
+  );
+  const watch = Array.from(
+    { length: 3 },
+    (_, index) => item("watch", `watch-${index}`),
+  );
+  const items = [...mustRead, ...tryNow, ...watch];
+  const digest = {
+    ...structuredClone(PUBLISHED_DIGEST),
+    candidate_count: 11,
+    fresh_count_24h: 11,
+    boards: { must_read: mustRead, try_now: tryNow, watch },
+    items,
+    pipeline_stats: {
+      candidate_count: 11,
+      shortlist_count: 11,
+      source_verified_count: 11,
+      rejected_count: 0,
+      top_rejection_reasons: {},
+    },
+  };
+
+  assert.equal(isDigest(digest), true);
+});
+
 test("schema v2 compatibility is narrow and rejects malformed legacy data", async () => {
   const { isLegacyDigestV2, normalizeDigest } = await vite.ssrLoadModule("/app/news-data.ts");
 
@@ -351,6 +399,21 @@ test("schema validator requires real RFC3339 datetimes and calendar dates", asyn
   const leapDate = structuredClone(PUBLISHED_DIGEST);
   updateStory(leapDate, "effective_date", "2024-02-29");
   assert.equal(isDigest(leapDate), true);
+
+  for (const invalid of [
+    "http://127.0.0.1/evidence",
+    "http://example.com/evidence",
+    "https://user:password@example.com/evidence",
+    `https://example.com/${"x".repeat(240)}`,
+  ]) {
+    const invalidUrl = structuredClone(PUBLISHED_DIGEST);
+    updateStory(invalidUrl, "evidence_url", invalid);
+    assert.equal(isDigest(invalidUrl), false);
+  }
+  const validContract = structuredClone(PUBLISHED_DIGEST);
+  updateStory(validContract, "evidence_url", "https://example.com/evidence");
+  updateStory(validContract, "effective_date", "2024-02-29");
+  assert.equal(isDigest(validContract), true);
 });
 
 test("web accepts the exact schema v3 fixture generated and validated by Python", async () => {

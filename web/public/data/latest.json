@@ -33,6 +33,7 @@
         "event_fingerprint": "fixture|model-api-price|2026-07-24",
         "update_of": null,
         "primary_entity": "AI Signal Fixture",
+        "product_or_model": "model-api-price",
         "event_entities": [
           "AI Signal Fixture",
           "model-api-price"
@@ -83,6 +84,7 @@
         "event_fingerprint": "fixture|coding-agent-sdk|2026-07-24",
         "update_of": null,
         "primary_entity": "AI Signal Fixture",
+        "product_or_model": "coding-agent-sdk",
         "event_entities": [
           "AI Signal Fixture",
           "coding-agent-sdk"
@@ -133,6 +135,7 @@
         "event_fingerprint": "fixture|mcp-policy-date|2026-07-24",
         "update_of": null,
         "primary_entity": "AI Signal Fixture",
+        "product_or_model": "policy-effective-date",
         "event_entities": [
           "AI Signal Fixture",
           "mcp-policy-date"
@@ -184,6 +187,7 @@
       "event_fingerprint": "fixture|model-api-price|2026-07-24",
       "update_of": null,
       "primary_entity": "AI Signal Fixture",
+      "product_or_model": "model-api-price",
       "event_entities": [
         "AI Signal Fixture",
         "model-api-price"
@@ -232,6 +236,7 @@
       "event_fingerprint": "fixture|coding-agent-sdk|2026-07-24",
       "update_of": null,
       "primary_entity": "AI Signal Fixture",
+      "product_or_model": "coding-agent-sdk",
       "event_entities": [
         "AI Signal Fixture",
         "coding-agent-sdk"
@@ -280,6 +285,7 @@
       "event_fingerprint": "fixture|mcp-policy-date|2026-07-24",
       "update_of": null,
       "primary_entity": "AI Signal Fixture",
+      "product_or_model": "policy-effective-date",
       "event_entities": [
         "AI Signal Fixture",
         "mcp-policy-date"

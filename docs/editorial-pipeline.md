@@ -9,18 +9,19 @@
 1. `collectors.py` 从 RSS、网页和 GitHub 收集候选；所有已配置来源都失败属于系统失败，部分来源成功但没有候选可以继续。
 2. `cli.py` 查询 URL 历史时排除 30 天判重窗口内已发送的链接、执行链接/标题硬去重，并把候选硬限制在 80 条以内。超过窗口的 URL 记录不参与判重；只有当前窗口没有候选通过粗筛时，才扩展回看窗口。
 3. `shortlist.py` 根据时效、信源层级、具体数字/API/SDK/版本等信号确定性粗筛，最多保留 20 条，不补足最低数量。
-4. `source_fetcher.py` 逐条抓取原始页面，限制响应体和正文长度并清理页面；单条失败不终止，全部粗筛来源不可用才使任务失败。
-5. `evidence.py` 把候选和已抓取原文作为不可信数据交给模型，只提取 `EvidenceRecord`，不允许模型评分或分榜；解析失败只重试一次，证据引文必须能在原文中逐字核对。
+4. `source_fetcher.py` 只抓取无凭据的公网 HTTPS 页面：初始地址和每个重定向跳都先解析 DNS 并拒绝私网、回环、链路本地、保留和非全局 IPv4/IPv6；程序关闭自动重定向、限制跳数、清除会话认证与 Cookie，再限制响应体和正文长度并清理页面。单条失败不终止，全部粗筛来源不可用才使任务失败。
+5. `evidence.py` 把候选和已抓取原文作为不可信数据交给模型，只提取 `EvidenceRecord`，不允许模型评分或分榜；解析失败只重试一次。每条 `concrete_change` 都必须独立绑定至少一段能在原文逐字核对的引文，数字、版本、日期、货币和 API 等物料 token 必须由同一引文覆盖，并满足中文/英文有意义词项重合；模型的覆盖布尔值不能绕过程序校验。
 
 阶段二由程序执行编辑决策：
 
-1. `gatekeeper.py` 执行硬门槛，模型不能绕过。
-2. `event_history.py` 生成事件指纹，在过去 7 个北京时间日内区分 `unique`、`material_update`、`minor_update` 和 `duplicate`。
-3. `scoring.py` 计算固定分项分数及惩罚项。
-4. `boards.py` 按稳定排序创建互斥的 5+3+3 榜单，不用低分内容补位。
-5. `pipeline.py` 串联上述阶段，限制模型输出的长度和数量、清理疑似密钥，并写出公开简报与私密审计所需的数据。
-6. `feishu.py` 渲染三个榜单或合法空榜卡；`send_ledger.py` 与 `daily_guard.py` 以“飞书已成功交付”为自动重试的唯一跳过依据。
-7. `web_export.py` 导出网页读取的 schema v3；网页仍对历史 schema v2 数据保留窄范围只读兼容。
+1. `pipeline.py` 先用候选的信源层级、请求 URL 和实际抓取最终域名绑定来源归属，并覆盖模型自行填写的来源类型；三层媒体、未知来源和跨域重定向不能伪装成一手来源。
+2. `gatekeeper.py` 执行硬门槛，模型不能绕过。
+3. `event_history.py` 生成事件指纹，并把规范化公司与产品/模型分别持久化；近似事件只有产品/模型一致，或存在排除公司名后的强实体交集时才会合并，在过去 7 个北京时间日内区分 `unique`、`material_update`、`minor_update` 和 `duplicate`。
+4. `scoring.py` 计算固定分项分数及惩罚项。
+5. `boards.py` 按稳定排序创建互斥的 5+3+3 榜单，不用低分内容补位。
+6. `pipeline.py` 串联上述阶段，限制模型输出的长度和数量、清理疑似密钥，并写出公开简报与私密审计所需的数据。
+7. `feishu.py` 渲染三个榜单或合法空榜卡；`send_ledger.py` 与 `daily_guard.py` 以“飞书已成功交付”为自动重试的唯一跳过依据。
+8. `web_export.py` 导出网页读取的 schema v3；网页仍对最多 10 条的历史 schema v2 数据保留窄范围只读兼容，并按 5/3/最多 2 条确定性分入三个榜单。
 
 当前生产接线没有 `original_source_resolver`，也不会自动把一篇二手报道与它引用但不可访问的一手来源配对。因此，虽然数据模型和测试支持“可信二手来源 + 已独立确认一手来源为 `blocked`/`unavailable`”进入观察项，当前生产运行会安全地将这类内容标为 `unverified_primary_source` 并淘汰。不得通过让模型自行填写 `original_source_status` 绕过该限制。
 
@@ -44,7 +45,7 @@
 - 身份与展示：`candidate_id`、`board`、`original_title`、`title_en`、`summary_en`、`title_zh`、`summary_zh`。
 - 决策信息：`concrete_change`、`affected_audience`、`affected_area`、`recommended_action`。
 - 证据与去重：`evidence_url`、`verification_status`、`event_fingerprint`、`update_of`。
-- 事件结构：`primary_entity`、`event_entities`、`change_signature`、`version_or_metric`、`effective_date`。
+- 事件结构：`primary_entity`、`product_or_model`、`event_entities`、`change_signature`、`version_or_metric`、`effective_date`。
 - 其他信号：`resource_available`、`scientific_verified`、`source`、`published_at`、`category`、`extra_categories`。
 - `score`: `relevance`、`actionability`、`specificity`、`information_gain`、`evidence_quality`、`time_sensitivity`、`penalties` 和计算字段 `total`。
 
@@ -67,7 +68,7 @@
 | `missing_action` | 没有建议行动 |
 | `missing_affected_audience` | 没有受影响对象 |
 | `missing_affected_area` | 没有受影响内容 |
-| `invalid_evidence_anchor` | 没有能在已抓取原文中核对的证据引文 |
+| `invalid_evidence_anchor` | 没有能在已抓取原文中核对的证据引文，或具体变化没有逐条绑定到对应引文 |
 | `unverified_primary_source` | 不是已验证的一手来源 |
 
 主榜和试用榜必须没有任何淘汰码。观察项也不能绕过内容、证据、行动或重复门槛；只有经过程序独立确认的一手来源不可用/被阻止时，已验证的可信二手来源才可把 `unverified_primary_source` 作为唯一例外。
@@ -82,7 +83,7 @@
 | 可行动性 | 资源可用且行动期不超过 7 天为 20；有建议行动为 14；否则 0 |
 | 具体性 | 每项具体变化 7 分，存在版本/指标加 4，有效 ISO 生效日期加 4，最高 15 |
 | 信息增量 | `unique=15`、`material_update=10`、`minor_update=3`、`duplicate=0` |
-| 证据质量 | 官方公告/论文/模型卡/法律法规/财报为 15，代码仓库 14，官方 Demo 12，可信二手来源 8 |
+| 证据质量 | 程序根据候选层级与实际最终域名确认的官方公告/论文/模型卡/法律法规/财报为 15，代码仓库 14，官方 Demo 12，可信二手来源 8；模型自行声明不会获得一手来源分 |
 | 时间敏感度 | 发布不超过 24 小时为 10，不超过 72 小时为 7，更早为 2 |
 
 惩罚项可以叠加：
@@ -110,7 +111,7 @@
 | `.state/latest_audit.json` | 最近一次私密筛选审计 | 生成成功后写入；不发布到网页 |
 | `.state/daily_sends.json` | 按简报 `generated_at` 的北京时间日期和目标记录成功交付，包含 `published` 和合法空榜 | 飞书返回成功之后立即原子写入 |
 | `.state/history.json` | 已发证据 URL；查询时只使用 30 天判重窗口 | 非空榜飞书成功且账本写入成功后，尽力写入并清理超期项 |
-| `.state/events.json` | 过去 7 个北京时间日的已发事件快照 | 非空榜飞书成功且账本写入成功后，尽力原子写入 |
+| `.state/events.json` | 过去 7 个北京时间日的已发事件快照，分别保存主体和产品/模型身份 | 非空榜飞书成功且账本写入成功后，尽力原子写入 |
 | `web/public/data/latest.json` | 网页读取的公开 schema v3 简报 | 本地生成时写入；生产中仅在飞书成功后提交并发布 |
 
 发送顺序固定为：读取并校验持久化 schema v3 → 飞书发送成功 → 原子写每日账本 → 非空榜尽力写 URL 历史 → 非空榜尽力写事件历史。URL 或事件历史写入失败会告警，但不能撤销已完成的飞书交付。
@@ -183,9 +184,12 @@ python -m json.tool .state/latest_audit.json
 ## 飞书和 URL 约束
 
 - 飞书自定义机器人请求体必须严格小于 20,000 字节；编辑正文预算为 18,000 字节，给卡片 JSON、签名和元数据预留空间。超过预算会拒绝发送，不会截断成不完整的编辑简报。
-- 每个证据 URL 在飞书卡片中最多 256 UTF-8 字节，必须是无用户名/密码的有效 HTTP(S) URL。过长或不安全的地址会使发送失败，而不是破坏原始链接后继续发送。
+- 每个证据 URL 在飞书卡片中最多 256 UTF-8 字节；过长或不安全的地址会使发送失败，而不是破坏原始链接后继续发送。
+- schema v3、网页校验和飞书共同要求证据 URL 为无用户名/密码的 HTTPS，统一上限为 256 UTF-8 字节；`effective_date` 必须是严格 `YYYY-MM-DD` 且为真实日历日期。这样生成阶段会先失败，避免飞书已发而网页随后拒收。
 - 飞书 webhook 只接受 `https://open.feishu.cn` 或 `https://open.larksuite.com`。
-- 公共 schema 对 `evidence_url` 的存储上限是 1,000 个字符；这不改变飞书的 256 字节发送上限。
+- 网页写入接口在鉴权成功后先检查声明长度，再读取原始请求字节并执行 250,000 字节硬限制；缺失或分块传输的 `Content-Length` 不能绕过，非法 UTF-8/JSON 返回 400，实际超限返回 413。
+
+抓取器会在发起每一跳请求前解析并检查 DNS，但底层 HTTP 库仍会在建连时独立解析主机；在不引入可固定目标 IP 且正确保留 TLS SNI/证书校验的传输依赖前，极短窗口的 DNS rebinding 不能被完全消除。当前边界通过逐跳即时解析、只允许所有解析结果均为公网地址、关闭自动重定向以及禁用会话/环境认证，把风险降到现有依赖下的最小范围。
 
 ## 自动触发与健康检查的当前事实
 
