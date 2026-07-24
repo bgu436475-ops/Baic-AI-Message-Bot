@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 import pytest
 
 from ai_news_bot.feishu import (
+    EVIDENCE_URL_LIMIT_BYTES,
     build_card,
     digest_markdown,
     make_signature,
@@ -236,9 +237,9 @@ def maximum_legal_digest() -> EditorialDigest:
                     "recommended_action": [
                         f"{candidate_id} 本周重新计算成本" + "执行步骤" * 50
                     ],
-                    "evidence_url": (
-                        f"https://example.com/evidence/{item_number}?"
-                        + "source=" + "a" * 430
+                    "evidence_url": evidence_url_with_size(
+                        item_number,
+                        EVIDENCE_URL_LIMIT_BYTES,
                     ),
                 }
             )
@@ -259,6 +260,13 @@ def maximum_legal_digest() -> EditorialDigest:
     )
 
 
+def evidence_url_with_size(item_number: int, size: int) -> str:
+    prefix = f"https://example.com/evidence/{item_number}?source="
+    remaining = size - len(prefix.encode("utf-8"))
+    assert remaining >= 0
+    return prefix + "a" * remaining
+
+
 def test_maximum_editorial_card_keeps_all_items_and_required_blocks_complete() -> None:
     content = build_card(maximum_legal_digest())["card"]["body"]["elements"][0][
         "content"
@@ -275,7 +283,24 @@ def test_maximum_editorial_card_keeps_all_items_and_required_blocks_complete() -
     assert content.count("建议行动：") == 11
     assert content.count("[核查原文](") == 11
     for item_number in range(1, 12):
+        evidence_url = evidence_url_with_size(
+            item_number,
+            EVIDENCE_URL_LIMIT_BYTES,
+        )
+        assert len(evidence_url.encode("utf-8")) == EVIDENCE_URL_LIMIT_BYTES
         assert f"完整条目-{item_number:02d}" in content
+        board_index = (
+            item_number
+            if item_number <= 5
+            else item_number - 5
+            if item_number <= 8
+            else item_number - 8
+        )
+        assert (
+            f"**{board_index}. [完整条目-{item_number:02d}"
+            in content
+        )
+        assert content.count(f"]({evidence_url})") == 2
     assert not content.endswith("…")
 
 
@@ -359,7 +384,12 @@ def test_nonzero_empty_result_without_reason_counts_is_not_contradictory() -> No
 
 def test_overlong_evidence_url_fails_closed_instead_of_rendering_broken_link() -> None:
     item = editorial_item("long-url", "must_read").model_copy(
-        update={"evidence_url": "https://example.com/?" + "q=" + "a" * 900}
+        update={
+            "evidence_url": evidence_url_with_size(
+                1,
+                EVIDENCE_URL_LIMIT_BYTES + 1,
+            )
+        }
     )
     digest = EditorialDigest(
         generated_at=datetime(2026, 7, 23, 1, 5, tzinfo=UTC),

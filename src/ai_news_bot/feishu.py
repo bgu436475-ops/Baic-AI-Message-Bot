@@ -20,7 +20,7 @@ from .models import (
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 EDITORIAL_MARKDOWN_LIMIT_BYTES = 18_000
 FEISHU_BODY_LIMIT_BYTES = 20_000
-EVIDENCE_URL_LIMIT_BYTES = 512
+EVIDENCE_URL_LIMIT_BYTES = 256
 
 EDITORIAL_FIELD_LIMITS = {
     "title": 120,
@@ -195,7 +195,10 @@ def _render_editorial_item(
         else ""
     )
     return [
-        f"**{index}. {title}**  `总分 {item.score.total}`",
+        (
+            f"**{index}. [{title}]({evidence_url})**  "
+            f"`总分 {item.score.total}`"
+        ),
         f"具体变化：{concrete_change}",
         f"影响：{affected_audience} · {affected_area}",
         f"建议行动：{recommended_action}",
