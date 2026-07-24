@@ -49,13 +49,27 @@ def _normalized(value: str) -> str:
     return " ".join(unicodedata.normalize("NFKC", value).casefold().split())
 
 
-_MATERIAL_TOKEN = re.compile(
-    r"""(?x)
-    (?:[$€£¥]\s*\d+(?:[.,]\d+)*(?:\s*[kmb])?)
-    |(?:\b\d+(?:[.,]\d+)*(?:%|x|[kmb])?\b)
-    |(?:\b[Vv]\d+(?:[._-]\d+)*\b)
-    |(?:\b(?:API|SDK|MCP|GPU|CPU|JSON|HTTP|HTTPS|SQL|D1)\b)
-    """,
+_ASCII_LEFT = r"(?<![A-Za-z0-9_])"
+_ASCII_RIGHT = r"(?![A-Za-z0-9_])"
+_VERSION_TOKEN = re.compile(
+    rf"{_ASCII_LEFT}(?:v|version)\s*"
+    rf"(\d+(?:[._-]\d+)*){_ASCII_RIGHT}",
+    re.IGNORECASE,
+)
+_ISO_DATE_TOKEN = re.compile(
+    rf"{_ASCII_LEFT}(\d{{4}})[-/](\d{{1,2}})[-/](\d{{1,2}})"
+    rf"{_ASCII_RIGHT}"
+)
+_CJK_DATE_TOKEN = re.compile(
+    rf"{_ASCII_LEFT}(\d{{4}})年(\d{{1,2}})月(\d{{1,2}})日"
+)
+_IDENTIFIER_TOKEN = re.compile(
+    rf"{_ASCII_LEFT}(API|SDK|MCP|GPU|CPU|JSON|HTTP|HTTPS|SQL|D1)"
+    rf"{_ASCII_RIGHT}",
+    re.IGNORECASE,
+)
+_NUMBER_TOKEN = re.compile(
+    rf"{_ASCII_LEFT}(\d+(?:[.,]\d+)*)(%|x|[kmb])?{_ASCII_RIGHT}",
     re.IGNORECASE,
 )
 _WORD = re.compile(r"[a-z][a-z0-9_-]{2,}")
@@ -131,10 +145,32 @@ def _meaningful_units(value: str) -> set[str]:
 
 
 def _material_tokens(value: str) -> set[str]:
+    normalized = unicodedata.normalize("NFKC", value)
     tokens: set[str] = set()
-    for match in _MATERIAL_TOKEN.finditer(unicodedata.normalize("NFKC", value)):
-        token = _normalized(match.group(0)).replace(" ", "")
-        tokens.add(token.lstrip("$€£¥"))
+    occupied: list[tuple[int, int]] = []
+
+    def reserve(match: re.Match[str], token: str) -> None:
+        occupied.append(match.span())
+        tokens.add(token)
+
+    for match in _VERSION_TOKEN.finditer(normalized):
+        version = re.sub(r"[._-]+", ".", match.group(1))
+        reserve(match, f"version:{version.casefold()}")
+    for pattern in (_ISO_DATE_TOKEN, _CJK_DATE_TOKEN):
+        for match in pattern.finditer(normalized):
+            year, month, day = (int(match.group(index)) for index in range(1, 4))
+            reserve(match, f"date:{year:04d}-{month:02d}-{day:02d}")
+    for match in _IDENTIFIER_TOKEN.finditer(normalized):
+        reserve(match, f"identifier:{match.group(1).casefold()}")
+    for match in _NUMBER_TOKEN.finditer(normalized):
+        if any(
+            start < match.end() and match.start() < end
+            for start, end in occupied
+        ):
+            continue
+        number = match.group(1).replace(",", "")
+        unit = (match.group(2) or "").casefold()
+        tokens.add(f"number:{number}{unit}")
     return tokens
 
 

@@ -605,6 +605,81 @@ def test_currency_unit_must_appear_in_bound_anchor() -> None:
     assert checked.verification_status == "insufficient"
 
 
+def checked_claim(statement: str, quote: str) -> EvidenceRecord:
+    source = fetched().model_copy(update={"text": quote})
+    record = valid_record().model_copy(
+        update={
+            "concrete_changes": [
+                ChangeFact(change_type="material", statement=statement)
+            ],
+            "evidence_anchors": [
+                EvidenceAnchor(quote=quote, locator="Material facts")
+            ],
+        }
+    )
+    return validate_anchors(record, source)
+
+
+def test_chinese_adjacent_price_numbers_must_match_exactly() -> None:
+    checked = checked_claim(
+        "价格从每百万令牌2美元降至1美元",
+        "价格从每百万令牌3美元降至2美元",
+    )
+
+    assert checked.verification_status == "insufficient"
+    assert checked.evidence_covers_full_claim is False
+
+
+def test_matching_chinese_adjacent_price_numbers_pass() -> None:
+    checked = checked_claim(
+        "价格从每百万令牌2美元降至1美元",
+        "价格从每百万令牌2美元降至1美元",
+    )
+
+    assert checked.verification_status == "verified"
+    assert checked.evidence_covers_full_claim is True
+
+
+@pytest.mark.parametrize(
+    ("statement", "quote"),
+    [
+        ("折扣从20%降至10%", "折扣从20%降至10%"),
+        ("新价格为2欧元", "新价格为2欧元"),
+        ("条款于2026年7月24日生效", "条款于2026年7月24日生效"),
+        ("模型v2.0发布", "模型v2.0发布"),
+        ("api价格降至1美元", "api价格降至1美元"),
+    ],
+)
+def test_chinese_adjacent_material_tokens_pass_when_matching(
+    statement: str,
+    quote: str,
+) -> None:
+    assert checked_claim(statement, quote).verification_status == "verified"
+
+
+@pytest.mark.parametrize(
+    ("statement", "quote"),
+    [
+        ("折扣从20%降至10%", "折扣从30%降至20%"),
+        ("新价格为2欧元", "新价格为3欧元"),
+        ("条款于2026年7月24日生效", "条款于2026年7月25日生效"),
+        ("模型v2.0发布", "模型v3.0发布"),
+    ],
+)
+def test_chinese_adjacent_material_tokens_fail_when_different(
+    statement: str,
+    quote: str,
+) -> None:
+    assert checked_claim(statement, quote).verification_status == "insufficient"
+
+
+def test_version_prefix_paraphrase_uses_same_canonical_material_version() -> None:
+    checked = checked_claim("模型v2.0发布", "模型version 2.0发布")
+
+    assert checked.verification_status == "verified"
+    assert checked.evidence_covers_full_claim is True
+
+
 @pytest.mark.parametrize("status", ["unavailable", "blocked", "insufficient"])
 def test_anchor_validator_preserves_failed_source_status(status: str) -> None:
     checked = validate_anchors(valid_record(), fetched(status=status))
