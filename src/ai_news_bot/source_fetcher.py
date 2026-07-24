@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from hashlib import sha256
 from typing import Literal
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -48,6 +49,7 @@ SENSITIVE_QUERY_PARAMETERS = frozenset(
         "xgoogsecuritytoken",
     }
 )
+# Only known secret-bearing keys are redacted so arbitrary evidence URL parameters remain usable.
 
 
 class AllSourcesUnavailableError(RuntimeError):
@@ -154,7 +156,10 @@ class SourceFetcher:
             )
         finally:
             if response is not None:
-                response.close()
+                try:
+                    response.close()
+                except Exception:
+                    pass
 
     def fetch_many(self, candidates: list[Candidate]) -> list[FetchedSource]:
         results = [self.fetch_one(candidate) for candidate in candidates]
@@ -164,20 +169,23 @@ class SourceFetcher:
 
 
 def _sanitize_url(url: str) -> str:
-    parsed = urlsplit(url)
-    query = urlencode(
-        [
-            (
-                name,
-                "REDACTED"
-                if _normalize_parameter_name(name) in SENSITIVE_QUERY_PARAMETERS
-                else value,
-            )
-            for name, value in parse_qsl(parsed.query, keep_blank_values=True)
-        ]
-    )
-    netloc = parsed.netloc.rsplit("@", maxsplit=1)[-1]
-    return urlunsplit((parsed.scheme, netloc, parsed.path, query, ""))
+    try:
+        parsed = urlsplit(url)
+        query = urlencode(
+            [
+                (
+                    name,
+                    "REDACTED"
+                    if _normalize_parameter_name(name) in SENSITIVE_QUERY_PARAMETERS
+                    else value,
+                )
+                for name, value in parse_qsl(parsed.query, keep_blank_values=True)
+            ]
+        )
+        netloc = parsed.netloc.rsplit("@", maxsplit=1)[-1]
+        return urlunsplit((parsed.scheme, netloc, parsed.path, query, ""))
+    except Exception:
+        return f"invalid-url:{sha256(url.encode('utf-8', 'surrogatepass')).hexdigest()[:12]}"
 
 
 def _normalize_parameter_name(name: str) -> str:

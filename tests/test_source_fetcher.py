@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from hashlib import sha256
 
 import pytest
 import requests
@@ -19,6 +20,7 @@ class FakeResponse:
         status_code: int = 200,
         content_type: str = "text/html; charset=utf-8",
         iter_content_error: requests.RequestException | None = None,
+        close_error: Exception | None = None,
     ) -> None:
         self.url = url
         self._body = text.encode()
@@ -27,6 +29,7 @@ class FakeResponse:
         self.bytes_yielded = 0
         self.iter_content_chunk_sizes: list[int] = []
         self.iter_content_error = iter_content_error
+        self.close_error = close_error
         self.closed = False
         self.close_calls = 0
 
@@ -44,8 +47,10 @@ class FakeResponse:
             yield chunk
 
     def close(self) -> None:
-        self.closed = True
         self.close_calls += 1
+        if self.close_error:
+            raise self.close_error
+        self.closed = True
 
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
@@ -229,7 +234,7 @@ def test_fetch_sources_marks_non_html_as_unavailable() -> None:
     assert result.error == "ValueError"
 
 
-def test_fetch_sources_redacts_sensitive_query_values_and_fragments() -> None:
+def test_fetch_sources_redacts_presigned_credentials_and_sensitive_query_values() -> None:
     client_secret = "client-token"
     response_secrets = [
         "access-secret",
@@ -345,3 +350,36 @@ def test_fetch_sources_closes_response_after_streaming_exception() -> None:
     assert result.error == "ConnectionError"
     assert response.closed is True
     assert response.close_calls == 1
+
+
+def test_fetch_sources_uses_safe_placeholder_for_malformed_url_and_continues() -> None:
+    malformed_url = "https://[not-an-ipv6]/?token=malformed-secret"
+    good_response = FakeResponse(url="https://example.test/two", text="x" * 100)
+    session = FakeSession([requests.ConnectionError("down"), good_response])
+
+    result = SourceFetcher(session=session).fetch_many(
+        [candidate("bad", url=malformed_url), two()]
+    )
+
+    expected_placeholder = f"invalid-url:{sha256(malformed_url.encode()).hexdigest()[:12]}"
+    assert [item.status for item in result] == ["unavailable", "verified"]
+    assert result[0].requested_url == expected_placeholder
+    assert result[0].final_url == expected_placeholder
+    assert "malformed-secret" not in result[0].model_dump_json()
+    assert good_response.closed is True
+
+
+def test_fetch_sources_continues_after_response_close_error() -> None:
+    close_fails = FakeResponse(
+        url="https://example.test/one",
+        text="x" * 100,
+        close_error=RuntimeError("close failed"),
+    )
+    later_success = FakeResponse(url="https://example.test/two", text="x" * 100)
+
+    result = SourceFetcher(session=FakeSession([close_fails, later_success])).fetch_many([one(), two()])
+
+    assert [item.status for item in result] == ["verified", "verified"]
+    assert close_fails.close_calls == 1
+    assert close_fails.closed is False
+    assert later_success.closed is True
