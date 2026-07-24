@@ -406,6 +406,99 @@ def test_pinned_transport_sends_original_host_header() -> None:
 
 
 @pytest.mark.parametrize(
+    ("url", "expected_target"),
+    [
+        (
+            "https://example.test/新闻/模型?关键词=人工智能&lang=zh#片段",
+            (
+                "/%E6%96%B0%E9%97%BB/%E6%A8%A1%E5%9E%8B"
+                "?%E5%85%B3%E9%94%AE%E8%AF%8D="
+                "%E4%BA%BA%E5%B7%A5%E6%99%BA%E8%83%BD&lang=zh"
+            ),
+        ),
+        (
+            "https://example.test/%E6%96%B0%E9%97%BB"
+            "?q=%E6%A8%A1%E5%9E%8B#fragment",
+            "/%E6%96%B0%E9%97%BB?q=%E6%A8%A1%E5%9E%8B",
+        ),
+        (
+            "https://example.test/releases/v2?q=api&lang=en#fragment",
+            "/releases/v2?q=api&lang=en",
+        ),
+    ],
+    ids=["raw-unicode", "already-encoded", "ascii"],
+)
+def test_validated_request_target_is_ascii_encoded_once(
+    url: str,
+    expected_target: str,
+) -> None:
+    target = source_fetcher._validated_public_https_url(
+        url,
+        resolver({"example.test": ["93.184.216.34"]}),
+    )
+
+    assert target.request_target == expected_target
+    assert target.request_target.isascii()
+    assert "#" not in target.request_target
+
+
+def test_relative_unicode_redirect_is_encoded_before_pinned_request() -> None:
+    transport = RecordingPinnedTransport(
+        [
+            FakeResponse(
+                url="https://example.test/start",
+                text="",
+                status_code=302,
+                location="/新闻/模型?关键词=智能#片段",
+            ),
+            FakeResponse(
+                url=(
+                    "https://example.test/"
+                    "%E6%96%B0%E9%97%BB/%E6%A8%A1%E5%9E%8B"
+                ),
+                text="Verified redirected source text with enough detail. " * 4,
+            ),
+        ]
+    )
+
+    result = SourceFetcher(
+        transport=transport,
+        resolver=resolver({"example.test": ["93.184.216.34"]}),
+    ).fetch_one(candidate("redirect", url="https://example.test/start"))
+
+    assert result.status == "verified"
+    assert [target.request_target for target in transport.calls] == [
+        "/start",
+        (
+            "/%E6%96%B0%E9%97%BB/%E6%A8%A1%E5%9E%8B"
+            "?%E5%85%B3%E9%94%AE%E8%AF%8D="
+            "%E6%99%BA%E8%83%BD"
+        ),
+    ]
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.test/path\r\nX-Injection: yes",
+        "https://example.test/path\x00tail",
+        "https://example.test/path\x7ftail",
+    ],
+)
+def test_request_target_rejects_raw_controls_before_transport(url: str) -> None:
+    transport = RecordingPinnedTransport([])
+
+    result = SourceFetcher(
+        transport=transport,
+        resolver=resolver({"example.test": ["93.184.216.34"]}),
+    ).fetch_one(candidate("unsafe", url=url))
+
+    assert result.status == "unavailable"
+    assert result.error == "UnsafeSourceUrlError"
+    assert transport.calls == []
+
+
+@pytest.mark.parametrize(
     "location",
     [
         "https://127.0.0.1/private",

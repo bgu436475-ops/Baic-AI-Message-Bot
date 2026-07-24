@@ -11,6 +11,7 @@ from ipaddress import ip_address
 from typing import Any, Callable, Literal, Protocol
 from urllib.parse import (
     parse_qsl,
+    quote,
     unquote,
     urlencode,
     urljoin,
@@ -82,6 +83,8 @@ class UnsafeSourceUrlError(ValueError):
 
 Resolver = Callable[[str, int], list[str]]
 REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+REQUEST_PATH_SAFE = "/:@!$&'()*+,;=-._~%"
+REQUEST_QUERY_SAFE = "/?:@!$&'()*+,;=-._~%"
 
 
 @dataclass(frozen=True)
@@ -174,9 +177,18 @@ def _validated_public_https_url(
             raise UnsafeSourceUrlError("source hostname resolves outside the public Internet")
     except ValueError as error:
         raise UnsafeSourceUrlError("resolver returned an invalid address") from error
-    request_target = parsed.path or "/"
-    if parsed.query:
-        request_target = f"{request_target}?{parsed.query}"
+    try:
+        request_target = quote(
+            parsed.path or "/",
+            safe=REQUEST_PATH_SAFE,
+        )
+        if parsed.query:
+            request_target = (
+                f"{request_target}?"
+                f"{quote(parsed.query, safe=REQUEST_QUERY_SAFE)}"
+            )
+    except UnicodeError as error:
+        raise UnsafeSourceUrlError("source request target is malformed") from error
     bracketed_hostname = (
         f"[{ascii_hostname}]" if ":" in ascii_hostname else ascii_hostname
     )
