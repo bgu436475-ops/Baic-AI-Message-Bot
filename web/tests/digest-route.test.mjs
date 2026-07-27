@@ -24,7 +24,7 @@ async function parser() {
 test("raw digest parser accepts a valid body without relying on content-length", async () => {
   const parseDigestRequestBody = await parser();
   const payload = await readFile(
-    new URL("../public/data/latest.json", import.meta.url),
+    new URL("./fixtures/python-empty-event-entities-v3.json", import.meta.url),
     "utf8",
   );
 
