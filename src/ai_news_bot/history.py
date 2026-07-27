@@ -4,8 +4,14 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from .models import NewsItem
+from .models import EditorialNewsItem
 from .text import canonicalize_url
+
+
+def _aware(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value
 
 
 class HistoryStore:
@@ -23,27 +29,37 @@ class HistoryStore:
         except (OSError, ValueError, TypeError):
             return {}
 
-    def contains(self, url: str) -> bool:
-        return canonicalize_url(url) in self._items
+    def contains(self, url: str, now: datetime) -> bool:
+        timestamp = self._items.get(canonicalize_url(url))
+        if timestamp is None:
+            return False
+        try:
+            recorded_at = _aware(datetime.fromisoformat(timestamp))
+        except ValueError:
+            return False
+        current = _aware(now)
+        cutoff = current - timedelta(days=self.retention_days)
+        return cutoff <= recorded_at <= current
 
-    def record(self, items: list[NewsItem], now: datetime | None = None) -> None:
-        now = now or datetime.now(UTC)
+    def record(
+        self,
+        items: list[EditorialNewsItem],
+        now: datetime | None = None,
+    ) -> None:
+        now = _aware(now or datetime.now(UTC))
         cutoff = now - timedelta(days=self.retention_days)
         fresh: dict[str, str] = {}
         for url, timestamp in self._items.items():
             try:
-                parsed = datetime.fromisoformat(timestamp)
-                if parsed.tzinfo is None:
-                    parsed = parsed.replace(tzinfo=UTC)
-                if parsed >= cutoff:
+                parsed = _aware(datetime.fromisoformat(timestamp))
+                if cutoff <= parsed <= now:
                     fresh[url] = parsed.isoformat()
             except ValueError:
                 continue
         for item in items:
-            fresh[canonicalize_url(item.url)] = now.isoformat()
+            fresh[canonicalize_url(item.evidence_url)] = now.isoformat()
         self._items = fresh
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(
             json.dumps({"sent": fresh}, ensure_ascii=False, indent=2), encoding="utf-8"
         )
-

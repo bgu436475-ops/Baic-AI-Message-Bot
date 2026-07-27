@@ -57,12 +57,14 @@ class Settings(BaseModel):
     feishu_webhook_url: str = ""
     feishu_signing_secret: str = ""
     github_token: str = ""
-    target_news_count: int = Field(default=10, ge=1, le=20)
     lookback_hours: int = Field(default=36, ge=6, le=168)
     fallback_lookback_hours: int = Field(default=168, ge=24, le=336)
-    max_candidates: int = Field(default=80, ge=10, le=200)
+    max_candidates: int = Field(default=80, ge=10, le=80)
     request_timeout: int = Field(default=20, ge=5, le=60)
     state_path: Path = Path(".state/history.json")
+    event_history_path: Path = Path(".state/events.json")
+    send_ledger_path: Path = Path(".state/daily_sends.json")
+    audit_path: Path = Path(".state/latest_audit.json")
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -78,12 +80,20 @@ class Settings(BaseModel):
             feishu_webhook_url=os.getenv("FEISHU_WEBHOOK_URL", "").strip(),
             feishu_signing_secret=os.getenv("FEISHU_SIGNING_SECRET", "").strip(),
             github_token=os.getenv("GITHUB_TOKEN", "").strip(),
-            target_news_count=int(os.getenv("TARGET_NEWS_COUNT", "10")),
             lookback_hours=int(os.getenv("LOOKBACK_HOURS", "36")),
             fallback_lookback_hours=int(os.getenv("FALLBACK_LOOKBACK_HOURS", "168")),
             max_candidates=int(os.getenv("MAX_CANDIDATES", "80")),
             request_timeout=int(os.getenv("REQUEST_TIMEOUT", "20")),
             state_path=Path(os.getenv("STATE_PATH", ".state/history.json")),
+            event_history_path=Path(
+                os.getenv("EVENT_HISTORY_PATH", ".state/events.json")
+            ),
+            send_ledger_path=Path(
+                os.getenv("SEND_LEDGER_PATH", ".state/daily_sends.json")
+            ),
+            audit_path=Path(
+                os.getenv("AUDIT_PATH", ".state/latest_audit.json")
+            ),
         )
 
     def ai_backend(self) -> tuple[str, str, str | None, str]:

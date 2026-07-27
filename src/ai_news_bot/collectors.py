@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from typing import Any
@@ -54,6 +55,17 @@ AI_KEYWORDS = (
 )
 
 
+class AllCollectorsUnavailableError(RuntimeError):
+    pass
+
+
+@dataclass(frozen=True)
+class CollectionOutcome:
+    candidates: list[Candidate]
+    attempted: int
+    succeeded: int
+
+
 def _entry_datetime(entry: Any, now: datetime) -> datetime | None:
     for attr in ("published_parsed", "updated_parsed", "created_parsed"):
         value = entry.get(attr)
@@ -86,8 +98,21 @@ class RSSCollector:
     def collect(
         self, sources: list[RSSSource], lookback_hours: int, now: datetime | None = None
     ) -> list[Candidate]:
+        return self.collect_with_health(
+            sources,
+            lookback_hours,
+            now=now,
+        ).candidates
+
+    def collect_with_health(
+        self,
+        sources: list[RSSSource],
+        lookback_hours: int,
+        now: datetime | None = None,
+    ) -> CollectionOutcome:
         now = now or datetime.now(UTC)
         results: list[Candidate] = []
+        succeeded = 0
         with ThreadPoolExecutor(max_workers=min(self.workers, max(1, len(sources)))) as pool:
             futures = {
                 pool.submit(self._collect_source, source, lookback_hours, now): source
@@ -97,11 +122,16 @@ class RSSCollector:
                 source = futures[future]
                 try:
                     items = future.result()
+                    succeeded += 1
                     results.extend(items)
                     LOGGER.info("%s: collected %d candidate(s)", source.name, len(items))
                 except Exception as exc:  # one broken feed must not stop the digest
                     LOGGER.warning("%s: collection failed: %s", source.name, exc)
-        return results
+        return CollectionOutcome(
+            candidates=results,
+            attempted=len(sources),
+            succeeded=succeeded,
+        )
 
     def _collect_source(
         self, source: RSSSource, lookback_hours: int, now: datetime
@@ -163,10 +193,23 @@ class WebPageCollector:
     def collect(
         self, sources: list[WebPageSource], lookback_hours: int, now: datetime | None = None
     ) -> list[Candidate]:
+        return self.collect_with_health(
+            sources,
+            lookback_hours,
+            now=now,
+        ).candidates
+
+    def collect_with_health(
+        self,
+        sources: list[WebPageSource],
+        lookback_hours: int,
+        now: datetime | None = None,
+    ) -> CollectionOutcome:
         now = now or datetime.now(UTC)
         if not sources:
-            return []
+            return CollectionOutcome(candidates=[], attempted=0, succeeded=0)
         results: list[Candidate] = []
+        succeeded = 0
         with ThreadPoolExecutor(max_workers=min(self.workers, len(sources))) as pool:
             futures = {
                 pool.submit(self._collect_source, source, lookback_hours, now): source
@@ -176,11 +219,16 @@ class WebPageCollector:
                 source = futures[future]
                 try:
                     items = future.result()
+                    succeeded += 1
                     results.extend(items)
                     LOGGER.info("%s: collected %d candidate(s)", source.name, len(items))
                 except Exception as exc:
                     LOGGER.warning("%s: collection failed: %s", source.name, exc)
-        return results
+        return CollectionOutcome(
+            candidates=results,
+            attempted=len(sources),
+            succeeded=succeeded,
+        )
 
     def _collect_source(
         self, source: WebPageSource, lookback_hours: int, now: datetime
@@ -251,8 +299,15 @@ class GitHubCollector:
     def collect(
         self, config: GitHubSources, now: datetime | None = None
     ) -> list[Candidate]:
+        return self.collect_with_health(config, now=now).candidates
+
+    def collect_with_health(
+        self,
+        config: GitHubSources,
+        now: datetime | None = None,
+    ) -> CollectionOutcome:
         if not config.enabled:
-            return []
+            return CollectionOutcome(candidates=[], attempted=0, succeeded=0)
         now = now or datetime.now(UTC)
         since = (now - timedelta(days=config.lookback_days)).date().isoformat()
         headers = {
@@ -264,6 +319,7 @@ class GitHubCollector:
             headers["Authorization"] = f"Bearer {self.token}"
 
         candidates: list[Candidate] = []
+        succeeded = 0
         for query in config.queries:
             try:
                 response = requests.get(
@@ -278,30 +334,53 @@ class GitHubCollector:
                     timeout=self.timeout,
                 )
                 response.raise_for_status()
-            except requests.RequestException as exc:
+                payload = response.json()
+                items = payload.get("items", [])
+                query_candidates: list[Candidate] = []
+                for repo in items:
+                    url = canonicalize_url(repo["html_url"])
+                    stars = int(repo.get("stargazers_count", 0))
+                    forks = int(repo.get("forks_count", 0))
+                    description = clean_html(
+                        repo.get("description") or "",
+                        limit=1000,
+                    )
+                    summary = (
+                        f"{description} GitHub: {stars:,} stars, "
+                        f"{forks:,} forks."
+                    ).strip()
+                    published = datetime.fromisoformat(
+                        repo["created_at"].replace("Z", "+00:00")
+                    )
+                    query_candidates.append(
+                        Candidate(
+                            id=stable_id(url),
+                            title=repo["full_name"],
+                            summary=summary,
+                            url=url,
+                            source=f"GitHub · {query.name}",
+                            source_tier=2,
+                            source_weight=min(
+                                1.0,
+                                0.82 + stars / 5000,
+                            ),
+                            published_at=published,
+                            category_hints=query.category_hints,
+                            metrics={"stars": stars, "forks": forks},
+                        )
+                    )
+            except Exception as exc:
                 LOGGER.warning("GitHub / %s: collection failed: %s", query.name, exc)
                 continue
-
-            for repo in response.json().get("items", []):
-                url = canonicalize_url(repo["html_url"])
-                stars = int(repo.get("stargazers_count", 0))
-                forks = int(repo.get("forks_count", 0))
-                description = clean_html(repo.get("description") or "", limit=1000)
-                summary = f"{description} GitHub: {stars:,} stars, {forks:,} forks.".strip()
-                published = datetime.fromisoformat(repo["created_at"].replace("Z", "+00:00"))
-                candidates.append(
-                    Candidate(
-                        id=stable_id(url),
-                        title=repo["full_name"],
-                        summary=summary,
-                        url=url,
-                        source=f"GitHub · {query.name}",
-                        source_tier=2,
-                        source_weight=min(1.0, 0.82 + stars / 5000),
-                        published_at=published,
-                        category_hints=query.category_hints,
-                        metrics={"stars": stars, "forks": forks},
-                    )
-                )
-            LOGGER.info("GitHub / %s: collected %d result(s)", query.name, len(response.json().get("items", [])))
-        return candidates
+            succeeded += 1
+            candidates.extend(query_candidates)
+            LOGGER.info(
+                "GitHub / %s: collected %d result(s)",
+                query.name,
+                len(items),
+            )
+        return CollectionOutcome(
+            candidates=candidates,
+            attempted=len(config.queries),
+            succeeded=succeeded,
+        )

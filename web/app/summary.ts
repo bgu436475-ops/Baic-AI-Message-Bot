@@ -10,6 +10,7 @@ export type SummaryNarrative = {
   source: string;
   url: string;
   published_at: string;
+  score: number;
 };
 
 export type SummaryReport = {
@@ -35,23 +36,27 @@ function itemTitle(item: NewsItem, language: SummaryLanguage) {
 }
 
 function itemSummary(item: NewsItem, language: SummaryLanguage) {
-  return language === "zh"
-    ? item.summary_zh || item.summary_en || "—"
-    : item.summary_en || item.summary_zh || "—";
+  const audience = item.affected_audience.join(language === "zh" ? "、" : ", ");
+  const area = item.affected_area.join(language === "zh" ? "、" : ", ");
+  const action = item.recommended_action.join(language === "zh" ? "；" : "; ");
+  if (language === "zh") {
+    return `${item.concrete_change} 影响：${audience}（${area}）。行动：${action}`;
+  }
+  return `${item.concrete_change} Affects: ${audience} (${area}). Action: ${action}`;
 }
 
 function overviewFor(items: NewsItem[], language: SummaryLanguage, fallback: boolean, period: SummaryPeriod) {
   const categories = [...new Set(items.map((item) => CATEGORY_LABELS[language][item.category]))];
   if (language === "zh") {
     if (period === "daily" && fallback) {
-      return `过去 24 小时没有足够可靠的重大更新。以下回看最近 7 天最值得注意的 ${items.length} 条信息，主要涉及${categories.join("、")}。`;
+      return `过去 24 小时没有内容通过硬门槛；回看窗口内有 ${items.length} 条已核查记录，涉及${categories.join("、")}。`;
     }
-    return `${period === "daily" ? "过去 24 小时" : "最近 7 天"}的核心叙事集中在${categories.join("、")}，共归纳 ${items.length} 条高价值信号。`;
+    return `${period === "daily" ? "过去 24 小时" : "最近 7 天"}共有 ${items.length} 条记录通过硬门槛，涉及${categories.join("、")}。`;
   }
   if (period === "daily" && fallback) {
-    return `No sufficiently reliable major update was found in the past 24 hours. These ${items.length} signals are the most relevant developments from the past seven days, spanning ${categories.join(", ")}.`;
+    return `No item passed the hard gates in the past 24 hours; ${items.length} verified records remain in the lookback window across ${categories.join(", ")}.`;
   }
-  return `The leading narratives from the ${period === "daily" ? "past 24 hours" : "past seven days"} span ${categories.join(", ")}, distilled into ${items.length} high-value signals.`;
+  return `${items.length} records passed the hard gates in the ${period === "daily" ? "past 24 hours" : "past seven days"}, across ${categories.join(", ")}.`;
 }
 
 export function buildSummary(
@@ -61,7 +66,7 @@ export function buildSummary(
 ): SummaryReport {
   const generatedAt = new Date(digest.generated_at).getTime();
   const windowHours = period === "daily" ? 24 : 168;
-  const sorted = [...digest.items].sort((a, b) => b.importance - a.importance);
+  const sorted = [...digest.items].sort((a, b) => b.score.total - a.score.total);
   const inWindow = sorted.filter((item) => {
     const age = generatedAt - new Date(item.published_at).getTime();
     return age >= 0 && age <= windowHours * 60 * 60 * 1000;
@@ -85,8 +90,9 @@ export function buildSummary(
       summary: itemSummary(item, language),
       category: CATEGORY_LABELS[language][item.category],
       source: item.source.split(" · ")[0],
-      url: item.url,
+      url: item.evidence_url,
       published_at: item.published_at,
+      score: item.score.total,
     })),
     channel: { format: "ai-signal.summary.v1", feishu_ready: true },
   };

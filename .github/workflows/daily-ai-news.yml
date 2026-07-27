@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.event_name == 'workflow_dispatch' && format('daily-ai-news-manual-{0}', github.run_id) || 'daily-ai-news-automatic' }}
+  group: daily-ai-news
   cancel-in-progress: false
 
 permissions:
@@ -24,10 +24,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Restore sent-news history
+      - name: Restore delivery state
         uses: actions/cache/restore@v5
         with:
-          path: .state/history.json
+          path: .state/
           key: ai-news-history-${{ github.run_id }}
           restore-keys: |
             ai-news-history-
@@ -46,14 +46,13 @@ jobs:
         run: >-
           python -m ai_news_bot.daily_guard
           --event "${{ github.event_name }}"
-          --digest web/public/data/latest.json
-          --history .state/history.json
+          --ledger .state/daily_sends.json
           --timezone Asia/Shanghai
           >> "$GITHUB_OUTPUT"
 
       - name: Skip duplicate scheduled retry
         if: steps.daily_guard.outputs.should_run == 'false'
-        run: echo "A digest was already generated today; skipping this scheduled retry."
+        run: echo "A digest was already delivered today; skipping this scheduled retry."
 
       - name: Generate daily result
         if: steps.daily_guard.outputs.should_run == 'true'
@@ -64,8 +63,16 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ai-news-bot --dry-run
 
-      - name: Persist latest web digest
+      - name: Send persisted daily result
+        id: send_digest
         if: steps.daily_guard.outputs.should_run == 'true'
+        env:
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+          FEISHU_SIGNING_SECRET: ${{ secrets.FEISHU_SIGNING_SECRET }}
+        run: ai-news-bot --send-existing
+
+      - name: Persist latest web digest
+        if: steps.send_digest.outcome == 'success'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -75,16 +82,8 @@ jobs:
             git push
           fi
 
-      - name: Send persisted daily result
-        id: send_digest
-        if: steps.daily_guard.outputs.should_run == 'true'
-        env:
-          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
-          FEISHU_SIGNING_SECRET: ${{ secrets.FEISHU_SIGNING_SECRET }}
-        run: ai-news-bot --send-existing
-
       - name: Publish latest digest to private dashboard
-        if: steps.daily_guard.outputs.should_run == 'true'
+        if: steps.send_digest.outcome == 'success'
         env:
           SITE_DIGEST_ENDPOINT: ${{ secrets.SITE_DIGEST_ENDPOINT }}
           SITE_BYPASS_TOKEN: ${{ secrets.SITE_BYPASS_TOKEN }}
@@ -97,9 +96,9 @@ jobs:
             --data-binary @web/public/data/latest.json \
             "$SITE_DIGEST_ENDPOINT"
 
-      - name: Save sent-news history
-        if: always() && steps.send_digest.outcome == 'success' && steps.daily_guard.outputs.should_run == 'true' && hashFiles('.state/history.json') != ''
+      - name: Save delivery state
+        if: always() && steps.send_digest.outcome == 'success'
         uses: actions/cache/save@v5
         with:
-          path: .state/history.json
+          path: .state/
           key: ai-news-history-${{ github.run_id }}

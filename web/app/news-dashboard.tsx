@@ -4,9 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import {
   CATEGORY_LABELS,
   categories,
-  isDigest,
   type Category,
   type Digest,
+  type DigestBoards,
   type NewsItem,
 } from "./news-data";
 import { buildSummary, type SummaryPeriod } from "./summary";
@@ -17,7 +17,7 @@ const COPY = {
   zh: {
     brandAria: "AI Signal 首页",
     title: "AI 每日情报",
-    update: "每日重查全球信源 · 09:00 精选",
+    update: "每日重查全球信源 · 09:05 计划触发，送达时间不保证",
     headlineA: "让重要的 AI 进展，",
     headlineB: "先于噪音抵达。",
     intro: "实时跟进全球官方发布、开发者社区与开源生态；当天没有可靠新进展时，回看最近 7 天最重要的信息。",
@@ -34,8 +34,24 @@ const COPY = {
     searchAria: "搜索新闻",
     searchPlaceholder: "搜索标题、摘要或来源",
     signals: "今日值得关注",
+    boardMustRead: "今日必看",
+    boardTryNow: "值得试用",
+    boardWatch: "观察项",
     result: "条结果",
     original: "阅读原文",
+    concreteChange: "具体变化",
+    impact: "影响对象 / 范围",
+    action: "建议行动",
+    verifiedEvidence: "已核验证据",
+    evidenceSource: "证据来源",
+    score: "总分",
+    unverified: "证据暂未完整核验，请先阅读原始来源再行动。",
+    legalEmpty: "今日无内容通过硬门槛",
+    legalEmptyHelp: "系统已完成候选采集与原文核查，未使用低价值内容补足数量。",
+    pipelineCandidates: "候选",
+    shortlist: "粗筛",
+    verified: "已核查",
+    rejected: "淘汰",
     noSignal: "没有找到匹配的新闻",
     noSignalHelp: "换一个关键词或查看全部分类。",
     clear: "清除筛选",
@@ -48,17 +64,17 @@ const COPY = {
     source3Title: "行业与商业媒体",
     source3Text: "仅保留有实质影响的重要动态",
     dedupeTitle: "三层去重",
-    dedupeText: "链接归一化、标题相似度与语义聚类，避免同一事件重复出现。",
+    dedupeText: "链接归一化、标题相似度与结构化事件去重，避免同一事件重复出现。",
     showMethod: "查看筛选方法",
     hideMethod: "收起方法",
     collect: "收集",
     collectText: "优先最近 24 小时；不足时回看最近 7 天。",
     merge: "合并",
-    mergeText: "URL、标题和语义三级去重。",
+    mergeText: "按 URL、标题相似度和结构化事件去重。",
     rank: "排序",
     rankText: "按新鲜度、影响力、实用性与信源质量综合评分。",
     footer: "信息应该帮助判断，而不是制造焦虑。",
-    next: "下一次自动检查 · 明日 09:00",
+    next: "下一次计划触发 · 明日 09:05（送达时间不保证）",
     langAria: "切换到英文",
     summaryButton: "一键总结",
     summaryAria: "打开 AI 新闻一键总结",
@@ -74,7 +90,7 @@ const COPY = {
   en: {
     brandAria: "AI Signal home",
     title: "DAILY AI INTELLIGENCE",
-    update: "Global sources rechecked daily · Curated at 09:00",
+    update: "Global sources rechecked daily · Scheduled trigger 09:05; delivery time is not guaranteed",
     headlineA: "Important AI progress,",
     headlineB: "ahead of the noise.",
     intro: "Tracking official releases, developer communities, and open-source ecosystems worldwide. When there is no reliable update today, we surface the most important signals from the past seven days.",
@@ -91,8 +107,24 @@ const COPY = {
     searchAria: "Search news",
     searchPlaceholder: "Search title, summary, or source",
     signals: "Signals worth your attention",
+    boardMustRead: "Must read",
+    boardTryNow: "Worth trying",
+    boardWatch: "Watch",
     result: "results",
     original: "Original source",
+    concreteChange: "Specific change",
+    impact: "Affected audience / area",
+    action: "Recommended action",
+    verifiedEvidence: "Verified evidence",
+    evidenceSource: "Evidence source",
+    score: "Total score",
+    unverified: "Evidence is not fully verified. Read the original source before acting.",
+    legalEmpty: "No item passed today’s hard gates",
+    legalEmptyHelp: "Collection and source checks completed; low-value items were not used to fill the digest.",
+    pipelineCandidates: "Candidates",
+    shortlist: "Shortlisted",
+    verified: "Verified",
+    rejected: "Rejected",
     noSignal: "No matching signal",
     noSignalHelp: "Try another keyword or view all categories.",
     clear: "Clear filters",
@@ -105,17 +137,17 @@ const COPY = {
     source3Title: "Industry & business",
     source3Text: "Only developments with material impact",
     dedupeTitle: "Three-layer dedupe",
-    dedupeText: "URL normalization, title similarity, and semantic clustering prevent repeat stories.",
+    dedupeText: "URL normalization, title similarity, and structured-event dedupe prevent repeat stories.",
     showMethod: "View selection method",
     hideMethod: "Hide selection method",
     collect: "Collect",
     collectText: "Prioritize the last 24 hours, then look back seven days if needed.",
     merge: "Merge",
-    mergeText: "Deduplicate by URL, title, and meaning.",
+    mergeText: "Deduplicate by URL, title similarity, and structured-event identity.",
     rank: "Rank",
     rankText: "Score freshness, impact, utility, and source quality.",
     footer: "Information should improve judgment, not create anxiety.",
-    next: "Next automatic check · Tomorrow at 09:00",
+    next: "Next scheduled trigger · Tomorrow 09:05 (delivery time is not guaranteed)",
     langAria: "切换到中文",
     summaryButton: "QUICK BRIEF",
     summaryAria: "Open the AI news quick brief",
@@ -153,6 +185,14 @@ function localizedSummary(item: NewsItem, language: Language) {
   return item.summary_zh || item.summary_en || "—";
 }
 
+export function evidenceLabel(
+  status: NewsItem["verification_status"],
+  language: Language,
+) {
+  const copy = COPY[language];
+  return status === "verified" ? copy.verifiedEvidence : copy.evidenceSource;
+}
+
 function formatTime(value: string, language: Language) {
   return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-GB", {
     month: "short",
@@ -168,6 +208,7 @@ function StoryCard({ item, index, language }: { item: NewsItem; index: number; l
   const copy = COPY[language];
   const labels = CATEGORY_LABELS[language];
   const title = localizedTitle(item, language);
+  const evidence = evidenceLabel(item.verification_status, language);
   return (
     <article className="story-card">
       <div className="story-index">{String(index + 1).padStart(2, "0")}</div>
@@ -182,14 +223,32 @@ function StoryCard({ item, index, language }: { item: NewsItem; index: number; l
         </div>
         <h2>{title}</h2>
         <p>{localizedSummary(item, language)}</p>
+        {item.verification_status !== "verified" && (
+          <div className="summary-fallback"><span />{copy.unverified}</div>
+        )}
+        <dl>
+          <div>
+            <dt><strong>{copy.concreteChange}</strong></dt>
+            <dd>{item.concrete_change}</dd>
+          </div>
+          <div>
+            <dt><strong>{copy.impact}</strong></dt>
+            <dd>{[...item.affected_audience, ...item.affected_area].join(" · ")}</dd>
+          </div>
+          <div>
+            <dt><strong>{copy.action}</strong></dt>
+            <dd>{item.recommended_action.join("；")}</dd>
+          </div>
+        </dl>
         <div className="story-footer">
           <div className="tag-row">
             {item.extra_categories.slice(0, 2).map((category) => (
               <span className="mini-tag" key={category}>{labels[category]}</span>
             ))}
+            <span className="mini-tag">{copy.score} {item.score.total}</span>
           </div>
-          <a href={item.url} target="_blank" rel="noreferrer" aria-label={`${copy.original}: ${title}`}>
-            {copy.original} <span aria-hidden="true">↗</span>
+          <a href={item.evidence_url} target="_blank" rel="noreferrer" aria-label={`${evidence}: ${title}`}>
+            {evidence} <span aria-hidden="true">↗</span>
           </a>
         </div>
       </div>
@@ -198,7 +257,7 @@ function StoryCard({ item, index, language }: { item: NewsItem; index: number; l
 }
 
 export function NewsDashboard({ initialDigest }: { initialDigest: Digest }) {
-  const [currentDigest, setCurrentDigest] = useState(initialDigest);
+  const currentDigest = initialDigest;
   const [language, setLanguage] = useState<Language>("zh");
   const [activeCategory, setActiveCategory] = useState<Category>("all");
   const [query, setQuery] = useState("");
@@ -207,20 +266,6 @@ export function NewsDashboard({ initialDigest }: { initialDigest: Digest }) {
   const [summaryPeriod, setSummaryPeriod] = useState<SummaryPeriod>("daily");
   const copy = COPY[language];
   const labels = CATEGORY_LABELS[language];
-
-  useEffect(() => {
-    const controller = new AbortController();
-    fetch("/api/digest", { signal: controller.signal, cache: "no-store" })
-      .then((response) => {
-        if (!response.ok) throw new Error("Latest digest is unavailable");
-        return response.json() as Promise<Digest>;
-      })
-      .then((latest) => {
-        if (isDigest(latest)) setCurrentDigest(latest);
-      })
-      .catch(() => undefined);
-    return () => controller.abort();
-  }, []);
 
   useEffect(() => {
     document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
@@ -249,14 +294,27 @@ export function NewsDashboard({ initialDigest }: { initialDigest: Digest }) {
     return () => window.removeEventListener("keydown", handleShortcut);
   }, []);
 
-  const items = useMemo(() => {
+  const visibleBoards = useMemo<DigestBoards>(() => {
     const keyword = query.trim().toLowerCase();
-    return currentDigest.items.filter((item) => {
+    const filterItems = (boardItems: NewsItem[]) => boardItems.filter((item) => {
       const matchesCategory = activeCategory === "all" || item.category === activeCategory || item.extra_categories.includes(activeCategory);
-      const matchesQuery = !keyword || `${item.title_zh} ${item.summary_zh} ${item.title_en ?? ""} ${item.summary_en ?? ""} ${item.source}`.toLowerCase().includes(keyword);
+      const matchesQuery = !keyword || `${item.title_zh} ${item.summary_zh} ${item.title_en ?? ""} ${item.summary_en ?? ""} ${item.concrete_change} ${item.affected_audience.join(" ")} ${item.affected_area.join(" ")} ${item.recommended_action.join(" ")} ${item.source}`.toLowerCase().includes(keyword);
       return matchesCategory && matchesQuery;
     });
-  }, [activeCategory, currentDigest.items, query]);
+    return {
+      must_read: filterItems(currentDigest.boards.must_read),
+      try_now: filterItems(currentDigest.boards.try_now),
+      watch: filterItems(currentDigest.boards.watch),
+    };
+  }, [activeCategory, currentDigest.boards, query]);
+  const items = useMemo(
+    () => [...visibleBoards.must_read, ...visibleBoards.try_now, ...visibleBoards.watch],
+    [visibleBoards],
+  );
+  const itemPositions = useMemo(
+    () => new Map(currentDigest.items.map((item, index) => [item.candidate_id, index])),
+    [currentDigest.items],
+  );
 
   const categoryCounts = useMemo(() => {
     const counts: Partial<Record<Category, number>> = {};
@@ -365,9 +423,40 @@ export function NewsDashboard({ initialDigest }: { initialDigest: Digest }) {
             <div><span className="eyebrow">TODAY&apos;S SIGNALS</span><h2>{copy.signals}</h2></div>
             <span className="result-count">{items.length} {copy.result}</span>
           </div>
-          {items.length ? (
+          {currentDigest.run_status === "no_qualifying_items" ? (
+            <div className="empty-state">
+              <span>HARD GATE</span><h2>{copy.legalEmpty}</h2><p>{copy.legalEmptyHelp}</p>
+              <p>
+                {copy.pipelineCandidates} {currentDigest.pipeline_stats.candidate_count} ·{" "}
+                {copy.shortlist} {currentDigest.pipeline_stats.shortlist_count} ·{" "}
+                {copy.verified} {currentDigest.pipeline_stats.source_verified_count} ·{" "}
+                {copy.rejected} {currentDigest.pipeline_stats.rejected_count}
+              </p>
+            </div>
+          ) : items.length ? (
             <div className="story-list">
-              {items.map((item) => <StoryCard item={item} index={currentDigest.items.indexOf(item)} language={language} key={item.url} />)}
+              {([
+                ["must_read", copy.boardMustRead],
+                ["try_now", copy.boardTryNow],
+                ["watch", copy.boardWatch],
+              ] as const).map(([board, label]) => (
+                visibleBoards[board].length > 0 && (
+                  <section key={board} aria-labelledby={`board-${board}`}>
+                    <div className="section-heading">
+                      <h2 id={`board-${board}`}>{label}</h2>
+                      <span className="result-count">{visibleBoards[board].length} {copy.result}</span>
+                    </div>
+                    {visibleBoards[board].map((item) => (
+                      <StoryCard
+                        item={item}
+                        index={itemPositions.get(item.candidate_id) ?? 0}
+                        language={language}
+                        key={item.candidate_id}
+                      />
+                    ))}
+                  </section>
+                )
+              ))}
             </div>
           ) : (
             <div className="empty-state">

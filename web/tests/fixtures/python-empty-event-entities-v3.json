@@ -1,0 +1,211 @@
+{
+  "schema_version": 3,
+  "run_status": "published",
+  "generated_at": "2026-07-24T01:05:00Z",
+  "candidate_count": 2,
+  "source_count": 1,
+  "latest_published_at": "2026-07-24T01:05:00Z",
+  "fresh_count_24h": 2,
+  "lookback_hours": 36,
+  "fallback_used": false,
+  "boards": {
+    "must_read": [
+      {
+        "candidate_id": "python-empty-event-entities",
+        "original_title": "Python contract permits empty event entities",
+        "title_en": "Python contract permits empty event entities",
+        "summary_en": "The item remains valid when event_entities is empty.",
+        "title_zh": "Python 合约允许事件实体为空",
+        "summary_zh": "event_entities 为空时，该条目仍是合法 schema v3。",
+        "concrete_change": "event_entities 从可选提取结果保留为空数组。",
+        "affected_audience": [
+          "Web 消费端"
+        ],
+        "affected_area": [
+          "跨语言数据合约"
+        ],
+        "recommended_action": [
+          "让 Web validator 接受 Python 合法输出"
+        ],
+        "evidence_url": "https://example.com/python-contract",
+        "verification_status": "verified",
+        "event_fingerprint": "python|contract|empty-event-entities|v3|2026-07-24",
+        "update_of": null,
+        "primary_entity": "Python contract",
+        "product_or_model": "Schema v3",
+        "event_entities": [],
+        "change_signature": "empty-event-entities",
+        "version_or_metric": "v3",
+        "effective_date": "2026-07-24",
+        "resource_available": true,
+        "scientific_verified": false,
+        "source": "Python fixture",
+        "published_at": "2026-07-24T01:05:00Z",
+        "category": "industry_business",
+        "extra_categories": [],
+        "score": {
+          "relevance": 25,
+          "actionability": 20,
+          "specificity": 15,
+          "information_gain": 15,
+          "evidence_quality": 15,
+          "time_sensitivity": 10,
+          "penalties": 0,
+          "total": 100
+        },
+        "board": "must_read"
+      }
+    ],
+    "try_now": [
+      {
+        "candidate_id": "python-blank-event-entity",
+        "original_title": "Python contract permits a blank event entity",
+        "title_en": "Python contract permits a blank event entity",
+        "summary_en": "The item remains valid when event_entities is empty.",
+        "title_zh": "Python 合约允许空白事件实体",
+        "summary_zh": "event_entities 为空时，该条目仍是合法 schema v3。",
+        "concrete_change": "event_entities 从可选提取结果保留为空数组。",
+        "affected_audience": [
+          "Web 消费端"
+        ],
+        "affected_area": [
+          "跨语言数据合约"
+        ],
+        "recommended_action": [
+          "让 Web validator 接受 Python 合法输出"
+        ],
+        "evidence_url": "https://example.com/python-contract",
+        "verification_status": "verified",
+        "event_fingerprint": "python|contract|blank-event-entity|v3|2026-07-24",
+        "update_of": null,
+        "primary_entity": "Python contract",
+        "product_or_model": "Schema v3",
+        "event_entities": [
+          ""
+        ],
+        "change_signature": "empty-event-entities",
+        "version_or_metric": "v3",
+        "effective_date": "2026-07-24",
+        "resource_available": true,
+        "scientific_verified": false,
+        "source": "Python fixture",
+        "published_at": "2026-07-24T01:05:00Z",
+        "category": "industry_business",
+        "extra_categories": [],
+        "score": {
+          "relevance": 25,
+          "actionability": 20,
+          "specificity": 15,
+          "information_gain": 15,
+          "evidence_quality": 15,
+          "time_sensitivity": 10,
+          "penalties": 0,
+          "total": 100
+        },
+        "board": "try_now"
+      }
+    ],
+    "watch": []
+  },
+  "items": [
+    {
+      "candidate_id": "python-empty-event-entities",
+      "original_title": "Python contract permits empty event entities",
+      "title_en": "Python contract permits empty event entities",
+      "summary_en": "The item remains valid when event_entities is empty.",
+      "title_zh": "Python 合约允许事件实体为空",
+      "summary_zh": "event_entities 为空时，该条目仍是合法 schema v3。",
+      "concrete_change": "event_entities 从可选提取结果保留为空数组。",
+      "affected_audience": [
+        "Web 消费端"
+      ],
+      "affected_area": [
+        "跨语言数据合约"
+      ],
+      "recommended_action": [
+        "让 Web validator 接受 Python 合法输出"
+      ],
+      "evidence_url": "https://example.com/python-contract",
+      "verification_status": "verified",
+      "event_fingerprint": "python|contract|empty-event-entities|v3|2026-07-24",
+      "update_of": null,
+      "primary_entity": "Python contract",
+      "product_or_model": "Schema v3",
+      "event_entities": [],
+      "change_signature": "empty-event-entities",
+      "version_or_metric": "v3",
+      "effective_date": "2026-07-24",
+      "resource_available": true,
+      "scientific_verified": false,
+      "source": "Python fixture",
+      "published_at": "2026-07-24T01:05:00Z",
+      "category": "industry_business",
+      "extra_categories": [],
+      "score": {
+        "relevance": 25,
+        "actionability": 20,
+        "specificity": 15,
+        "information_gain": 15,
+        "evidence_quality": 15,
+        "time_sensitivity": 10,
+        "penalties": 0,
+        "total": 100
+      },
+      "board": "must_read"
+    },
+    {
+      "candidate_id": "python-blank-event-entity",
+      "original_title": "Python contract permits a blank event entity",
+      "title_en": "Python contract permits a blank event entity",
+      "summary_en": "The item remains valid when event_entities is empty.",
+      "title_zh": "Python 合约允许空白事件实体",
+      "summary_zh": "event_entities 为空时，该条目仍是合法 schema v3。",
+      "concrete_change": "event_entities 从可选提取结果保留为空数组。",
+      "affected_audience": [
+        "Web 消费端"
+      ],
+      "affected_area": [
+        "跨语言数据合约"
+      ],
+      "recommended_action": [
+        "让 Web validator 接受 Python 合法输出"
+      ],
+      "evidence_url": "https://example.com/python-contract",
+      "verification_status": "verified",
+      "event_fingerprint": "python|contract|blank-event-entity|v3|2026-07-24",
+      "update_of": null,
+      "primary_entity": "Python contract",
+      "product_or_model": "Schema v3",
+      "event_entities": [
+        ""
+      ],
+      "change_signature": "empty-event-entities",
+      "version_or_metric": "v3",
+      "effective_date": "2026-07-24",
+      "resource_available": true,
+      "scientific_verified": false,
+      "source": "Python fixture",
+      "published_at": "2026-07-24T01:05:00Z",
+      "category": "industry_business",
+      "extra_categories": [],
+      "score": {
+        "relevance": 25,
+        "actionability": 20,
+        "specificity": 15,
+        "information_gain": 15,
+        "evidence_quality": 15,
+        "time_sensitivity": 10,
+        "penalties": 0,
+        "total": 100
+      },
+      "board": "try_now"
+    }
+  ],
+  "pipeline_stats": {
+    "candidate_count": 2,
+    "shortlist_count": 2,
+    "source_verified_count": 2,
+    "rejected_count": 0,
+    "top_rejection_reasons": {}
+  }
+}

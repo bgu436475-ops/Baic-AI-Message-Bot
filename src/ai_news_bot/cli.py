@@ -2,42 +2,181 @@ from __future__ import annotations
 
 import argparse
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
 
-from .collectors import GitHubCollector, RSSCollector, WebPageCollector
+from openai import OpenAI
+
+from .boards import build_boards
+from .collectors import (
+    AllCollectorsUnavailableError,
+    CollectionOutcome,
+    GitHubCollector,
+    RSSCollector,
+    WebPageCollector,
+)
 from .config import Settings, load_sources
-from .curator import build_digest, build_empty_digest, select_with_openai, select_without_ai
 from .dedupe import hard_dedupe
-from .feishu import digest_markdown, send_to_feishu
+from .event_history import EventHistoryStore
+from .evidence import extract_evidence
+from .feishu import send_to_feishu
+from .gatekeeper import evaluate_gates
 from .history import HistoryStore
-from .models import DailyDigest
+from .models import Candidate, EditorialDigest
+from .pipeline import (
+    PipelineDependencies,
+    run_editorial_pipeline,
+    write_audit,
+)
+from .scoring import score_record
+from .send_ledger import SendLedger
+from .shortlist import shortlist_candidates
+from .source_fetcher import SourceFetcher
 from .web_export import export_digest_for_web
 
 LOGGER = logging.getLogger(__name__)
 
 
-def _collect_candidates(sources, settings: Settings, lookback_hours: int, *, include_github: bool) -> list:
-    collected = RSSCollector(timeout=settings.request_timeout).collect(
-        sources.rss, lookback_hours
-    )
-    collected += WebPageCollector(timeout=settings.request_timeout).collect(
-        sources.webpages, lookback_hours
-    )
+def _collect_candidates(
+    sources,
+    settings: Settings,
+    lookback_hours: int,
+    *,
+    include_github: bool,
+) -> CollectionOutcome:
+    outcomes = [
+        RSSCollector(timeout=settings.request_timeout).collect_with_health(
+            sources.rss,
+            lookback_hours,
+        ),
+        WebPageCollector(
+            timeout=settings.request_timeout
+        ).collect_with_health(
+            sources.webpages,
+            lookback_hours,
+        ),
+    ]
     if include_github:
-        collected += GitHubCollector(
-            token=settings.github_token, timeout=settings.request_timeout
-        ).collect(sources.github)
-    return collected
+        outcomes.append(
+            GitHubCollector(
+                token=settings.github_token,
+                timeout=settings.request_timeout,
+            ).collect_with_health(sources.github)
+        )
+    outcome = CollectionOutcome(
+        candidates=[
+            candidate
+            for value in outcomes
+            for candidate in value.candidates
+        ],
+        attempted=sum(value.attempted for value in outcomes),
+        succeeded=sum(value.succeeded for value in outcomes),
+    )
+    if outcome.attempted > 0 and outcome.succeeded == 0:
+        raise AllCollectorsUnavailableError(
+            f"all {outcome.attempted} configured sources/queries failed"
+        )
+    return outcome
 
 
-def _prepare_candidates(collected: list, history: HistoryStore, max_candidates: int) -> list:
-    unseen = [candidate for candidate in collected if not history.contains(candidate.url)]
+def _prepare_candidates(
+    collected: list,
+    history: HistoryStore,
+    max_candidates: int,
+    now: datetime,
+) -> list:
+    unseen = [
+        candidate
+        for candidate in collected
+        if not history.contains(candidate.url, now)
+    ]
     unique = hard_dedupe(unseen)
     return sorted(
         unique,
         key=lambda item: (item.published_at, item.source_weight),
         reverse=True,
-    )[:max_candidates]
+    )[: max(0, min(max_candidates, 80))]
+
+
+def _should_expand_lookback(
+    candidates: list,
+    now: datetime,
+) -> bool:
+    return not shortlist_candidates(candidates, now)
+
+
+def _merge_fallback_candidates(
+    current: list[Candidate],
+    older: list[Candidate],
+    history: HistoryStore,
+    max_candidates: int,
+    now: datetime,
+) -> list[Candidate]:
+    cap = max(0, min(max_candidates, 80))
+    unseen = [
+        candidate
+        for candidate in current + older
+        if not history.contains(candidate.url, now)
+    ]
+    unique = hard_dedupe(unseen)
+    priority = shortlist_candidates(unique, now)
+    priority_ids = {candidate.id for candidate in priority}
+    remaining = sorted(
+        (
+            candidate
+            for candidate in unique
+            if candidate.id not in priority_ids
+        ),
+        key=lambda candidate: (
+            -candidate.published_at.timestamp(),
+            -candidate.source_weight,
+            candidate.id,
+        ),
+    )
+    return (priority + remaining)[:cap]
+
+
+def _build_pipeline_dependencies(
+    settings: Settings,
+    event_history: EventHistoryStore,
+    *,
+    lookback_hours: int,
+    fallback_used: bool,
+) -> PipelineDependencies:
+    client: OpenAI | None = None
+    model = ""
+    base_url: str | None = None
+
+    def extract(candidate, source, original_source):
+        nonlocal client, model, base_url
+        if client is None:
+            api_key, model, base_url, provider = settings.ai_backend()
+            LOGGER.info(
+                "Extracting structured evidence with %s (%s)",
+                provider,
+                model,
+            )
+            client = OpenAI(api_key=api_key, base_url=base_url)
+        return extract_evidence(
+            candidate,
+            source,
+            client,
+            model,
+            base_url,
+            original_source=original_source,
+        )
+
+    return PipelineDependencies(
+        shortlist=shortlist_candidates,
+        source_fetcher=SourceFetcher(timeout=settings.request_timeout),
+        extract=extract,
+        gates=evaluate_gates,
+        classify=event_history.classify,
+        score=score_record,
+        boards=build_boards,
+        lookback_hours=lookback_hours,
+        fallback_used=fallback_used,
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -53,9 +192,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--skip-ai",
         action="store_true",
-        help="Preview with deterministic ranking; no Chinese rewrite or semantic dedupe",
+        help="Unsupported by the evidence-verified editorial pipeline",
     )
-    parser.add_argument("--target-count", type=int, default=None)
     parser.add_argument("--lookback-hours", type=int, default=None)
     parser.add_argument(
         "--web-output",
@@ -67,7 +205,11 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _write_digest(digest, settings: Settings, web_output: Path) -> None:
+def _write_digest(
+    digest: EditorialDigest,
+    settings: Settings,
+    web_output: Path,
+) -> None:
     latest_path = settings.state_path.parent / "latest_digest.json"
     latest_path.parent.mkdir(parents=True, exist_ok=True)
     latest_path.write_text(digest.model_dump_json(indent=2), encoding="utf-8")
@@ -76,22 +218,39 @@ def _write_digest(digest, settings: Settings, web_output: Path) -> None:
 
 def _send_existing_daily_result(args: argparse.Namespace, settings: Settings) -> int:
     try:
-        digest = DailyDigest.model_validate_json(args.web_output.read_text(encoding="utf-8"))
+        digest = EditorialDigest.model_validate_json(
+            args.web_output.read_text(encoding="utf-8")
+        )
     except (OSError, ValueError) as error:
         raise ValueError("Could not load a valid persisted daily result") from error
 
-    if digest.run_status == "no_qualifying_items":
-        LOGGER.info("Persisted result has no qualifying items; Feishu was not called")
-        return 0
-
-    history = HistoryStore(settings.state_path)
     send_to_feishu(
         digest,
         settings.feishu_webhook_url,
         settings.feishu_signing_secret,
         settings.request_timeout,
     )
-    history.record(digest.items)
+    SendLedger(settings.send_ledger_path).record_success(
+        digest,
+        "feishu-daily",
+    )
+    if digest.items:
+        try:
+            HistoryStore(settings.state_path).record(digest.items)
+        except Exception as error:
+            LOGGER.warning(
+                "Could not record sent URL history after successful delivery: %s",
+                error,
+            )
+        try:
+            EventHistoryStore(
+                settings.event_history_path
+            ).record_digest(digest)
+        except Exception as error:
+            LOGGER.warning(
+                "Could not record sent event history after successful delivery: %s",
+                error,
+            )
     LOGGER.info("Sent %d persisted item(s) to Feishu", len(digest.items))
     return 0
 
@@ -100,111 +259,91 @@ def run(args: argparse.Namespace) -> int:
     settings = Settings.from_env()
     if args.send_existing:
         return _send_existing_daily_result(args, settings)
-    if args.target_count is not None:
-        settings.target_news_count = args.target_count
     if args.lookback_hours is not None:
         settings.lookback_hours = args.lookback_hours
+    if args.skip_ai:
+        raise ValueError(
+            "--skip-ai is unavailable for the evidence-verified editorial pipeline"
+        )
     sources = load_sources(args.sources)
     history = HistoryStore(settings.state_path)
+    generation_now = datetime.now(UTC)
 
-    collected = _collect_candidates(
+    current_outcome = _collect_candidates(
         sources, settings, settings.lookback_hours, include_github=True
     )
-    unique = _prepare_candidates(collected, history, settings.max_candidates)
+    collected = current_outcome.candidates
+    unique = _prepare_candidates(
+        collected,
+        history,
+        settings.max_candidates,
+        generation_now,
+    )
     fallback_used = False
 
     if (
-        len(unique) < settings.target_news_count
+        _should_expand_lookback(unique, generation_now)
         and settings.fallback_lookback_hours > settings.lookback_hours
     ):
         LOGGER.info(
-            "Only %d current candidate(s); expanding lookback from %d to %d hours",
-            len(unique),
+            "No current candidate passed shortlist; expanding lookback "
+            "from %d to %d hours",
             settings.lookback_hours,
             settings.fallback_lookback_hours,
         )
-        older = _collect_candidates(
-            sources,
-            settings,
-            settings.fallback_lookback_hours,
-            include_github=False,
-        )
-        collected = hard_dedupe(collected + older)
-        unique = _prepare_candidates(collected, history, settings.max_candidates)
-        fallback_used = True
+        try:
+            older_outcome = _collect_candidates(
+                sources,
+                settings,
+                settings.fallback_lookback_hours,
+                include_github=False,
+            )
+        except AllCollectorsUnavailableError as error:
+            LOGGER.warning(
+                "Expanded-lookback collection failed after a healthy "
+                "current collection: %s",
+                error,
+            )
+        else:
+            unique = _merge_fallback_candidates(
+                collected,
+                older_outcome.candidates,
+                history,
+                settings.max_candidates,
+                generation_now,
+            )
+            collected = hard_dedupe(
+                collected + older_outcome.candidates
+            )
+            fallback_used = older_outcome.succeeded > 0
     LOGGER.info(
         "Collected %d; %d unseen unique candidate(s) remain", len(collected), len(unique)
     )
-
-    if not unique:
-        LOGGER.warning("No fresh AI news candidates; no message sent")
-        _write_digest(
-            build_empty_digest(
-                unique,
-                lookback_hours=(
-                    settings.fallback_lookback_hours
-                    if fallback_used
-                    else settings.lookback_hours
-                ),
-                fallback_used=fallback_used,
-            ),
-            settings,
-            args.web_output,
-        )
-        return 0
-
-    if args.skip_ai:
-        items = select_without_ai(unique, settings.target_news_count)
-    else:
-        api_key, model, base_url, provider = settings.ai_backend()
-        LOGGER.info("Curating Chinese digest with %s (%s)", provider, model)
-        items = select_with_openai(
-            unique,
-            settings.target_news_count,
-            api_key,
-            model,
-            base_url,
-        )
-    if not items:
-        LOGGER.warning("Curation returned no items; no message sent")
-        _write_digest(
-            build_empty_digest(
-                unique,
-                lookback_hours=(
-                    settings.fallback_lookback_hours
-                    if fallback_used
-                    else settings.lookback_hours
-                ),
-                fallback_used=fallback_used,
-            ),
-            settings,
-            args.web_output,
-        )
-        return 0
-
-    digest = build_digest(
-        unique,
-        items,
-        lookback_hours=(
-            settings.fallback_lookback_hours if fallback_used else settings.lookback_hours
-        ),
+    lookback_hours = (
+        settings.fallback_lookback_hours
+        if fallback_used
+        else settings.lookback_hours
+    )
+    event_history = EventHistoryStore(settings.event_history_path)
+    dependencies = _build_pipeline_dependencies(
+        settings,
+        event_history,
+        lookback_hours=lookback_hours,
         fallback_used=fallback_used,
     )
-    _write_digest(digest, settings, args.web_output)
-    print(digest_markdown(digest))
-
-    if args.dry_run:
-        LOGGER.info("Dry run complete; Feishu was not called and history was not changed")
-        return 0
-
-    send_to_feishu(
-        digest,
-        settings.feishu_webhook_url,
-        settings.feishu_signing_secret,
-        settings.request_timeout,
+    result = run_editorial_pipeline(
+        unique,
+        dependencies=dependencies,
+        now=generation_now,
     )
-    history.record(digest.items)
-    LOGGER.info("Sent %d item(s) to Feishu", len(digest.items))
+    _write_digest(result.digest, settings, args.web_output)
+    write_audit(result.audit, settings.audit_path)
+    LOGGER.info(
+        "Generated %s editorial result with %d selected item(s); "
+        "delivery state was not changed",
+        result.digest.run_status,
+        len(result.digest.items),
+    )
     return 0
 
 

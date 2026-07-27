@@ -1,7 +1,24 @@
+import json
 from datetime import UTC, datetime
 
-from ai_news_bot.feishu import build_card, digest_markdown, make_signature
-from ai_news_bot.models import DailyDigest, NewsItem
+import pytest
+
+from ai_news_bot.feishu import (
+    EVIDENCE_URL_LIMIT_BYTES,
+    build_card,
+    digest_markdown,
+    make_signature,
+    send_to_feishu,
+)
+from ai_news_bot.models import (
+    DailyDigest,
+    DigestBoards,
+    EditorialDigest,
+    EditorialNewsItem,
+    NewsItem,
+    PipelineStats,
+    ScoreBreakdown,
+)
 
 
 def sample_digest() -> DailyDigest:
@@ -24,6 +41,91 @@ def sample_digest() -> DailyDigest:
     )
 
 
+def editorial_item(
+    candidate_id: str,
+    board: str,
+    *,
+    verification_status: str = "verified",
+) -> EditorialNewsItem:
+    return EditorialNewsItem(
+        candidate_id=candidate_id,
+        board=board,
+        original_title=f"{candidate_id} original title",
+        title_zh=f"{candidate_id} 中文标题",
+        summary_zh=f"{candidate_id} 的事实摘要。",
+        concrete_change=f"{candidate_id} 的 API 价格从每百万 token 2 美元降至 1 美元。",
+        affected_audience=["API 开发者"],
+        affected_area=["推理成本"],
+        recommended_action=["按当前调用量重新计算本月成本"],
+        evidence_url=f"https://example.com/{candidate_id}",
+        verification_status=verification_status,
+        event_fingerprint=f"example|{candidate_id}|price|v2|2026-07-23",
+        primary_entity="Example",
+        event_entities=["Example", candidate_id],
+        change_signature="price",
+        version_or_metric="2-to-1-usd",
+        source="Example",
+        published_at=datetime(2026, 7, 23, tzinfo=UTC),
+        category="ai_coding",
+        score=ScoreBreakdown(
+            relevance=25,
+            actionability=20,
+            specificity=15,
+            information_gain=12,
+            evidence_quality=12,
+            time_sensitivity=8,
+        ),
+    )
+
+
+def three_board_digest() -> EditorialDigest:
+    must_read = editorial_item("model-api", "must_read")
+    try_now = editorial_item("coding-agent", "try_now")
+    watch = editorial_item(
+        "research-preview",
+        "watch",
+        verification_status="blocked",
+    )
+    return EditorialDigest(
+        generated_at=datetime(2026, 7, 23, 1, 5, tzinfo=UTC),
+        candidate_count=12,
+        source_count=6,
+        boards=DigestBoards(
+            must_read=[must_read],
+            try_now=[try_now],
+            watch=[watch],
+        ),
+        items=[must_read, try_now, watch],
+        pipeline_stats=PipelineStats(
+            candidate_count=12,
+            shortlist_count=8,
+            source_verified_count=5,
+            rejected_count=5,
+        ),
+    )
+
+
+def legal_empty_digest() -> EditorialDigest:
+    return EditorialDigest(
+        run_status="no_qualifying_items",
+        generated_at=datetime(2026, 7, 23, 1, 5, tzinfo=UTC),
+        candidate_count=12,
+        source_count=3,
+        boards=DigestBoards(),
+        items=[],
+        pipeline_stats=PipelineStats(
+            candidate_count=12,
+            shortlist_count=6,
+            source_verified_count=3,
+            rejected_count=6,
+            top_rejection_reasons={
+                "missing_concrete_change": 3,
+                "missing_action": 2,
+            },
+        ),
+    )
+
+
 def test_build_card_uses_v2_interactive_schema() -> None:
     card = build_card(sample_digest())
     assert card["msg_type"] == "interactive"
@@ -34,5 +136,336 @@ def test_build_card_uses_v2_interactive_schema() -> None:
     assert not content.startswith("# AI 每日新闻")
 
 
+def test_schema_v2_markdown_remains_exactly_compatible() -> None:
+    assert digest_markdown(sample_digest(), include_title=False) == (
+        "**1. 🧠 [Model X 发布](https://example.com/model-x)**  `新模型`\n"
+        "这是摘要。\n"
+        "*来源：Example · 重要性 95*\n\n"
+        "共从 12 个有效来源的 42 条候选中筛选。"
+    )
+
+
 def test_signature_is_stable() -> None:
     assert make_signature(1_700_000_000, "secret") == make_signature(1_700_000_000, "secret")
+
+
+def test_published_card_has_three_board_sections_and_action_evidence() -> None:
+    content = build_card(three_board_digest())["card"]["body"]["elements"][0][
+        "content"
+    ]
+
+    assert "今日必看" in content
+    assert "值得试用" in content
+    assert "观察项" in content
+    assert "具体变化" in content
+    assert "影响" in content
+    assert "建议行动" in content
+    assert "核查原文" in content
+    assert "⚠ 原始来源暂不可核查" in content
+    assert "这对行业具有重要意义" not in content
+
+
+def test_only_non_empty_editorial_boards_are_rendered() -> None:
+    must_read = editorial_item("model-api", "must_read")
+    digest = EditorialDigest(
+        generated_at=datetime(2026, 7, 23, 1, 5, tzinfo=UTC),
+        candidate_count=1,
+        source_count=1,
+        boards=DigestBoards(must_read=[must_read]),
+        items=[must_read],
+        pipeline_stats=PipelineStats(
+            candidate_count=1,
+            shortlist_count=1,
+            source_verified_count=1,
+            rejected_count=0,
+        ),
+    )
+
+    content = build_card(digest)["card"]["body"]["elements"][0]["content"]
+
+    assert "今日必看" in content
+    assert "值得试用" not in content
+    assert "观察项" not in content
+
+
+def test_legal_empty_card_is_sent_as_normal_success_content() -> None:
+    card = build_card(legal_empty_digest())
+    content = card["card"]["body"]["elements"][0]["content"]
+
+    assert "今日无内容通过硬门槛" in content
+    assert "候选 12 条" in content
+    assert "粗筛 6 条" in content
+    assert "已核查来源 3 条" in content
+    assert "缺少具体变化：3" in content
+    assert "缺少可执行行动：2" in content
+    assert (
+        card["card"]["header"]["subtitle"]["content"]
+        == "严格筛选完成 · AI 增长内部群"
+    )
+
+
+def maximum_legal_digest() -> EditorialDigest:
+    board_specs = (
+        ("must_read", 5),
+        ("try_now", 3),
+        ("watch", 3),
+    )
+    boards: dict[str, list[EditorialNewsItem]] = {
+        "must_read": [],
+        "try_now": [],
+        "watch": [],
+    }
+    all_items: list[EditorialNewsItem] = []
+    item_number = 0
+    for board, count in board_specs:
+        for _ in range(count):
+            item_number += 1
+            candidate_id = f"完整条目-{item_number:02d}"
+            item = editorial_item(candidate_id, board).model_copy(
+                update={
+                    "title_zh": candidate_id + "·" + "标题字段" * 30,
+                    "concrete_change": (
+                        f"{candidate_id} API 从 2 美元降至 1 美元；"
+                        + "具体参数变化" * 160
+                    ),
+                    "affected_audience": [
+                        f"{candidate_id} API 开发者" + "受影响对象" * 20
+                    ],
+                    "affected_area": [
+                        f"{candidate_id} 推理成本" + "受影响内容" * 20
+                    ],
+                    "recommended_action": [
+                        f"{candidate_id} 本周重新计算成本" + "执行步骤" * 50
+                    ],
+                    "evidence_url": evidence_url_with_size(
+                        item_number,
+                        EVIDENCE_URL_LIMIT_BYTES,
+                    ),
+                }
+            )
+            boards[board].append(item)
+            all_items.append(item)
+    return EditorialDigest(
+        generated_at=datetime(2026, 7, 23, 1, 5, tzinfo=UTC),
+        candidate_count=80,
+        source_count=20,
+        boards=DigestBoards(**boards),
+        items=all_items,
+        pipeline_stats=PipelineStats(
+            candidate_count=80,
+            shortlist_count=20,
+            source_verified_count=20,
+            rejected_count=9,
+        ),
+    )
+
+
+def evidence_url_with_size(item_number: int, size: int) -> str:
+    prefix = f"https://example.com/evidence/{item_number}?source="
+    remaining = size - len(prefix.encode("utf-8"))
+    assert remaining >= 0
+    return prefix + "a" * remaining
+
+
+def test_maximum_editorial_card_keeps_all_items_and_required_blocks_complete() -> None:
+    content = build_card(maximum_legal_digest())["card"]["body"]["elements"][0][
+        "content"
+    ]
+
+    assert len(content.encode("utf-8")) <= 18_000
+    assert content.count("## 今日必看") == 1
+    assert content.count("## 值得试用") == 1
+    assert content.count("## 观察项") == 1
+    assert content.count("`总分 ") == 11
+    assert content.count("具体变化：") == 11
+    assert content.count("影响：") == 11
+    assert content.count(" · ") == 11
+    assert content.count("建议行动：") == 11
+    assert content.count("[核查原文](") == 11
+    for item_number in range(1, 12):
+        evidence_url = evidence_url_with_size(
+            item_number,
+            EVIDENCE_URL_LIMIT_BYTES,
+        )
+        assert len(evidence_url.encode("utf-8")) == EVIDENCE_URL_LIMIT_BYTES
+        assert f"完整条目-{item_number:02d}" in content
+        board_index = (
+            item_number
+            if item_number <= 5
+            else item_number - 5
+            if item_number <= 8
+            else item_number - 8
+        )
+        assert (
+            f"**{board_index}. [完整条目-{item_number:02d}"
+            in content
+        )
+        assert content.count(f"]({evidence_url})") == 2
+    assert not content.endswith("…")
+
+
+@pytest.mark.parametrize(
+    ("board", "verification_status", "has_warning"),
+    [
+        ("watch", "blocked", True),
+        ("watch", "unavailable", True),
+        ("watch", "verified", False),
+        ("must_read", "blocked", False),
+    ],
+)
+def test_original_source_warning_is_watch_only(
+    board: str,
+    verification_status: str,
+    has_warning: bool,
+) -> None:
+    item = editorial_item(
+        f"{board}-{verification_status}",
+        board,
+        verification_status=verification_status,
+    )
+    digest = EditorialDigest(
+        generated_at=datetime(2026, 7, 23, 1, 5, tzinfo=UTC),
+        candidate_count=1,
+        source_count=1,
+        boards=DigestBoards(**{board: [item]}),
+        items=[item],
+        pipeline_stats=PipelineStats(
+            candidate_count=1,
+            shortlist_count=1,
+            source_verified_count=1,
+            rejected_count=0,
+        ),
+    )
+
+    content = digest_markdown(digest, include_title=False)
+
+    assert ("⚠ 原始来源暂不可核查" in content) is has_warning
+
+
+def test_empty_rejection_reasons_use_stable_tie_order() -> None:
+    digest = legal_empty_digest().model_copy(
+        update={
+            "pipeline_stats": PipelineStats(
+                candidate_count=12,
+                shortlist_count=6,
+                source_verified_count=3,
+                rejected_count=6,
+                top_rejection_reasons={
+                    "missing_action": 2,
+                    "invalid_evidence_anchor": 2,
+                },
+            )
+        }
+    )
+
+    content = digest_markdown(digest, include_title=False)
+
+    assert content.index("证据无法核查：2") < content.index("缺少可执行行动：2")
+
+
+def test_nonzero_empty_result_without_reason_counts_is_not_contradictory() -> None:
+    digest = legal_empty_digest().model_copy(
+        update={
+            "pipeline_stats": PipelineStats(
+                candidate_count=12,
+                shortlist_count=6,
+                source_verified_count=3,
+                rejected_count=6,
+                top_rejection_reasons={},
+            )
+        }
+    )
+
+    content = digest_markdown(digest, include_title=False)
+
+    assert "未记录可归类淘汰原因" in content
+    assert "未产生可筛选候选" not in content
+
+
+def test_overlong_evidence_url_fails_closed_instead_of_rendering_broken_link() -> None:
+    item = editorial_item("long-url", "must_read").model_copy(
+        update={
+            "evidence_url": evidence_url_with_size(
+                1,
+                EVIDENCE_URL_LIMIT_BYTES + 1,
+            )
+        }
+    )
+    digest = EditorialDigest(
+        generated_at=datetime(2026, 7, 23, 1, 5, tzinfo=UTC),
+        candidate_count=1,
+        source_count=1,
+        boards=DigestBoards(must_read=[item]),
+        items=[item],
+        pipeline_stats=PipelineStats(
+            candidate_count=1,
+            shortlist_count=1,
+            source_verified_count=1,
+            rejected_count=0,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="证据链接过长"):
+        build_card(digest)
+
+
+def test_send_serializes_compact_utf8_body_below_feishu_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, int]:
+            return {"code": 0}
+
+    def fake_post(url: str, **kwargs: object) -> Response:
+        captured["url"] = url
+        captured.update(kwargs)
+        return Response()
+
+    monkeypatch.setattr("ai_news_bot.feishu.requests.post", fake_post)
+
+    send_to_feishu(
+        maximum_legal_digest(),
+        "https://open.feishu.cn/open-apis/bot/v2/hook/test",
+        signing_secret="secret",
+    )
+
+    body = captured["data"]
+    assert isinstance(body, bytes)
+    assert len(body) < 20_000
+    assert captured["headers"] == {
+        "Content-Type": "application/json; charset=utf-8"
+    }
+    assert "json" not in captured
+    assert json.loads(body)["msg_type"] == "interactive"
+
+
+@pytest.mark.parametrize(
+    "webhook_url",
+    [
+        "",
+        "http://open.feishu.cn/open-apis/bot/v2/hook/test",
+        "https://evil.example/open-apis/bot/v2/hook/test",
+        "https://open.feishu.cn.evil.example/open-apis/bot/v2/hook/test",
+    ],
+)
+def test_webhook_validation_rejects_non_official_urls_before_http(
+    webhook_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called = False
+
+    def fake_post(*args: object, **kwargs: object) -> None:
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr("ai_news_bot.feishu.requests.post", fake_post)
+
+    with pytest.raises(ValueError):
+        send_to_feishu(sample_digest(), webhook_url)
+
+    assert not called
