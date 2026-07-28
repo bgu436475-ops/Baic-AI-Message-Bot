@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field
 
+from .action_editor import derive_recommended_action
 from .boards import ScoredEditorialCandidate
 from .event_history import DuplicateAssessment, event_fingerprint
 from .evidence import EvidenceExtractionError, validate_anchors
@@ -512,6 +513,7 @@ def run_editorial_pipeline(
             validate_anchors(record, source),
             original_source=original_source,
         )
+        record = derive_recommended_action(record)
         record = _sanitize_record(record)
         prepared.append(
             _PreparedRecord(

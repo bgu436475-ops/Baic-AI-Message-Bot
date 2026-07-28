@@ -232,9 +232,7 @@ def test_pipeline_shortlists_fetches_extracts_gates_scores_and_builds_digest(
     assert result.digest.run_status == "published"
     assert [item.candidate_id for item in result.digest.items] == ["qualifying"]
     assert [entry.candidate_id for entry in result.audit.rejected] == ["rejected"]
-    assert result.digest.pipeline_stats.top_rejection_reasons == {
-        "missing_action": 1
-    }
+    assert result.digest.pipeline_stats.top_rejection_reasons == {}
 
     audit_path = tmp_path / "latest_audit.json"
     write_audit(result.audit, audit_path)
@@ -252,6 +250,58 @@ def test_successful_pipeline_with_zero_qualifiers_is_legal_empty() -> None:
 
     assert result.digest.run_status == "no_qualifying_items"
     assert result.digest.items == []
+
+
+def test_pipeline_derives_grounded_action_before_hard_gates() -> None:
+    candidate = candidates()[1]
+
+    result = run_editorial_pipeline(
+        [candidate],
+        dependencies=fakes([], qualifying=True),
+        now=NOW,
+    )
+
+    assert result.digest.run_status == "published"
+    assert [item.candidate_id for item in result.digest.items] == [
+        candidate.id
+    ]
+    action = result.digest.items[0].recommended_action[0]
+    assert "非生产环境" in action
+    assert "integration" in action
+    assert "依据：Model-X API v2 is available now for one dollar." in action
+    assert result.audit.entries[0].gate_reasons == []
+
+
+def test_grounded_action_cannot_bypass_invalid_evidence() -> None:
+    candidate = candidates()[1]
+
+    def invalid_anchor(value: Candidate) -> EvidenceRecord:
+        return evidence(value).model_copy(
+            update={
+                "evidence_anchors": [
+                    EvidenceAnchor(
+                        quote="This quote is absent from the source.",
+                        locator="invented",
+                    )
+                ]
+            }
+        )
+
+    result = run_editorial_pipeline(
+        [candidate],
+        dependencies=fakes(
+            [],
+            qualifying=True,
+            record_factory=invalid_anchor,
+        ),
+        now=NOW,
+    )
+
+    assert result.digest.run_status == "no_qualifying_items"
+    reasons = result.audit.entries[0].gate_reasons
+    assert "missing_action" not in reasons
+    assert "invalid_evidence_anchor" in reasons
+    assert "unverified_primary_source" in reasons
 
 
 def test_all_fetches_failed_is_not_legal_empty() -> None:
