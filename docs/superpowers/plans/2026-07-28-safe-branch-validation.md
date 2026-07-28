@@ -30,62 +30,85 @@ storage.
 ### Task 1: Add a safe manual validation path
 
 **Files:**
+- Create: `src/ai_news_bot/workflow_mode.py`
+- Create: `tests/test_workflow_mode.py`
 - Modify: `.github/workflows/daily-ai-news.yml:44-104`
-- Modify: `tests/test_daily_guard.py:150-220`
 
 **Interfaces:**
 - Consumes: GitHub context values `github.event_name` and `github.ref`.
+- Produces: `WorkflowMode(is_validation: bool, allow_delivery: bool)` and
+  GitHub step outputs with the same booleans.
 - Produces: artifact `grounded-action-validation-${{ github.run_id }}` with
   `web/public/data/latest.json` and `.state/latest_audit.json`.
 
-- [ ] **Step 1: Write a failing workflow safety test**
+- [x] **Step 1: Write failing workflow-mode tests**
 
-Add a test that asserts the workflow:
+Add tests that exercise the real mode decision:
 
 ```python
-def test_branch_validation_is_manual_read_only_and_uploads_artifacts() -> None:
-    workflow = _workflow()
-    send_step = workflow[
-        workflow.index("- name: Send persisted daily result") :
-        workflow.index("- name: Persist latest web digest")
-    ]
-
-    assert "github.event_name == 'workflow_dispatch'" in workflow
-    assert (
-        "github.ref == 'refs/heads/codex/validate-grounded-action-editor'"
-        in workflow
+def test_manual_validation_branch_cannot_deliver() -> None:
+    mode = resolve_workflow_mode(
+        "workflow_dispatch",
+        "refs/heads/codex/validate-grounded-action-editor",
     )
-    assert "github.ref == 'refs/heads/main'" in send_step
-    assert "uses: actions/upload-artifact@v6" in workflow
-    assert "web/public/data/latest.json" in workflow
-    assert ".state/latest_audit.json" in workflow
+
+    assert mode.is_validation is True
+    assert mode.allow_delivery is False
+
+
+def test_main_automatic_run_can_deliver() -> None:
+    mode = resolve_workflow_mode("schedule", "refs/heads/main")
+
+    assert mode.is_validation is False
+    assert mode.allow_delivery is True
+
+
+def test_other_branch_cannot_generate_or_deliver() -> None:
+    mode = resolve_workflow_mode(
+        "workflow_dispatch",
+        "refs/heads/untrusted",
+    )
+
+    assert mode.is_validation is False
+    assert mode.allow_delivery is False
 ```
 
-- [ ] **Step 2: Run the test and confirm RED**
+- [x] **Step 2: Run the test and confirm RED**
 
 Run:
 
 ```bash
 PYTHONPATH=src /private/tmp/Baic-AI-Message-Bot-fix-20260728/.venv312/bin/python \
   -m pytest -p no:cacheprovider -q \
-  tests/test_daily_guard.py::test_branch_validation_is_manual_read_only_and_uploads_artifacts
+  tests/test_workflow_mode.py
 ```
 
-Expected: fail because the workflow has no branch-scoped artifact path and the
-send step is not restricted to `main`.
+Expected: collection error because `ai_news_bot.workflow_mode` does not exist.
 
-- [ ] **Step 3: Implement the minimal safe workflow**
+- [x] **Step 3: Implement the tested mode resolver and safe workflow**
+
+Create `resolve_workflow_mode(event_name: str, ref: str) -> WorkflowMode` and
+a module CLI that prints these GitHub output lines:
+
+```text
+is_validation=true
+allow_delivery=false
+```
+
+The module must return `allow_delivery=True` only for
+`refs/heads/main`. It must return `is_validation=True` only for a
+`workflow_dispatch` event on
+`refs/heads/codex/validate-grounded-action-editor`.
 
 Update `Generate daily result` so it runs when either the daily guard permits a
-normal `main` run or the event is a manual dispatch on the validation branch.
-Restrict `Send persisted daily result` to `refs/heads/main`. Add an artifact
-upload step with:
+normal `main` run with `allow_delivery=true`, or the resolved mode has
+`is_validation=true`. Restrict `Send persisted daily result` to
+`allow_delivery=true`. Add an artifact upload step with:
 
 ```yaml
 - name: Upload validation artifacts
   if: >-
-    github.event_name == 'workflow_dispatch' &&
-    github.ref == 'refs/heads/codex/validate-grounded-action-editor' &&
+    steps.workflow_mode.outputs.is_validation == 'true' &&
     steps.generate_digest.outcome == 'success'
   uses: actions/upload-artifact@v6
   with:
@@ -97,17 +120,19 @@ upload step with:
     retention-days: 7
 ```
 
-Give the generation step `id: generate_digest`. Keep persistence, dashboard
-publication, and state cache saving dependent on successful `send_digest`, so
-they remain skipped during validation.
+Give the mode step `id: workflow_mode` and the generation step
+`id: generate_digest`. Keep persistence, dashboard publication, and state
+cache saving dependent on successful `send_digest`, so they remain skipped
+during validation.
 
-- [ ] **Step 4: Run focused and full tests**
+- [x] **Step 4: Run focused and full tests**
 
 Run:
 
 ```bash
 PYTHONPATH=src /private/tmp/Baic-AI-Message-Bot-fix-20260728/.venv312/bin/python \
-  -m pytest -p no:cacheprovider -q tests/test_daily_guard.py
+  -m pytest -p no:cacheprovider -q \
+  tests/test_workflow_mode.py tests/test_daily_guard.py
 ```
 
 Then run:
