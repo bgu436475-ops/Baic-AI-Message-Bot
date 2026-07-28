@@ -9,6 +9,7 @@ import pytest
 
 from ai_news_bot.boards import ScoredEditorialCandidate, build_boards
 from ai_news_bot.event_history import DuplicateAssessment
+from ai_news_bot.evidence import EvidenceExtractionError
 from ai_news_bot.gatekeeper import evaluate_gates
 from ai_news_bot.models import (
     Candidate,
@@ -264,6 +265,60 @@ def test_all_fetches_failed_is_not_legal_empty() -> None:
             ),
             now=NOW,
         )
+
+
+def test_one_extraction_failure_is_audited_while_other_candidate_publishes() -> None:
+    def extract_or_fail(candidate: Candidate) -> EvidenceRecord:
+        if candidate.id == "rejected":
+            raise EvidenceExtractionError("candidate payload is too large")
+        return evidence(candidate)
+
+    result = run_editorial_pipeline(
+        candidates(),
+        dependencies=fakes(
+            [],
+            qualifying=True,
+            record_factory=extract_or_fail,
+        ),
+        now=NOW,
+    )
+
+    assert result.digest.run_status == "published"
+    assert [item.candidate_id for item in result.digest.items] == ["qualifying"]
+    failed = next(
+        entry
+        for entry in result.audit.rejected
+        if entry.candidate_id == "rejected"
+    )
+    assert failed.gate_reasons == ["evidence_extraction_failed"]
+    assert failed.duplicate_status == "not_evaluated"
+    assert result.digest.pipeline_stats.top_rejection_reasons == {
+        "evidence_extraction_failed": 1
+    }
+
+
+def test_all_extraction_failures_raise_after_every_candidate_is_attempted() -> None:
+    attempted: list[str] = []
+
+    def always_fail(candidate: Candidate) -> EvidenceRecord:
+        attempted.append(candidate.id)
+        raise EvidenceExtractionError("candidate extraction failed")
+
+    with pytest.raises(
+        EvidenceExtractionError,
+        match="all evidence extractions failed",
+    ):
+        run_editorial_pipeline(
+            candidates(),
+            dependencies=fakes(
+                [],
+                qualifying=True,
+                record_factory=always_fail,
+            ),
+            now=NOW,
+        )
+
+    assert attempted == ["qualifying", "rejected"]
 
 
 def test_model_cannot_invent_original_source_status_for_secondary_exception() -> None:

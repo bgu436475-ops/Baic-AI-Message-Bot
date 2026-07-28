@@ -136,6 +136,7 @@ RejectionCode = Literal[
     "missing_affected_area",
     "invalid_evidence_anchor",
     "unverified_primary_source",
+    "evidence_extraction_failed",
 ]
 
 

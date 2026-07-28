@@ -8,9 +8,11 @@ from openai import LengthFinishReasonError, OpenAIError
 from openai.types.chat import ChatCompletion
 
 from ai_news_bot.evidence import (
+    DEFAULT_PROMPT_TOKEN_BUDGET,
     EVIDENCE_SYSTEM_PROMPT,
     EvidenceExtractionError,
     _anchor_supports_claim,
+    _estimated_tokens,
     extract_evidence,
     validate_anchors,
 )
@@ -404,6 +406,81 @@ def test_extractor_uses_responses_structured_parse_and_constrained_payload() -> 
     assert "secondary" in prompt
     assert "program" in prompt
     assert "must not infer" in prompt
+
+
+def test_extractor_bounds_multilingual_source_before_first_request() -> None:
+    client = FakeStructuredClient([valid_record()])
+    source = fetched().model_copy(
+        update={
+            "text": (
+                "模型 X API v2 输入价格从 2 美元降至 1 美元。"
+                "Developers can migrate today. "
+            )
+            * 2_000
+        }
+    )
+
+    extract_evidence(candidate(), source, client, "openai-model")
+
+    _, request = client.requests[0]
+    payload = json.loads(request["input"][1]["content"])
+    assert len(payload["source_text"]) <= 12_000
+    assert len(payload["source_text"]) < len(source.text)
+
+
+def test_extractor_retries_payload_limit_with_smaller_source_excerpt() -> None:
+    client = FakeStructuredClient(
+        [
+            OpenAIError(
+                "Error code: 413 - tokens_limit_reached; "
+                "Max size: 8000 tokens"
+            ),
+            valid_record(),
+        ]
+    )
+    source = fetched().model_copy(
+        update={"text": "Model X API v2 costs $1. " * 2_000}
+    )
+
+    result = extract_evidence(
+        candidate(),
+        source,
+        client,
+        "github-model",
+        base_url="https://models.github.ai/inference",
+    )
+
+    first = json.loads(client.requests[0][1]["messages"][1]["content"])
+    second = json.loads(client.requests[1][1]["messages"][1]["content"])
+    assert result.candidate_id == "one"
+    assert len(second["source_text"]) < len(first["source_text"])
+
+
+def test_extractor_bounds_the_serialized_prompt_including_json_escaping() -> None:
+    client = FakeStructuredClient([valid_record()])
+    oversized_candidate = candidate().model_copy(
+        update={"title": '"quoted\\\\title" ' * 2_000}
+    )
+    source = fetched().model_copy(
+        update={
+            "title": '"quoted\\\\source" ' * 2_000,
+            "text": '"value\\\\path" ' * 8_000,
+        }
+    )
+
+    extract_evidence(
+        oversized_candidate,
+        source,
+        client,
+        "github-model",
+        base_url="https://models.github.ai/inference",
+    )
+
+    messages = client.requests[0][1]["messages"]
+    assert sum(
+        _estimated_tokens(message["content"])
+        for message in messages
+    ) <= DEFAULT_PROMPT_TOKEN_BUDGET
 
 
 def test_anchor_validator_accepts_normalized_literal_quote() -> None:

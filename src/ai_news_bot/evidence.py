@@ -38,6 +38,10 @@ original_source_status is overwritten by the program from a separately fetched o
 source, so you must not infer or claim its value.
 """
 
+DEFAULT_PROMPT_TOKEN_BUDGET = 4_500
+RETRY_PROMPT_TOKEN_BUDGET = 2_200
+_CJK_CHARACTER = re.compile(r"[\u3400-\u9fff]")
+
 
 class EvidenceBatch(BaseModel):
     records: list[EvidenceRecord]
@@ -45,6 +49,75 @@ class EvidenceBatch(BaseModel):
 
 class EvidenceExtractionError(RuntimeError):
     pass
+
+
+def _estimated_tokens(value: str) -> int:
+    cjk_count = len(_CJK_CHARACTER.findall(value))
+    other_count = len(value) - cjk_count
+    return cjk_count + (other_count + 2) // 3
+
+
+def _evidence_messages(
+    candidate: Candidate,
+    source: FetchedSource,
+    prompt_token_budget: int,
+) -> list[dict[str, str]]:
+    payload = {
+        "candidate_id": truncate(candidate.id, 160),
+        "candidate_title": truncate(candidate.title, 300),
+        "candidate_summary": truncate(candidate.summary, 1200),
+        "source_url": truncate(source.final_url, 1000),
+        "source_title": truncate(source.title, 300),
+        "source_text": "",
+    }
+    normalized_source = " ".join(source.text.split())
+
+    def serialized_with_source(limit: int) -> str:
+        payload["source_text"] = (
+            truncate(normalized_source, limit)
+            if limit > 0
+            else ""
+        )
+        return json.dumps(payload, ensure_ascii=False)
+
+    low = 0
+    high = len(normalized_source)
+    while low < high:
+        midpoint = (low + high + 1) // 2
+        content = serialized_with_source(midpoint)
+        prompt_tokens = _estimated_tokens(
+            EVIDENCE_SYSTEM_PROMPT
+        ) + _estimated_tokens(content)
+        if prompt_tokens <= prompt_token_budget:
+            low = midpoint
+        else:
+            high = midpoint - 1
+    user_content = serialized_with_source(low)
+    return [
+        {"role": "system", "content": EVIDENCE_SYSTEM_PROMPT},
+        {
+            "role": "user",
+            "content": user_content,
+        },
+    ]
+
+
+def _is_payload_limit_error(error: Exception) -> bool:
+    status_code = getattr(error, "status_code", None)
+    response = getattr(error, "response", None)
+    if status_code is None and response is not None:
+        status_code = getattr(response, "status_code", None)
+    body = getattr(error, "body", None)
+    details = f"{error} {body}".casefold()
+    return status_code == 413 or any(
+        marker in details
+        for marker in (
+            "tokens_limit_reached",
+            "payload too large",
+            "request body too large",
+            "maximum context length",
+        )
+    )
 
 
 def _normalized(value: str) -> str:
@@ -438,25 +511,13 @@ def extract_evidence(
         raise EvidenceExtractionError("candidate and source IDs do not match")
     if original_source is not None and original_source.candidate_id != candidate.id:
         raise EvidenceExtractionError("candidate and original source IDs do not match")
-    messages = [
-        {"role": "system", "content": EVIDENCE_SYSTEM_PROMPT},
-        {
-            "role": "user",
-            "content": json.dumps(
-                {
-                    "candidate_id": candidate.id,
-                    "candidate_title": candidate.title,
-                    "candidate_summary": truncate(candidate.summary, 1200),
-                    "source_url": source.final_url,
-                    "source_title": source.title,
-                    "source_text": truncate(source.text, 30_000),
-                },
-                ensure_ascii=False,
-            ),
-        },
-    ]
+    messages = _evidence_messages(
+        candidate,
+        source,
+        DEFAULT_PROMPT_TOKEN_BUDGET,
+    )
     last_error: Exception | None = None
-    for _attempt in range(2):
+    for attempt in range(2):
         try:
             parsed = _parse_response(client, model, messages, base_url)
             if parsed is None or parsed.candidate_id != candidate.id:
@@ -470,4 +531,10 @@ def extract_evidence(
             )
         except (ValueError, TypeError, AttributeError, IndexError, OpenAIError) as error:
             last_error = error
+            if attempt == 0 and _is_payload_limit_error(error):
+                messages = _evidence_messages(
+                    candidate,
+                    source,
+                    RETRY_PROMPT_TOKEN_BUDGET,
+                )
     raise EvidenceExtractionError("model evidence parsing failed twice") from last_error

@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from .boards import ScoredEditorialCandidate
 from .event_history import DuplicateAssessment, event_fingerprint
-from .evidence import validate_anchors
+from .evidence import EvidenceExtractionError, validate_anchors
 from .models import (
     BoardName,
     Candidate,
@@ -462,6 +462,8 @@ def run_editorial_pipeline(
     candidate_by_id = _record_by_candidate(shortlisted)
 
     prepared: list[_PreparedRecord] = []
+    extraction_failures: dict[str, AuditEntry] = {}
+    last_extraction_error: EvidenceExtractionError | None = None
     seen_source_ids: set[str] = set()
     for source in fetched_sources:
         if source.candidate_id in seen_source_ids:
@@ -485,7 +487,21 @@ def run_editorial_pipeline(
             raise ValueError(
                 "resolved original source does not match the candidate"
             )
-        record = dependencies.extract(candidate, source, original_source)
+        try:
+            record = dependencies.extract(candidate, source, original_source)
+        except EvidenceExtractionError as error:
+            last_extraction_error = error
+            extraction_failures[candidate.id] = AuditEntry(
+                candidate_id=_safe_text(candidate.id, 160),
+                source_url=_safe_text(
+                    _sanitize_url(source.final_url),
+                    1000,
+                ),
+                fetch_status=source.status,
+                gate_reasons=["evidence_extraction_failed"],
+                duplicate_status="not_evaluated",
+            )
+            continue
         if record.candidate_id != candidate.id:
             raise ValueError(
                 "extracted evidence does not match the candidate"
@@ -505,6 +521,11 @@ def run_editorial_pipeline(
                 decision=dependencies.gates(record, "unique"),
             )
         )
+
+    if fetched_sources and not prepared and extraction_failures:
+        raise EvidenceExtractionError(
+            "all evidence extractions failed"
+        ) from last_extraction_error
 
     for value in prepared:
         if not (
@@ -550,9 +571,18 @@ def run_editorial_pipeline(
         item.candidate_id: item.board
         for item in items
     }
-    entries = [
-        _audit_entry(value, selected_boards)
+    prepared_by_id = {
+        value.candidate.id: value
         for value in prepared
+    }
+    entries = [
+        extraction_failures[source.candidate_id]
+        if source.candidate_id in extraction_failures
+        else _audit_entry(
+            prepared_by_id[source.candidate_id],
+            selected_boards,
+        )
+        for source in fetched_sources
     ]
     rejected = [
         entry for entry in entries if entry.selected_board is None
