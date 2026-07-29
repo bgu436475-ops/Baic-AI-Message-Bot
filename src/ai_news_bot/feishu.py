@@ -17,6 +17,7 @@ from .models import (
     EVIDENCE_URL_LIMIT_BYTES,
     EditorialDigest,
     EditorialNewsItem,
+    GlobalEventItem,
 )
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 EDITORIAL_MARKDOWN_LIMIT_BYTES = 18_000
@@ -34,6 +35,23 @@ BOARD_LABELS = {
     "must_read": "今日必看",
     "try_now": "值得试用",
     "watch": "观察项",
+}
+
+GLOBAL_CATEGORY_LABELS = {
+    "models_products": "模型与产品",
+    "companies_business": "公司与商业",
+    "policy_regulation": "政策与监管",
+    "research_breakthroughs": "科研突破",
+    "adoption_society": "大众应用与社会影响",
+}
+
+GLOBAL_FIELD_LIMITS = {
+    "title": 180,
+    "what_happened": 900,
+    "why_it_matters": 720,
+    "affected_groups": 300,
+    "key_facts": 600,
+    "source_name": 180,
 }
 
 REJECTION_LABELS = {
@@ -195,16 +213,94 @@ def _render_editorial_item(
         else ""
     )
     return [
-        (
-            f"**{index}. [{title}]({evidence_url})**  "
-            f"`总分 {item.score.total}`"
-        ),
+        f"**{index}. {title}**  `总分 {item.score.total}`",
         f"具体变化：{concrete_change}",
         f"影响：{affected_audience} · {affected_area}",
         f"建议行动：{recommended_action}",
         f"[核查原文]({evidence_url}){warning}",
         "",
     ]
+
+
+def _render_global_event(
+    digest: EditorialDigest,
+    item: GlobalEventItem,
+    index: int,
+) -> list[str]:
+    title = _bounded_markdown_text(
+        item.title_zh,
+        GLOBAL_FIELD_LIMITS["title"],
+    )
+    what_happened = _bounded_markdown_text(
+        item.what_happened_zh,
+        GLOBAL_FIELD_LIMITS["what_happened"],
+    )
+    why_it_matters = _bounded_markdown_text(
+        item.why_it_matters_zh,
+        GLOBAL_FIELD_LIMITS["why_it_matters"],
+    )
+    affected_groups = _bounded_markdown_text(
+        "、".join(item.affected_groups_zh),
+        GLOBAL_FIELD_LIMITS["affected_groups"],
+    )
+    key_facts = _bounded_markdown_text(
+        "；".join(item.key_facts),
+        GLOBAL_FIELD_LIMITS["key_facts"],
+    )
+    source_name = _bounded_markdown_text(
+        item.source_name,
+        GLOBAL_FIELD_LIMITS["source_name"],
+    )
+    source_url = _safe_evidence_url(item.source_url)
+    label = GLOBAL_CATEGORY_LABELS[item.category]
+    event_date = item.published_at.astimezone(SHANGHAI).strftime("%Y-%m-%d")
+    fallback = (
+        digest.generated_at - item.published_at
+    ).total_seconds() > 48 * 3600
+    return [
+        f"**{index}. 🌍 [{label}] {title}**",
+        f"发生了什么：{what_happened}",
+        f"为什么重要：{why_it_matters}",
+        f"影响：{affected_groups}",
+        f"关键事实：{key_facts}",
+        f"日期：{event_date}{' · 回看' if fallback else ''}",
+        f"来源：{source_name} · [查看原文]({source_url})",
+        "",
+    ]
+
+
+def _technical_items_for_feishu(
+    digest: EditorialDigest,
+) -> list[EditorialNewsItem]:
+    return digest.boards.flatten()[:5]
+
+
+def _published_editorial_lines(
+    digest: EditorialDigest,
+    technical_items: list[EditorialNewsItem],
+) -> list[str]:
+    lines = [
+        "## 一分钟读懂今天",
+        "",
+        _bounded_markdown_text(digest.daily_narrative_zh, 1_500),
+        "",
+    ]
+    if digest.global_events:
+        lines.extend(["## 全球 AI 重大事件", ""])
+        for index, item in enumerate(digest.global_events, start=1):
+            lines.extend(_render_global_event(digest, item, index))
+    if technical_items:
+        lines.extend(["## 技术与工具", ""])
+        current_board = ""
+        board_index = 0
+        for item in technical_items:
+            if item.board != current_board:
+                current_board = item.board
+                board_index = 0
+                lines.extend([f"### {BOARD_LABELS[current_board]}", ""])
+            board_index += 1
+            lines.extend(_render_editorial_item(item, board_index))
+    return lines
 
 
 def _editorial_digest_markdown(
@@ -252,20 +348,21 @@ def _editorial_digest_markdown(
             lines.append("- 无：本轮未产生候选")
         return "\n".join(lines)
 
-    for board_name, items in (
-        ("must_read", digest.boards.must_read),
-        ("try_now", digest.boards.try_now),
-        ("watch", digest.boards.watch),
-    ):
-        if not items:
+    prefix = lines
+    technical_items = _technical_items_for_feishu(digest)
+    while True:
+        content = "\n".join(
+            [
+                *prefix,
+                *_published_editorial_lines(digest, technical_items),
+            ]
+        ).rstrip()
+        if len(content.encode("utf-8")) <= EDITORIAL_MARKDOWN_LIMIT_BYTES:
+            return content
+        if technical_items:
+            technical_items = technical_items[:-1]
             continue
-        lines.extend([f"## {BOARD_LABELS[board_name]}", ""])
-        for index, item in enumerate(items, start=1):
-            lines.extend(_render_editorial_item(item, index))
-    content = "\n".join(lines).rstrip()
-    if len(content.encode("utf-8")) > EDITORIAL_MARKDOWN_LIMIT_BYTES:
         raise ValueError("飞书卡片内容超过安全预算，未发送不完整简报")
-    return content
 
 
 def digest_markdown(
@@ -289,7 +386,13 @@ def build_card(digest: DailyDigest | EditorialDigest) -> dict[str, object]:
             isinstance(digest, EditorialDigest)
             and digest.run_status == "no_qualifying_items"
         )
-        else f"今日精选 {len(digest.items)} 条 · AI 增长内部群"
+        else (
+            f"全球大事 {len(digest.global_events)} · "
+            f"技术情报 {len(_technical_items_for_feishu(digest))} · "
+            "AI 增长内部群"
+            if isinstance(digest, EditorialDigest)
+            else f"今日精选 {len(digest.items)} 条 · AI 增长内部群"
+        )
     )
     return {
         "msg_type": "interactive",
