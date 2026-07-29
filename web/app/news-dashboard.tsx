@@ -7,6 +7,7 @@ import {
   type Category,
   type Digest,
   type DigestBoards,
+  type GlobalEvent,
   type NewsItem,
 } from "./news-data";
 import { buildSummary, type SummaryPeriod } from "./summary";
@@ -34,6 +35,12 @@ const COPY = {
     searchAria: "搜索新闻",
     searchPlaceholder: "搜索标题、摘要或来源",
     signals: "今日值得关注",
+    globalEvents: "全球 AI 重大事件",
+    happened: "发生了什么",
+    whyMatters: "为什么重要",
+    affectedGroups: "影响对象",
+    keyFacts: "关键事实",
+    globalSource: "查看原始来源",
     boardMustRead: "今日必看",
     boardTryNow: "值得试用",
     boardWatch: "观察项",
@@ -107,6 +114,12 @@ const COPY = {
     searchAria: "Search news",
     searchPlaceholder: "Search title, summary, or source",
     signals: "Signals worth your attention",
+    globalEvents: "Global AI events",
+    happened: "What happened",
+    whyMatters: "Why it matters",
+    affectedGroups: "Affected groups",
+    keyFacts: "Key facts",
+    globalSource: "Original source",
     boardMustRead: "Must read",
     boardTryNow: "Worth trying",
     boardWatch: "Watch",
@@ -161,6 +174,23 @@ const COPY = {
     feishuReady: "Feishu summary channel reserved",
   },
 };
+
+const GLOBAL_CATEGORY_LABELS = {
+  zh: {
+    models_products: "模型与产品",
+    companies_business: "公司与商业",
+    policy_regulation: "政策与监管",
+    research_breakthroughs: "科研突破",
+    adoption_society: "大众应用与社会影响",
+  },
+  en: {
+    models_products: "Models & products",
+    companies_business: "Companies & business",
+    policy_regulation: "Policy & regulation",
+    research_breakthroughs: "Research breakthroughs",
+    adoption_society: "Adoption & society",
+  },
+} as const;
 
 function formatDate(value: string, language: Language, long = false) {
   return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-GB", {
@@ -256,6 +286,40 @@ function StoryCard({ item, index, language }: { item: NewsItem; index: number; l
   );
 }
 
+function GlobalEventCard({
+  event,
+  language,
+}: {
+  event: GlobalEvent;
+  language: Language;
+}) {
+  const copy = COPY[language];
+  return (
+    <article className="global-event-card">
+      <div className="global-event-meta">
+        <span>{GLOBAL_CATEGORY_LABELS[language][event.category]}</span>
+        <time>{formatDate(event.published_at, language)}</time>
+      </div>
+      <h3>{event.title_zh}</h3>
+      <dl>
+        <div><dt>{copy.happened}</dt><dd>{event.what_happened_zh}</dd></div>
+        <div><dt>{copy.whyMatters}</dt><dd>{event.why_it_matters_zh}</dd></div>
+        <div>
+          <dt>{copy.affectedGroups}</dt>
+          <dd>{event.affected_groups_zh.join(" · ")}</dd>
+        </div>
+        <div><dt>{copy.keyFacts}</dt><dd>{event.key_facts.join("；")}</dd></div>
+      </dl>
+      <div className="global-event-footer">
+        <span>{event.source_name}</span>
+        <a href={event.source_url} target="_blank" rel="noreferrer">
+          {copy.globalSource} <span aria-hidden="true">↗</span>
+        </a>
+      </div>
+    </article>
+  );
+}
+
 export function NewsDashboard({ initialDigest }: { initialDigest: Digest }) {
   const currentDigest = initialDigest;
   const [language, setLanguage] = useState<Language>("zh");
@@ -327,7 +391,10 @@ export function NewsDashboard({ initialDigest }: { initialDigest: Digest }) {
     const latest = currentDigest.latest_published_at
       ? new Date(currentDigest.latest_published_at).getTime()
       : Math.max(...currentDigest.items.map((item) => new Date(item.published_at).getTime()));
-    const calculatedFresh = currentDigest.items.filter((item) => {
+    const calculatedFresh = [
+      ...currentDigest.global_events,
+      ...currentDigest.items,
+    ].filter((item) => {
       const age = now - new Date(item.published_at).getTime();
       return age >= 0 && age <= 24 * 60 * 60 * 1000;
     }).length;
@@ -384,11 +451,36 @@ export function NewsDashboard({ initialDigest }: { initialDigest: Digest }) {
         <div className="hero-bottom">
           <p>{copy.intro}</p>
           <div className="hero-stats" aria-label={language === "zh" ? "本期简报统计" : "Briefing statistics"}>
-            <div><strong>{currentDigest.items.length}</strong><span>{copy.selected}</span></div>
+            <div>
+              <strong>{currentDigest.global_events.length + currentDigest.items.length}</strong>
+              <span>{copy.selected}</span>
+            </div>
             <div><strong>{currentDigest.candidate_count}</strong><span>{copy.candidates}</span></div>
             <div><strong>{currentDigest.source_count}</strong><span>{copy.sources}</span></div>
           </div>
         </div>
+      </section>
+
+      <section className="global-events" aria-labelledby="global-events-title">
+        <div className="section-heading">
+          <div>
+            <span className="eyebrow">GLOBAL AI EVENTS</span>
+            <h2 id="global-events-title">{copy.globalEvents}</h2>
+          </div>
+          <span className="result-count">{currentDigest.global_events.length}</span>
+        </div>
+        <p className="daily-narrative">{currentDigest.daily_narrative_zh}</p>
+        {currentDigest.global_events.length > 0 && (
+          <div className="global-event-grid">
+            {currentDigest.global_events.map((event) => (
+              <GlobalEventCard
+                event={event}
+                language={language}
+                key={event.event_id}
+              />
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="toolbar" aria-label={copy.filterAria}>

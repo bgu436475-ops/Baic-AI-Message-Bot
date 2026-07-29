@@ -47,7 +47,8 @@ test("persisted schema v2 rows normalize through the production digest-store bou
 
   const normalized = store.parseStoredDigest(JSON.stringify(LEGACY_PERSISTED_DIGEST));
 
-  assert.equal(normalized.schema_version, 3);
+  assert.equal(normalized.schema_version, 4);
+  assert.deepEqual(normalized.global_events, []);
   assert.equal(normalized.latest_published_at, "2026-07-20T00:30:00Z");
   assert.equal(normalized.fresh_count_24h, 1);
   assert.equal(normalized.items[0].evidence_url, "https://example.com/legacy-persisted");

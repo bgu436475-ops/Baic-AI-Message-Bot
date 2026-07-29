@@ -48,9 +48,12 @@ function item(board, id, overrides = {}) {
   };
 }
 
-const MUST_READ_ITEM = item("must_read", "Model-X");
+const MUST_READ_ITEM = item("must_read", "Model-X", {
+  published_at: "2026-07-29T00:20:00Z",
+});
 const TRY_NOW_ITEM = item("try_now", "Tool-Y", {
   category: "ai_coding",
+  published_at: "2026-07-25T00:30:00Z",
   score: {
     relevance: 20,
     actionability: 20,
@@ -64,6 +67,7 @@ const TRY_NOW_ITEM = item("try_now", "Tool-Y", {
 });
 const WATCH_ITEM = item("watch", "Policy-Z", {
   category: "industry_business",
+  published_at: "2026-07-25T00:15:00Z",
   verification_status: "unavailable",
   resource_available: false,
   score: {
@@ -78,16 +82,55 @@ const WATCH_ITEM = item("watch", "Policy-Z", {
   },
 });
 
+const GLOBAL_EVENT = {
+  event_id: "acme|model-x|release|v2-$1|",
+  candidate_id: "global-model-x",
+  category: "models_products",
+  title_zh: "Acme 正式发布 Model X",
+  what_happened_zh: "Acme 发布 Model X，API 输入价格降至每百万 token 1 美元。",
+  why_it_matters_zh: "企业可据此重新核算模型调用成本，并评估迁移收益。",
+  affected_groups_zh: ["企业决策者", "产品负责人"],
+  key_facts: ["API 已正式开放", "输入价格为每百万 token 1 美元"],
+  source_name: "Acme",
+  source_url: "https://example.com/global-model-x",
+  supporting_urls: [],
+  published_at: "2026-07-29T00:30:00Z",
+  primary_entity: "Acme",
+  product_or_policy: "Model X",
+  change_signature: "release",
+  version_or_metric: "v2-$1",
+  effective_date: null,
+  event_entities: ["Acme", "Model X"],
+  score: {
+    impact: 30,
+    global_relevance: 20,
+    recency: 20,
+    evidence_quality: 15,
+    information_gain: 10,
+    clarity: 5,
+    total: 100,
+  },
+};
+
 const PUBLISHED_DIGEST = {
-  schema_version: 3,
+  schema_version: 4,
   run_status: "published",
-  generated_at: "2026-07-20T01:05:00Z",
-  candidate_count: 8,
-  source_count: 3,
-  latest_published_at: "2026-07-20T00:30:00Z",
-  fresh_count_24h: 3,
-  lookback_hours: 36,
+  generated_at: "2026-07-29T01:05:00Z",
+  candidate_count: 20,
+  source_count: 8,
+  latest_published_at: "2026-07-29T00:30:00Z",
+  fresh_count_24h: 2,
+  lookback_hours: 48,
   fallback_used: false,
+  daily_narrative_zh: "今天的重点是 Acme 正式发布 Model X。",
+  global_events: [GLOBAL_EVENT],
+  global_pipeline_stats: {
+    candidate_count: 20,
+    shortlist_count: 8,
+    source_verified_count: 8,
+    rejected_count: 7,
+    top_rejection_reasons: {},
+  },
   boards: {
     must_read: [MUST_READ_ITEM],
     try_now: [TRY_NOW_ITEM],
@@ -95,7 +138,7 @@ const PUBLISHED_DIGEST = {
   },
   items: [MUST_READ_ITEM, TRY_NOW_ITEM, WATCH_ITEM],
   pipeline_stats: {
-    candidate_count: 8,
+    candidate_count: 20,
     shortlist_count: 3,
     source_verified_count: 2,
     rejected_count: 0,
@@ -104,7 +147,7 @@ const PUBLISHED_DIGEST = {
 };
 
 const EMPTY_DIGEST = {
-  schema_version: 3,
+  schema_version: 4,
   run_status: "no_qualifying_items",
   generated_at: "2026-07-20T01:05:00Z",
   candidate_count: 8,
@@ -113,6 +156,15 @@ const EMPTY_DIGEST = {
   fresh_count_24h: 0,
   lookback_hours: 36,
   fallback_used: false,
+  daily_narrative_zh: "今天没有全球重大事件或技术信息通过核验。",
+  global_events: [],
+  global_pipeline_stats: {
+    candidate_count: 8,
+    shortlist_count: 0,
+    source_verified_count: 0,
+    rejected_count: 0,
+    top_rejection_reasons: {},
+  },
   boards: { must_read: [], try_now: [], watch: [] },
   items: [],
   pipeline_stats: {
@@ -123,6 +175,12 @@ const EMPTY_DIGEST = {
     top_rejection_reasons: { missing_action: 3 },
   },
 };
+
+const PUBLISHED_V3_DIGEST = structuredClone(PUBLISHED_DIGEST);
+PUBLISHED_V3_DIGEST.schema_version = 3;
+delete PUBLISHED_V3_DIGEST.daily_narrative_zh;
+delete PUBLISHED_V3_DIGEST.global_events;
+delete PUBLISHED_V3_DIGEST.global_pipeline_stats;
 
 const LEGACY_V2_ITEM = {
   original_title: "Legacy release",
@@ -218,7 +276,7 @@ test("schedule and dedupe copy states operational semantics accurately", async (
   assert.doesNotMatch(source, /semantic clustering|语义聚类/i);
 });
 
-test("NewsDashboard renders schema v3 boards, evidence and legal empty results", async () => {
+test("NewsDashboard renders schema v4 global events, boards, evidence and legal empty results", async () => {
   const { isDigest, normalizeDigest } = await vite.ssrLoadModule("/app/news-data.ts");
 
   assert.equal(isDigest(PUBLISHED_DIGEST), true);
@@ -227,6 +285,11 @@ test("NewsDashboard renders schema v3 boards, evidence and legal empty results",
   assert.equal(isDigest({ ...EMPTY_DIGEST, items: PUBLISHED_DIGEST.items }), false);
 
   const publishedHtml = await renderDashboard(PUBLISHED_DIGEST);
+  assert.match(publishedHtml, /全球 AI 重大事件/);
+  assert.match(publishedHtml, /Acme 正式发布 Model X/);
+  assert.match(publishedHtml, /发生了什么/);
+  assert.match(publishedHtml, /为什么重要/);
+  assert.match(publishedHtml, /https:\/\/example\.com\/global-model-x/);
   assert.match(publishedHtml, /今日必看/);
   assert.match(publishedHtml, /值得试用/);
   assert.match(publishedHtml, /观察项/);
@@ -248,7 +311,7 @@ test("NewsDashboard renders schema v3 boards, evidence and legal empty results",
 
   assert.equal(isDigest(PUBLISHED_V2_DIGEST), false);
   const normalized = normalizeDigest(PUBLISHED_V2_DIGEST);
-  assert.equal(normalized.schema_version, 3);
+  assert.equal(normalized.schema_version, 4);
   assert.equal(normalized.boards.must_read.length, 1);
   assert.equal(normalized.boards.must_read[0].evidence_url, "https://example.com/legacy");
   assert.equal(normalized.latest_published_at, LEGACY_V2_ITEM.published_at);
@@ -256,7 +319,58 @@ test("NewsDashboard renders schema v3 boards, evidence and legal empty results",
   assert.equal(isDigest(normalized), true);
 });
 
-test("schema v3 validator rejects caps, identity conflicts, unsafe evidence and impossible counts", async () => {
+test("schema v4 validator rejects malformed or conflicting global events", async () => {
+  const { isDigest } = await vite.ssrLoadModule("/app/news-data.ts");
+  const clone = () => structuredClone(PUBLISHED_DIGEST);
+
+  for (const field of ["title_zh", "what_happened_zh", "why_it_matters_zh"]) {
+    const blank = clone();
+    blank.global_events[0][field] = " ";
+    assert.equal(isDigest(blank), false);
+  }
+
+  const invalidCategory = clone();
+  invalidCategory.global_events[0].category = "open_source";
+  assert.equal(isDigest(invalidCategory), false);
+
+  const scoreMismatch = clone();
+  scoreMismatch.global_events[0].score.total = 99;
+  assert.equal(isDigest(scoreMismatch), false);
+
+  const tooMany = clone();
+  tooMany.global_events = Array.from({ length: 6 }, (_, index) => ({
+    ...structuredClone(GLOBAL_EVENT),
+    event_id: `event-${index}`,
+    candidate_id: `global-${index}`,
+  }));
+  assert.equal(isDigest(tooMany), false);
+
+  const categoryOverflow = clone();
+  categoryOverflow.global_events = Array.from({ length: 3 }, (_, index) => ({
+    ...structuredClone(GLOBAL_EVENT),
+    event_id: `event-${index}`,
+    candidate_id: `global-${index}`,
+  }));
+  assert.equal(isDigest(categoryOverflow), false);
+
+  const duplicateIds = clone();
+  duplicateIds.global_events = [
+    structuredClone(GLOBAL_EVENT),
+    {
+      ...structuredClone(GLOBAL_EVENT),
+      candidate_id: "global-two",
+      category: "companies_business",
+    },
+  ];
+  assert.equal(isDigest(duplicateIds), false);
+
+  const crossLaneOverlap = clone();
+  crossLaneOverlap.global_events[0].event_id =
+    crossLaneOverlap.items[0].event_fingerprint;
+  assert.equal(isDigest(crossLaneOverlap), false);
+});
+
+test("schema v4 validator rejects caps, identity conflicts, unsafe evidence and impossible counts", async () => {
   const { isDigest } = await vite.ssrLoadModule("/app/news-data.ts");
   const clone = () => structuredClone(PUBLISHED_DIGEST);
 
@@ -317,7 +431,7 @@ test("schema v3 validator rejects caps, identity conflicts, unsafe evidence and 
   assert.equal(isDigest({ ...EMPTY_DIGEST, latest_published_at: PUBLISHED_DIGEST.generated_at }), false);
 });
 
-test("schema v3 accepts the full 5 plus 3 plus 3 board capacity", async () => {
+test("schema v4 accepts the full 5 plus 3 plus 3 board capacity", async () => {
   const { isDigest } = await vite.ssrLoadModule("/app/news-data.ts");
   const mustRead = Array.from(
     { length: 5 },
@@ -335,7 +449,11 @@ test("schema v3 accepts the full 5 plus 3 plus 3 board capacity", async () => {
   const digest = {
     ...structuredClone(PUBLISHED_DIGEST),
     candidate_count: 11,
-    fresh_count_24h: 11,
+    fresh_count_24h: 1,
+    global_pipeline_stats: {
+      ...PUBLISHED_DIGEST.global_pipeline_stats,
+      candidate_count: 11,
+    },
     boards: { must_read: mustRead, try_now: tryNow, watch },
     items,
     pipeline_stats: {
@@ -393,7 +511,7 @@ test("schema validator requires real RFC3339 datetimes and calendar dates", asyn
   }
 
   const precisePythonDatetime = structuredClone(PUBLISHED_DIGEST);
-  precisePythonDatetime.generated_at = "2026-07-20T01:05:00.366572+00:00";
+  precisePythonDatetime.generated_at = "2026-07-29T01:05:00.366572+00:00";
   assert.equal(isDigest(precisePythonDatetime), true);
 
   const leapDate = structuredClone(PUBLISHED_DIGEST);
@@ -416,8 +534,12 @@ test("schema validator requires real RFC3339 datetimes and calendar dates", asyn
   assert.equal(isDigest(validContract), true);
 });
 
-test("web accepts the exact schema v3 fixture generated and validated by Python", async () => {
-  const { isDigest, normalizeDigest } = await vite.ssrLoadModule("/app/news-data.ts");
+test("web normalizes the exact schema v3 fixture generated and validated by Python", async () => {
+  const {
+    isDigest,
+    isLegacyDigestV3,
+    normalizeDigest,
+  } = await vite.ssrLoadModule("/app/news-data.ts");
   const fixture = JSON.parse(await readFile(
     new URL("./fixtures/python-empty-event-entities-v3.json", import.meta.url),
     "utf8",
@@ -425,19 +547,22 @@ test("web accepts the exact schema v3 fixture generated and validated by Python"
 
   assert.deepEqual(fixture.items[0].event_entities, []);
   assert.deepEqual(fixture.items[1].event_entities, [""]);
-  assert.equal(isDigest(fixture), true);
-  assert.equal(normalizeDigest(fixture), fixture);
+  assert.equal(isLegacyDigestV3(fixture), true);
+  const normalized = normalizeDigest(fixture);
+  assert.equal(normalized.schema_version, 4);
+  assert.deepEqual(normalized.global_events, []);
+  assert.equal(isDigest(normalized), true);
 
   const tooManyEntities = structuredClone(fixture);
   const elevenEntities = Array.from({ length: 11 }, (_, index) => `entity-${index}`);
   tooManyEntities.boards.must_read[0].event_entities = elevenEntities;
   tooManyEntities.items[0].event_entities = elevenEntities;
-  assert.equal(isDigest(tooManyEntities), false);
+  assert.equal(isLegacyDigestV3(tooManyEntities), false);
 
   const overlongEntity = structuredClone(fixture);
   overlongEntity.boards.must_read[0].event_entities = ["x".repeat(161)];
   overlongEntity.items[0].event_entities = ["x".repeat(161)];
-  assert.equal(isDigest(overlongEntity), false);
+  assert.equal(isLegacyDigestV3(overlongEntity), false);
 });
 
 test("schema validators reject unknown, missing and over-cap nested fields", async () => {
@@ -541,10 +666,15 @@ test("summary ranks immutably and uses change, impact and action without vague f
   const report = buildSummary(digest, "weekly", "zh");
 
   assert.deepEqual(digest.items.map((story) => story.candidate_id), originalOrder);
-  assert.deepEqual(report.narratives.map((story) => story.score), [100, 90, 58]);
-  assert.match(report.narratives[0].summary, new RegExp(MUST_READ_ITEM.concrete_change));
-  assert.match(report.narratives[0].summary, /API 开发者/);
-  assert.match(report.narratives[0].summary, /本周验证 Model-X API 配额/);
+  assert.deepEqual(
+    report.narratives.map((story) => story.score),
+    [100, 100, 90, 58],
+  );
+  assert.match(report.narratives[0].summary, new RegExp(GLOBAL_EVENT.what_happened_zh));
+  assert.match(report.narratives[0].summary, new RegExp(GLOBAL_EVENT.why_it_matters_zh));
+  assert.match(report.narratives[1].summary, new RegExp(MUST_READ_ITEM.concrete_change));
+  assert.match(report.narratives[1].summary, /API 开发者/);
+  assert.match(report.narratives[1].summary, /本周验证 Model-X API 配额/);
   for (const prohibited of [
     "这对行业具有重要意义",
     "这展示了 AI 的巨大潜力",
@@ -580,7 +710,7 @@ test("digest API serves a fallback and protects updates", async () => {
   assert.equal(getResponse.status, 200);
   assert.equal(getResponse.headers.get("cache-control"), "no-store");
   const digest = await getResponse.json();
-  assert.equal(digest.schema_version, 3);
+  assert.equal(digest.schema_version, 4);
   assert.ok(["published", "no_qualifying_items"].includes(digest.run_status));
   assert.equal(digest.run_status === "published", digest.items.length > 0);
   assert.ok(digest.items.every((item) => item.evidence_url.startsWith("https://")));

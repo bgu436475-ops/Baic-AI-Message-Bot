@@ -34,7 +34,8 @@ test("raw digest parser accepts a valid body without relying on content-length",
   }));
 
   assert.equal(result.response, undefined);
-  assert.equal(result.payload.schema_version, 3);
+  assert.equal(result.payload.schema_version, 4);
+  assert.deepEqual(result.payload.global_events, []);
 });
 
 test("raw digest parser rejects actual UTF-8 bodies above 250 KB with no header", async () => {

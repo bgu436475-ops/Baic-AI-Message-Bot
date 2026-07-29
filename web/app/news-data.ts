@@ -70,7 +70,7 @@ export type PipelineStats = {
   top_rejection_reasons: Record<string, number>;
 };
 
-export type Digest = {
+export type LegacyDigestV3 = {
   schema_version: 3;
   run_status: "published" | "no_qualifying_items";
   generated_at: string;
@@ -83,6 +83,52 @@ export type Digest = {
   boards: DigestBoards;
   items: NewsItem[];
   pipeline_stats: PipelineStats;
+};
+
+export type GlobalEventCategory =
+  | "models_products"
+  | "companies_business"
+  | "policy_regulation"
+  | "research_breakthroughs"
+  | "adoption_society";
+
+export type GlobalEventScore = {
+  impact: number;
+  global_relevance: number;
+  recency: number;
+  evidence_quality: number;
+  information_gain: number;
+  clarity: number;
+  total: number;
+};
+
+export type GlobalEvent = {
+  event_id: string;
+  candidate_id: string;
+  category: GlobalEventCategory;
+  title_zh: string;
+  what_happened_zh: string;
+  why_it_matters_zh: string;
+  affected_groups_zh: string[];
+  key_facts: string[];
+  source_name: string;
+  source_url: string;
+  supporting_urls: string[];
+  published_at: string;
+  primary_entity: string;
+  product_or_policy: string;
+  change_signature: string;
+  version_or_metric: string;
+  effective_date: string | null;
+  event_entities: string[];
+  score: GlobalEventScore;
+};
+
+export type Digest = Omit<LegacyDigestV3, "schema_version"> & {
+  schema_version: 4;
+  daily_narrative_zh: string;
+  global_events: GlobalEvent[];
+  global_pipeline_stats: PipelineStats;
 };
 
 type LegacyNewsItemV2 = {
@@ -130,10 +176,14 @@ const VERIFICATION_STATUSES = new Set([
   "blocked",
   "insufficient",
 ]);
-const DIGEST_KEYS = new Set([
+const LEGACY_V3_DIGEST_KEYS = new Set([
   "schema_version", "run_status", "generated_at", "candidate_count",
   "source_count", "latest_published_at", "fresh_count_24h",
   "lookback_hours", "fallback_used", "boards", "items", "pipeline_stats",
+]);
+const DIGEST_KEYS = new Set([
+  ...LEGACY_V3_DIGEST_KEYS,
+  "daily_narrative_zh", "global_events", "global_pipeline_stats",
 ]);
 const BOARD_KEYS = new Set(["must_read", "try_now", "watch"]);
 const ITEM_KEYS = new Set([
@@ -152,6 +202,24 @@ const SCORE_KEYS = new Set([
 const PIPELINE_KEYS = new Set([
   "candidate_count", "shortlist_count", "source_verified_count",
   "rejected_count", "top_rejection_reasons",
+]);
+const GLOBAL_EVENT_CATEGORIES = new Set<GlobalEventCategory>([
+  "models_products",
+  "companies_business",
+  "policy_regulation",
+  "research_breakthroughs",
+  "adoption_society",
+]);
+const GLOBAL_EVENT_KEYS = new Set([
+  "event_id", "candidate_id", "category", "title_zh", "what_happened_zh",
+  "why_it_matters_zh", "affected_groups_zh", "key_facts", "source_name",
+  "source_url", "supporting_urls", "published_at", "primary_entity",
+  "product_or_policy", "change_signature", "version_or_metric",
+  "effective_date", "event_entities", "score",
+]);
+const GLOBAL_SCORE_KEYS = new Set([
+  "impact", "global_relevance", "recency", "evidence_quality",
+  "information_gain", "clarity", "total",
 ]);
 const LEGACY_DIGEST_KEYS = new Set([
   "schema_version", "run_status", "generated_at", "candidate_count",
@@ -392,8 +460,61 @@ function deepEqual(left: unknown, right: unknown): boolean {
   return false;
 }
 
-export function isDigest(value: unknown): value is Digest {
-  if (!isRecord(value) || !hasExactKeys(value, DIGEST_KEYS)) return false;
+function isGlobalScore(value: unknown): value is GlobalEventScore {
+  if (!isRecord(value) || !hasExactKeys(value, GLOBAL_SCORE_KEYS)) return false;
+  const caps = {
+    impact: 30,
+    global_relevance: 20,
+    recency: 20,
+    evidence_quality: 15,
+    information_gain: 10,
+    clarity: 5,
+  } as const;
+  for (const [field, cap] of Object.entries(caps)) {
+    const score = value[field];
+    if (!isNonNegativeInteger(score) || score > cap) return false;
+  }
+  if (!isNonNegativeInteger(value.total) || value.total > 100) return false;
+  const calculated = Object.keys(caps).reduce(
+    (total, field) => total + Number(value[field]),
+    0,
+  );
+  return value.total === calculated;
+}
+
+function isGlobalEvent(value: unknown): value is GlobalEvent {
+  if (!isRecord(value) || !hasExactKeys(value, GLOBAL_EVENT_KEYS)) return false;
+  if (
+    !isBoundedString(value.event_id, 1000, true)
+    || !isBoundedString(value.candidate_id, 160, true)
+    || !GLOBAL_EVENT_CATEGORIES.has(value.category as GlobalEventCategory)
+    || !isBoundedString(value.title_zh, 80, true)
+    || !isBoundedString(value.what_happened_zh, 360, true)
+    || !isBoundedString(value.why_it_matters_zh, 320, true)
+    || !isStringArray(value.affected_groups_zh, 5, 1000, false)
+    || !isStringArray(value.key_facts, 5, 1000, false)
+    || !isBoundedString(value.source_name, 120, true)
+    || !isHttpsUrl(value.source_url)
+    || !isStringArray(value.supporting_urls, 2, 1000, true)
+    || !value.supporting_urls.every(isHttpsUrl)
+    || !isRfc3339DateTime(value.published_at)
+    || !isBoundedString(value.primary_entity, 160, true)
+    || !isBoundedString(value.product_or_policy, 160)
+    || !isBoundedString(value.change_signature, 160, true)
+    || !isBoundedString(value.version_or_metric, 120)
+    || !isStringArray(value.event_entities, 10, 160, true, false)
+    || !isGlobalScore(value.score)
+  ) {
+    return false;
+  }
+  return value.effective_date === null || isDateOnly(value.effective_date);
+}
+
+export function isLegacyDigestV3(value: unknown): value is LegacyDigestV3 {
+  if (
+    !isRecord(value)
+    || !hasExactKeys(value, LEGACY_V3_DIGEST_KEYS)
+  ) return false;
   const candidate = value;
   if (!(candidate.schema_version === 3)) return false;
   if (
@@ -459,6 +580,87 @@ export function isDigest(value: unknown): value is Digest {
   return (
     (candidate.run_status === "published" && flattened.length > 0)
     || (candidate.run_status === "no_qualifying_items" && flattened.length === 0)
+  );
+}
+
+export function isDigest(value: unknown): value is Digest {
+  if (!isRecord(value) || !hasExactKeys(value, DIGEST_KEYS)) return false;
+  const candidate = value;
+  if (
+    candidate.schema_version !== 4
+    || !isBoundedString(candidate.daily_narrative_zh, 600, true)
+    || !Array.isArray(candidate.global_events)
+    || candidate.global_events.length > 5
+    || !candidate.global_events.every(isGlobalEvent)
+    || !isPipelineStats(
+      candidate.global_pipeline_stats,
+      Number(candidate.candidate_count),
+    )
+  ) {
+    return false;
+  }
+
+  const legacyShape: Record<string, unknown> = {};
+  for (const key of LEGACY_V3_DIGEST_KEYS) {
+    legacyShape[key] = candidate[key];
+  }
+  if (!Array.isArray(candidate.items)) return false;
+  const technicalDates = candidate.items
+    .filter((item) => isNewsItem(item))
+    .map((item) => item.published_at);
+  const generatedAtValue = Date.parse(String(candidate.generated_at));
+  legacyShape.schema_version = 3;
+  legacyShape.run_status = technicalDates.length
+    ? "published"
+    : "no_qualifying_items";
+  legacyShape.latest_published_at = technicalDates.length
+    ? technicalDates.reduce((latest, value) =>
+      Date.parse(value) > Date.parse(latest) ? value : latest)
+    : null;
+  legacyShape.fresh_count_24h = technicalDates.filter((value) => {
+    const age = generatedAtValue - Date.parse(value);
+    return age >= 0 && age <= 24 * 60 * 60 * 1000;
+  }).length;
+  if (!isLegacyDigestV3(legacyShape)) return false;
+
+  const events = candidate.global_events as GlobalEvent[];
+  const eventIds = events.map((event) => event.event_id);
+  if (new Set(eventIds).size !== eventIds.length) return false;
+  const categoryCounts = new Map<GlobalEventCategory, number>();
+  for (const event of events) {
+    const count = (categoryCounts.get(event.category) ?? 0) + 1;
+    if (count > 2) return false;
+    categoryCounts.set(event.category, count);
+  }
+  const technicalFingerprints = new Set(
+    (candidate.items as NewsItem[]).map((item) => item.event_fingerprint),
+  );
+  if (eventIds.some((eventId) => technicalFingerprints.has(eventId))) return false;
+
+  const publishedAt = [
+    ...events.map((event) => event.published_at),
+    ...(candidate.items as NewsItem[]).map((item) => item.published_at),
+  ];
+  const hasContent = publishedAt.length > 0;
+  if (
+    (candidate.run_status === "published" && !hasContent)
+    || (candidate.run_status === "no_qualifying_items" && hasContent)
+  ) return false;
+  const generatedAt = Date.parse(candidate.generated_at as string);
+  const freshCount = publishedAt.filter((value) => {
+    const age = generatedAt - Date.parse(value);
+    return age >= 0 && age <= 24 * 60 * 60 * 1000;
+  }).length;
+  const latest = publishedAt.length
+    ? Math.max(...publishedAt.map(Date.parse))
+    : null;
+  return (
+    candidate.fresh_count_24h === freshCount
+    && (
+      latest === null
+        ? candidate.latest_published_at === null
+        : Date.parse(candidate.latest_published_at as string) === latest
+    )
   );
 }
 
@@ -576,9 +778,28 @@ function normalizeLegacyItem(
 
 export function normalizeDigest(value: unknown): Digest {
   if (isDigest(value)) return value;
-  if (!isLegacyDigestV2(value)) {
-    throw new TypeError("Invalid AI news digest");
+  if (isLegacyDigestV3(value)) {
+    const normalized: Digest = {
+      ...value,
+      schema_version: 4,
+      daily_narrative_zh: value.items.length
+        ? `本期有 ${value.items.length} 条技术与工具信息通过核验；旧版简报未包含全球重大事件栏目。`
+        : "本期没有技术信息通过核验；旧版简报未包含全球重大事件栏目。",
+      global_events: [],
+      global_pipeline_stats: {
+        candidate_count: value.candidate_count,
+        shortlist_count: 0,
+        source_verified_count: 0,
+        rejected_count: 0,
+        top_rejection_reasons: {},
+      },
+    };
+    if (!isDigest(normalized)) {
+      throw new TypeError("Legacy schema v3 digest cannot be normalized safely");
+    }
+    return normalized;
   }
+  if (!isLegacyDigestV2(value)) throw new TypeError("Invalid AI news digest");
   const normalizedItems = value.items.map((item, index) => normalizeLegacyItem(
     item,
     index,
@@ -597,7 +818,7 @@ export function normalizeDigest(value: unknown): Digest {
     const age = generatedAt - Date.parse(item.published_at);
     return age >= 0 && age <= 24 * 60 * 60 * 1000;
   }).length;
-  const normalized: Digest = {
+  const normalized: LegacyDigestV3 = {
     schema_version: 3,
     run_status: value.run_status,
     generated_at: value.generated_at,
@@ -617,10 +838,10 @@ export function normalizeDigest(value: unknown): Digest {
       top_rejection_reasons: {},
     },
   };
-  if (!isDigest(normalized)) {
+  if (!isLegacyDigestV3(normalized)) {
     throw new TypeError("Legacy digest cannot be normalized safely");
   }
-  return normalized;
+  return normalizeDigest(normalized);
 }
 
 export const CATEGORY_LABELS: Record<"zh" | "en", Record<Category, string>> = {

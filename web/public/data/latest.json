@@ -1,5 +1,5 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "run_status": "published",
   "generated_at": "2026-07-29T01:06:24.200405Z",
   "candidate_count": 74,
@@ -8,6 +8,15 @@
   "fresh_count_24h": 0,
   "lookback_hours": 36,
   "fallback_used": false,
+  "daily_narrative_zh": "今天没有全球重大事件通过核验；技术与工具栏保留已核查的可行动信息。",
+  "global_events": [],
+  "global_pipeline_stats": {
+    "candidate_count": 74,
+    "shortlist_count": 0,
+    "source_verified_count": 0,
+    "rejected_count": 0,
+    "top_rejection_reasons": {}
+  },
   "boards": {
     "must_read": [
       {

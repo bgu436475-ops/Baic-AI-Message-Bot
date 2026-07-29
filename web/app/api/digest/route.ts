@@ -1,5 +1,5 @@
 import { digestUpdateSecret, getLatestDigest, saveLatestDigest } from "../../../db/digest-store";
-import { isDigest } from "../../news-data";
+import { normalizeDigest } from "../../news-data";
 
 const MAX_DIGEST_BODY_BYTES = 250_000;
 
@@ -40,7 +40,9 @@ export async function parseDigestRequestBody(
       ),
     };
   }
-  if (!isDigest(payload)) {
+  try {
+    payload = normalizeDigest(payload);
+  } catch {
     return {
       response: Response.json(
         { error: "Invalid digest payload" },
@@ -48,7 +50,7 @@ export async function parseDigestRequestBody(
       ),
     };
   }
-  return { payload };
+  return { payload: payload as Parameters<typeof saveLatestDigest>[0] };
 }
 
 export async function GET() {
