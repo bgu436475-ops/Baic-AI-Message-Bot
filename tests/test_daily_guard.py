@@ -179,6 +179,29 @@ def test_workflow_sends_before_persisting_and_publishing_latest_digest() -> None
     )
 
 
+def test_branch_workflow_builds_preview_without_production_send_steps() -> None:
+    workflow = _workflow()
+    generate_step = workflow[
+        workflow.index("- name: Generate daily result") :
+        workflow.index("- name: Send persisted daily result")
+    ]
+    send_step = workflow[
+        workflow.index("- name: Send persisted daily result") :
+        workflow.index("- name: Persist latest web digest")
+    ]
+
+    assert "github.ref == 'refs/heads/main'" in generate_step
+    assert "github.ref == 'refs/heads/main'" in send_step
+    assert "- name: Run Python validation" in workflow
+    assert "- name: Build no-send preview" in workflow
+    assert "- name: Validate website" in workflow
+    assert "- name: Upload no-send preview" in workflow
+    assert (
+        "github.event_name == 'workflow_dispatch' && "
+        "github.ref != 'refs/heads/main'"
+    ) in workflow
+
+
 def test_workflow_serializes_manual_and_automatic_runs() -> None:
     workflow = _workflow()
     concurrency = workflow[

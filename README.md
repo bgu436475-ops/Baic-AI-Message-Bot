@@ -1,6 +1,6 @@
 # AI 新闻 Bot
 
-每天自动采集 AI 新闻，通过原文核查、硬门槛、7 天事件去重和确定性评分，将高决策价值内容编入日报，并自动发送到飞书“AI 增长内部群”。每天北京时间 09:05 附近会发起自动运行；实际送达时间取决于平台排队以及采集、模型和飞书处理耗时。默认使用 GitHub Actions，因此不需要单独购买服务器。
+每天自动采集 AI 新闻，通过原文核查、硬门槛、7 天事件去重和确定性评分，将高决策价值内容编入日报，并自动发送到飞书“AI 增长内部群”。日报由“全球 AI 重大事件”和“技术与工具”两条独立编辑流水线组成。每天北京时间 09:05 附近会发起自动运行；实际送达时间取决于平台排队以及采集、模型和飞书处理耗时。默认使用 GitHub Actions，因此不需要单独购买服务器。
 
 项目同时包含 `web/` 下的 AI SIGNAL 新闻网页。网页提供分类筛选、关键词搜索、信源优先级和去重方法说明；Bot 每次生成简报时，会更新本地 `web/public/data/latest.json`，生产工作流仅在飞书发送成功后提交并发布这份数据。
 
@@ -8,13 +8,14 @@
 
 ```mermaid
 flowchart LR
-    A[最多 80 条候选] --> B[规则粗筛，最多 20 条]
-    B --> C[只抓取公网 HTTPS 并逐跳核查来源]
-    C --> D[模型提取结构化证据，程序逐条绑定引文]
-    D --> E[程序硬门槛与 7 天事件去重]
-    E --> F[程序评分与互斥分榜]
-    F --> G[今日必看 ≤ 5 / 值得试用 ≤ 3 / 观察项 ≤ 3]
-    G --> H[自动运行处理完成后发送；可合法空榜]
+    A[最多 80 条候选] --> B1[全球重大事件粗筛]
+    A --> B2[技术与工具粗筛]
+    B1 --> C1[原文核查、事件评分与全球榜]
+    B2 --> C2[原文核查、硬门槛与 5/3/3 分榜]
+    C1 --> D[跨栏事件去重]
+    C2 --> D
+    D --> E[生成 schema v4 网页与飞书卡片]
+    E --> F[自动运行处理完成后发送；可合法空榜]
 ```
 
 ## 信息源策略
@@ -30,6 +31,18 @@ flowchart LR
 GitHub 新项目不是简单抓取 Trending，而是按主题、创建时间和最低 star 数查询；这样结果可复现，也能过滤大量刚创建但没有真实关注度的仓库。
 
 ## 分类
+
+全球重大事件栏目最多 5 条，覆盖以下五类：
+
+- 模型与产品 `models_products`
+- 公司与商业 `companies_business`
+- 政策与监管 `policy_regulation`
+- 科研突破 `research_breakthroughs`
+- 大众应用与社会影响 `adoption_society`
+
+全球事件按影响范围 30、全球相关性 20、时效性 20、证据质量 15、信息增量 10、表达清晰度 5 计分，总分至少 65 才可入选，同一类别最多 2 条。证据必须满足“一个已核验一手来源”或“两个不同域名的独立二手来源”；融资金额、观点、政策方向或科学结论若缺少相应事实与原文，直接淘汰。
+
+技术与工具栏目沿用以下分类：
 
 - 新模型 `new_models`
 - AI 编程 `ai_coding`
@@ -78,7 +91,7 @@ cp .env.example .env
 ai-news-bot --dry-run
 ```
 
-该命令会采集、核查并生成 schema v3 简报及私密审计，但不会调用飞书，也不会写入成功发送历史。确认 `web/public/data/latest.json` 后，使用持久化发送模式：
+该命令会采集、核查并生成 schema v4 简报及私密审计，但不会调用飞书，也不会写入成功发送历史。schema v4 的 `published` 状态必须至少包含一条全球事件或技术条目；`no_qualifying_items` 状态下两个栏目都必须为空。确认 `web/public/data/latest.json` 后，使用持久化发送模式：
 
 ```bash
 ai-news-bot --send-existing
@@ -122,7 +135,21 @@ ai-news-bot --dry-run --web-output web/public/data/latest.json
    - `OPENAI_API_KEY`（可选；未配置时自动使用 GitHub Models）
 4. 可在 Actions 页面手动运行 `Daily AI News` 做首次验证。
 
-飞书 webhook 会把消息固定发到创建该机器人的群，因此无需在代码中保存群 ID 或群名。消息使用飞书 V2 卡片，按“今日必看”“值得试用”“观察项”显示具体变化、影响对象、影响内容、建议行动、分数和可核查原文链接。
+飞书 webhook 会把消息固定发到创建该机器人的群，因此无需在代码中保存群 ID 或群名。消息使用飞书 V2 卡片，先展示一分钟叙事和全球重大事件，再展示最多 5 条技术与工具信息；标题使用纯文本，原始来源使用单独的明确链接。
+
+### 功能分支无发送验证
+
+在非 `main` 分支上手动运行 `Daily AI News` 时，工作流只运行 Python 测试、网页测试并生成离线预览，不会执行日报采集、飞书发送或网页写入。对应的本地验证命令为：
+
+```bash
+python -m pytest -q
+python scripts/build_global_events_preview.py --output-dir validation-output
+cd web
+npm run lint
+npm test
+```
+
+产物 `validation-output/latest-v4.json` 和 `validation-output/feishu-card.json` 可以用于评审 schema v4 和卡片布局。该分支验证路径不读取 `FEISHU_WEBHOOK_URL` 或 `FEISHU_SIGNING_SECRET`，因此不能向任何飞书群发送消息。
 
 ### 预留的一键总结通道
 
