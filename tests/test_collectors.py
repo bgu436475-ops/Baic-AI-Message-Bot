@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
 import requests
@@ -186,3 +187,112 @@ def test_disabled_or_unconfigured_collectors_attempt_nothing() -> None:
         .attempted
         == 0
     )
+
+
+def test_rss_collector_propagates_global_lane(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = RSSSource(
+        name="Official News",
+        url="https://example.com/feed",
+        tier=1,
+        weight=1,
+        category_hints=["industry_business"],
+        lanes=["global", "technical"],
+        keyword_filter=False,
+    )
+    response = SimpleNamespace(
+        content=b"<rss />",
+        raise_for_status=lambda: None,
+    )
+    parsed = SimpleNamespace(
+        bozo=False,
+        entries=[
+            {
+                "link": "https://example.com/news",
+                "title": "AI policy takes effect",
+                "summary": "The binding rules now apply.",
+                "published_parsed": (2026, 7, 23, 0, 30, 0, 0, 0, 0),
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        "ai_news_bot.collectors.requests.get",
+        lambda *args, **kwargs: response,
+    )
+    monkeypatch.setattr(
+        "ai_news_bot.collectors.feedparser.parse",
+        lambda content: parsed,
+    )
+
+    items = RSSCollector().collect([source], 48, now=NOW)
+
+    assert items[0].lane_hints == ["global", "technical"]
+
+
+def test_webpage_collector_propagates_global_lane(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = WebPageSource(
+        name="Official News",
+        url="https://example.com/news",
+        tier=1,
+        weight=1,
+        category_hints=["industry_business"],
+        lanes=["global"],
+        item_selector="a.news",
+        title_selector="h2",
+        date_selector="time",
+        summary_selector="p",
+    )
+    response = SimpleNamespace(
+        text=(
+            '<a class="news" href="/launch"><h2>AI product launched</h2>'
+            "<time>2026-07-23T00:30:00Z</time><p>Available now.</p></a>"
+        ),
+        raise_for_status=lambda: None,
+    )
+    monkeypatch.setattr(
+        "ai_news_bot.collectors.requests.get",
+        lambda *args, **kwargs: response,
+    )
+
+    items = WebPageCollector().collect([source], 48, now=NOW)
+
+    assert items[0].lane_hints == ["global"]
+
+
+def test_github_collector_propagates_technical_lane(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    query = GitHubQuery(
+        name="AI 新项目",
+        query="topic:ai created:>={since}",
+        lanes=["technical"],
+    )
+    response = SimpleNamespace(
+        raise_for_status=lambda: None,
+        json=lambda: {
+            "items": [
+                {
+                    "html_url": "https://github.com/acme/project",
+                    "full_name": "acme/project",
+                    "description": "AI project",
+                    "stargazers_count": 30,
+                    "forks_count": 2,
+                    "created_at": "2026-07-22T00:00:00Z",
+                }
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        "ai_news_bot.collectors.requests.get",
+        lambda *args, **kwargs: response,
+    )
+
+    items = GitHubCollector().collect(
+        GitHubSources(queries=[query]),
+        now=NOW,
+    )
+
+    assert items[0].lane_hints == ["technical"]

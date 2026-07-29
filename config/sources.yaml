@@ -5,6 +5,7 @@ rss:
     tier: 1
     weight: 1.00
     category_hints: [new_models, agents, industry_business]
+    lanes: [global, technical]
     keyword_filter: false
 
   - name: Google DeepMind
@@ -12,6 +13,7 @@ rss:
     tier: 1
     weight: 1.00
     category_hints: [new_models, agents, image_video, industry_business]
+    lanes: [global, technical]
     keyword_filter: false
 
   - name: Google Developers Blog
@@ -19,6 +21,7 @@ rss:
     tier: 1
     weight: 0.95
     category_hints: [new_models, ai_coding, agents]
+    lanes: [global, technical]
     keyword_filter: true
 
   - name: NVIDIA Technical Blog - Generative AI
@@ -26,7 +29,32 @@ rss:
     tier: 1
     weight: 0.95
     category_hints: [new_models, image_video, open_source]
+    lanes: [global, technical]
     keyword_filter: false
+
+  - name: Microsoft Official Blog
+    url: https://blogs.microsoft.com/feed/
+    tier: 1
+    weight: 0.98
+    category_hints: [industry_business, new_models]
+    lanes: [global, technical]
+    keyword_filter: true
+
+  - name: Apple Machine Learning Research
+    url: https://machinelearning.apple.com/rss.xml
+    tier: 1
+    weight: 0.98
+    category_hints: [new_models, industry_business]
+    lanes: [global, technical]
+    keyword_filter: true
+
+  - name: AWS Machine Learning Blog
+    url: https://aws.amazon.com/blogs/machine-learning/feed/
+    tier: 1
+    weight: 0.92
+    category_hints: [new_models, agents, industry_business]
+    lanes: [global, technical]
+    keyword_filter: true
 
   # 第二层：开发者生态、协议与开源社区
   - name: Hugging Face Blog
@@ -34,6 +62,7 @@ rss:
     tier: 2
     weight: 0.90
     category_hints: [new_models, open_source, image_video]
+    lanes: [global, technical]
     keyword_filter: true
 
   - name: GitHub AI & ML
@@ -41,6 +70,7 @@ rss:
     tier: 2
     weight: 0.90
     category_hints: [ai_coding, agents, open_source]
+    lanes: [technical]
     keyword_filter: false
 
   - name: GitHub Changelog
@@ -48,6 +78,7 @@ rss:
     tier: 2
     weight: 0.85
     category_hints: [ai_coding, agents]
+    lanes: [technical]
     keyword_filter: true
 
   - name: ComfyUI Blog
@@ -55,6 +86,7 @@ rss:
     tier: 2
     weight: 0.95
     category_hints: [comfyui, image_video, open_source]
+    lanes: [technical]
     keyword_filter: false
 
   - name: ComfyUI Engineering Blog
@@ -62,6 +94,7 @@ rss:
     tier: 2
     weight: 0.95
     category_hints: [comfyui, image_video, open_source]
+    lanes: [technical]
     keyword_filter: false
 
   - name: Model Context Protocol Blog
@@ -69,6 +102,7 @@ rss:
     tier: 1
     weight: 1.00
     category_hints: [mcp, agents]
+    lanes: [technical]
     keyword_filter: false
 
   # 第三层：行业媒体（用于补足商业、融资和重大行业动态）
@@ -77,6 +111,7 @@ rss:
     tier: 3
     weight: 0.75
     category_hints: [industry_business]
+    lanes: [global, technical]
     keyword_filter: false
 
   - name: VentureBeat AI
@@ -84,6 +119,7 @@ rss:
     tier: 3
     weight: 0.72
     category_hints: [industry_business, agents]
+    lanes: [global, technical]
     keyword_filter: false
 
   - name: The Decoder
@@ -91,6 +127,7 @@ rss:
     tier: 3
     weight: 0.70
     category_hints: [new_models, industry_business]
+    lanes: [global, technical]
     keyword_filter: true
 
 # 没有可靠 RSS、但有稳定官方列表页的来源。
@@ -100,6 +137,7 @@ webpages:
     tier: 1
     weight: 1.00
     category_hints: [new_models, ai_coding, agents, mcp, industry_business]
+    lanes: [global, technical]
     item_selector: a[href^="/news/"]
     title_selector: h2, h3, h4, span[class*="title"]
     date_selector: time
@@ -113,18 +151,24 @@ github:
     - name: AI 新项目
       query: topic:artificial-intelligence created:>={since} stars:>=30
       category_hints: [open_source]
+      lanes: [technical]
     - name: Agent 新项目
       query: topic:ai-agent created:>={since} stars:>=20
       category_hints: [agents, open_source]
+      lanes: [technical]
     - name: 生成式 AI 新项目
       query: topic:generative-ai created:>={since} stars:>=30
       category_hints: [image_video, open_source]
+      lanes: [technical]
     - name: MCP 新项目
       query: model-context-protocol in:name,description,readme created:>={since} stars:>=10
       category_hints: [mcp, open_source]
+      lanes: [technical]
     - name: ComfyUI 新项目
       query: comfyui in:name,description,readme created:>={since} stars:>=10
       category_hints: [comfyui, image_video, open_source]
+      lanes: [technical]
     - name: AI Skill 新项目
       query: topic:agent-skill created:>={since} stars:>=10
       category_hints: [skills, agents, open_source]
+      lanes: [technical]

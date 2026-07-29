@@ -14,6 +14,14 @@ def test_source_config_loads() -> None:
     assert any(source.name == "Anthropic News" for source in config.webpages)
 
 
+def test_every_source_declares_a_lane_and_github_is_technical_only() -> None:
+    config = load_sources(Path("config/sources.yaml"))
+
+    assert all(source.lanes for source in [*config.rss, *config.webpages])
+    assert all(query.lanes == ["technical"] for query in config.github.queries)
+    assert any("global" in source.lanes for source in config.rss)
+
+
 def test_ai_backend_prefers_openai_then_github_models() -> None:
     openai = Settings(openai_api_key="openai-key", github_token="github-token")
     assert openai.ai_backend() == ("openai-key", "gpt-5.6-luna", None, "OpenAI")

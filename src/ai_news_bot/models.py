@@ -76,6 +76,9 @@ class Candidate(BaseModel):
     source_weight: float = Field(ge=0, le=2)
     published_at: datetime
     category_hints: list[Category] = Field(default_factory=list)
+    lane_hints: list[EditorialLane] = Field(
+        default_factory=lambda: ["technical"]
+    )
     metrics: dict[str, int | float | str] = Field(default_factory=dict)
 
 

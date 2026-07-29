@@ -6,7 +6,7 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field
 
-from .models import Category
+from .models import Category, EditorialLane
 
 
 class RSSSource(BaseModel):
@@ -15,6 +15,9 @@ class RSSSource(BaseModel):
     tier: int = Field(ge=1, le=3)
     weight: float = Field(ge=0, le=2)
     category_hints: list[Category] = Field(default_factory=list)
+    lanes: list[EditorialLane] = Field(
+        default_factory=lambda: ["technical"]
+    )
     keyword_filter: bool = True
 
 
@@ -22,6 +25,9 @@ class GitHubQuery(BaseModel):
     name: str
     query: str
     category_hints: list[Category] = Field(default_factory=list)
+    lanes: list[EditorialLane] = Field(
+        default_factory=lambda: ["technical"]
+    )
 
 
 class WebPageSource(BaseModel):
@@ -30,6 +36,9 @@ class WebPageSource(BaseModel):
     tier: int = Field(ge=1, le=3)
     weight: float = Field(ge=0, le=2)
     category_hints: list[Category] = Field(default_factory=list)
+    lanes: list[EditorialLane] = Field(
+        default_factory=lambda: ["technical"]
+    )
     item_selector: str
     title_selector: str
     date_selector: str

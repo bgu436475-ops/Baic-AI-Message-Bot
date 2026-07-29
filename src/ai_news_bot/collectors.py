@@ -178,6 +178,7 @@ class RSSCollector:
                     source_weight=source.weight,
                     published_at=published,
                     category_hints=source.category_hints,
+                    lane_hints=source.lanes,
                 )
             )
         return candidates
@@ -283,6 +284,7 @@ class WebPageCollector:
                     source_weight=source.weight,
                     published_at=published,
                     category_hints=source.category_hints,
+                    lane_hints=source.lanes,
                 )
             )
             seen_urls.add(url)
@@ -366,6 +368,7 @@ class GitHubCollector:
                             ),
                             published_at=published,
                             category_hints=query.category_hints,
+                            lane_hints=query.lanes,
                             metrics={"stars": stars, "forks": forks},
                         )
                     )
