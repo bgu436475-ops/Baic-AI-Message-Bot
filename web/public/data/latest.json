@@ -1,32 +1,227 @@
 {
   "schema_version": 3,
-  "run_status": "no_qualifying_items",
-  "generated_at": "2026-07-28T01:36:23.891223Z",
-  "candidate_count": 68,
+  "run_status": "published",
+  "generated_at": "2026-07-29T01:06:24.200405Z",
+  "candidate_count": 74,
   "source_count": 13,
-  "latest_published_at": null,
+  "latest_published_at": "2026-07-27T00:57:50Z",
   "fresh_count_24h": 0,
   "lookback_hours": 36,
   "fallback_used": false,
   "boards": {
-    "must_read": [],
+    "must_read": [
+      {
+        "candidate_id": "e738e46dadf4156a",
+        "original_title": "OneInterface/stormy-cookbook",
+        "title_en": "OneInterface/stormy-cookbook",
+        "summary_en": "Open-source cookbook for the Stormy Social Data API and MCP server (Model Context Protocol) — one REST API for the TikTok API, YouTube API, Instagram API, LinkedIn API, X (Twitter) API and Reddit API. Search creators, resolve profiles, read posts and find verified emails from Claude, Cursor, Codex, ChatGPT or curl. On…",
+        "title_zh": "",
+        "summary_zh": "",
+        "concrete_change": "One REST API for the TikTok API, YouTube API, Instagram API, LinkedIn API, X (Twitter) API and Reddit API.；find verified emails from Claude, Cursor, Codex, ChatGPT or curl.；One key, no scrapers.",
+        "affected_audience": [
+          "Developers",
+          "Data Scientists"
+        ],
+        "affected_area": [
+          "API",
+          "Documentation"
+        ],
+        "recommended_action": [
+          "Developers应在7天内针对API进行小范围验证，再决定是否扩大使用。依据：One REST API for the TikTok API, YouTube API, Instagram API, LinkedIn API, X (Twitter) API and Reddit API."
+        ],
+        "evidence_url": "https://github.com/OneInterface/stormy-cookbook",
+        "verification_status": "verified",
+        "event_fingerprint": "oneinterface|stormy%20cookbook|new%20release%20of%20the%20stormy%20social%20data%20api%20and%20mcp%20server%20appears%20to%20integrate%20multiple%20social%20media%20apis%20into%20one%20rest%20api.||",
+        "update_of": null,
+        "primary_entity": "OneInterface",
+        "product_or_model": "Stormy Cookbook",
+        "event_entities": [],
+        "change_signature": "New release of the Stormy Social Data API and MCP server appears to integrate multiple social media APIs into one REST API.",
+        "version_or_metric": "",
+        "effective_date": null,
+        "resource_available": false,
+        "scientific_verified": false,
+        "source": "GitHub · MCP 新项目",
+        "published_at": "2026-07-27T00:57:50Z",
+        "category": "open_source",
+        "extra_categories": [],
+        "score": {
+          "relevance": 25,
+          "actionability": 14,
+          "specificity": 15,
+          "information_gain": 15,
+          "evidence_quality": 14,
+          "time_sensitivity": 7,
+          "penalties": 0,
+          "total": 90
+        },
+        "board": "must_read"
+      }
+    ],
     "try_now": [],
-    "watch": []
+    "watch": [
+      {
+        "candidate_id": "0de35240709b2a42",
+        "original_title": "realchendahuang/pi-config",
+        "title_en": "realchendahuang/pi-config",
+        "summary_en": "My Pi coding agent setup: 17 plugins + 18 global skills + 2 MCP servers, with a one-line installer and tutorial README. GitHub: 100 stars, 3 forks.",
+        "title_zh": "",
+        "summary_zh": "",
+        "concrete_change": "My Pi coding agent setup: 17 plugins + 18 global skills + 2 MCP servers",
+        "affected_audience": [
+          "developers",
+          "programmers"
+        ],
+        "affected_area": [
+          "plugins",
+          "skills",
+          "MCP servers",
+          "one-line installer"
+        ],
+        "recommended_action": [
+          "developers应在7天内针对plugins进行小范围验证，再决定是否扩大使用。依据：My Pi coding agent setup: 17 plugins + 18 global skills + 2 MCP servers"
+        ],
+        "evidence_url": "https://github.com/realchendahuang/pi-config",
+        "verification_status": "verified",
+        "event_fingerprint": "realchendahuang|pi-config|1.0|1.0|",
+        "update_of": null,
+        "primary_entity": "realchendahuang",
+        "product_or_model": "pi-config",
+        "event_entities": [],
+        "change_signature": "1.0",
+        "version_or_metric": "1.0",
+        "effective_date": null,
+        "resource_available": true,
+        "scientific_verified": false,
+        "source": "GitHub · MCP 新项目",
+        "published_at": "2026-07-25T09:35:04Z",
+        "category": "agents",
+        "extra_categories": [],
+        "score": {
+          "relevance": 25,
+          "actionability": 14,
+          "specificity": 11,
+          "information_gain": 15,
+          "evidence_quality": 14,
+          "time_sensitivity": 2,
+          "penalties": -10,
+          "total": 71
+        },
+        "board": "watch"
+      }
+    ]
   },
-  "items": [],
+  "items": [
+    {
+      "candidate_id": "e738e46dadf4156a",
+      "original_title": "OneInterface/stormy-cookbook",
+      "title_en": "OneInterface/stormy-cookbook",
+      "summary_en": "Open-source cookbook for the Stormy Social Data API and MCP server (Model Context Protocol) — one REST API for the TikTok API, YouTube API, Instagram API, LinkedIn API, X (Twitter) API and Reddit API. Search creators, resolve profiles, read posts and find verified emails from Claude, Cursor, Codex, ChatGPT or curl. On…",
+      "title_zh": "",
+      "summary_zh": "",
+      "concrete_change": "One REST API for the TikTok API, YouTube API, Instagram API, LinkedIn API, X (Twitter) API and Reddit API.；find verified emails from Claude, Cursor, Codex, ChatGPT or curl.；One key, no scrapers.",
+      "affected_audience": [
+        "Developers",
+        "Data Scientists"
+      ],
+      "affected_area": [
+        "API",
+        "Documentation"
+      ],
+      "recommended_action": [
+        "Developers应在7天内针对API进行小范围验证，再决定是否扩大使用。依据：One REST API for the TikTok API, YouTube API, Instagram API, LinkedIn API, X (Twitter) API and Reddit API."
+      ],
+      "evidence_url": "https://github.com/OneInterface/stormy-cookbook",
+      "verification_status": "verified",
+      "event_fingerprint": "oneinterface|stormy%20cookbook|new%20release%20of%20the%20stormy%20social%20data%20api%20and%20mcp%20server%20appears%20to%20integrate%20multiple%20social%20media%20apis%20into%20one%20rest%20api.||",
+      "update_of": null,
+      "primary_entity": "OneInterface",
+      "product_or_model": "Stormy Cookbook",
+      "event_entities": [],
+      "change_signature": "New release of the Stormy Social Data API and MCP server appears to integrate multiple social media APIs into one REST API.",
+      "version_or_metric": "",
+      "effective_date": null,
+      "resource_available": false,
+      "scientific_verified": false,
+      "source": "GitHub · MCP 新项目",
+      "published_at": "2026-07-27T00:57:50Z",
+      "category": "open_source",
+      "extra_categories": [],
+      "score": {
+        "relevance": 25,
+        "actionability": 14,
+        "specificity": 15,
+        "information_gain": 15,
+        "evidence_quality": 14,
+        "time_sensitivity": 7,
+        "penalties": 0,
+        "total": 90
+      },
+      "board": "must_read"
+    },
+    {
+      "candidate_id": "0de35240709b2a42",
+      "original_title": "realchendahuang/pi-config",
+      "title_en": "realchendahuang/pi-config",
+      "summary_en": "My Pi coding agent setup: 17 plugins + 18 global skills + 2 MCP servers, with a one-line installer and tutorial README. GitHub: 100 stars, 3 forks.",
+      "title_zh": "",
+      "summary_zh": "",
+      "concrete_change": "My Pi coding agent setup: 17 plugins + 18 global skills + 2 MCP servers",
+      "affected_audience": [
+        "developers",
+        "programmers"
+      ],
+      "affected_area": [
+        "plugins",
+        "skills",
+        "MCP servers",
+        "one-line installer"
+      ],
+      "recommended_action": [
+        "developers应在7天内针对plugins进行小范围验证，再决定是否扩大使用。依据：My Pi coding agent setup: 17 plugins + 18 global skills + 2 MCP servers"
+      ],
+      "evidence_url": "https://github.com/realchendahuang/pi-config",
+      "verification_status": "verified",
+      "event_fingerprint": "realchendahuang|pi-config|1.0|1.0|",
+      "update_of": null,
+      "primary_entity": "realchendahuang",
+      "product_or_model": "pi-config",
+      "event_entities": [],
+      "change_signature": "1.0",
+      "version_or_metric": "1.0",
+      "effective_date": null,
+      "resource_available": true,
+      "scientific_verified": false,
+      "source": "GitHub · MCP 新项目",
+      "published_at": "2026-07-25T09:35:04Z",
+      "category": "agents",
+      "extra_categories": [],
+      "score": {
+        "relevance": 25,
+        "actionability": 14,
+        "specificity": 11,
+        "information_gain": 15,
+        "evidence_quality": 14,
+        "time_sensitivity": 2,
+        "penalties": -10,
+        "total": 71
+      },
+      "board": "watch"
+    }
+  ],
   "pipeline_stats": {
-    "candidate_count": 68,
-    "shortlist_count": 19,
-    "source_verified_count": 19,
-    "rejected_count": 19,
+    "candidate_count": 74,
+    "shortlist_count": 20,
+    "source_verified_count": 20,
+    "rejected_count": 18,
     "top_rejection_reasons": {
-      "missing_action": 19,
-      "unverified_primary_source": 15,
-      "invalid_evidence_anchor": 13,
-      "missing_affected_audience": 2,
+      "unverified_primary_source": 17,
+      "invalid_evidence_anchor": 15,
+      "scientific_claim_unverified": 2,
       "funding_only": 1,
+      "missing_action": 1,
       "missing_affected_area": 1,
-      "scientific_claim_unverified": 1
+      "policy_without_terms_or_date": 1
     }
   }
 }
