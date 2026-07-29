@@ -27,6 +27,7 @@ from ai_news_bot.models import (
     EditorialNewsItem,
     EvidenceAnchor,
     EvidenceRecord,
+    GlobalPipelineStats,
     PipelineStats,
     ScoreBreakdown,
 )
@@ -122,6 +123,13 @@ def _published_digest() -> EditorialDigest:
         generated_at=NOW,
         candidate_count=1,
         source_count=1,
+        daily_narrative_zh="今天有一条技术情报通过核验。",
+        global_pipeline_stats=GlobalPipelineStats(
+            candidate_count=0,
+            shortlist_count=0,
+            source_verified_count=0,
+            rejected_count=0,
+        ),
         boards=DigestBoards(must_read=[item]),
         items=[item],
         pipeline_stats=PipelineStats(
@@ -139,6 +147,13 @@ def _legal_empty_digest() -> EditorialDigest:
         generated_at=NOW,
         candidate_count=1,
         source_count=1,
+        daily_narrative_zh="今天没有技术情报通过核验。",
+        global_pipeline_stats=GlobalPipelineStats(
+            candidate_count=0,
+            shortlist_count=0,
+            source_verified_count=0,
+            rejected_count=0,
+        ),
         boards=DigestBoards(),
         items=[],
         pipeline_stats=PipelineStats(
@@ -693,7 +708,7 @@ def test_production_pipeline_wiring_uses_backend_adapter_and_real_stages(
 
 
 @pytest.mark.parametrize("dry_run", [True, False])
-def test_generation_writes_schema_v3_digest_and_private_audit_without_sending_or_state_mutation(
+def test_generation_writes_schema_v4_digest_and_private_audit_without_sending_or_state_mutation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     dry_run: bool,
@@ -762,7 +777,7 @@ def test_generation_writes_schema_v3_digest_and_private_audit_without_sending_or
     assert pipeline_calls == [[_candidate()]]
     assert json.loads(web_output.read_text(encoding="utf-8"))[
         "schema_version"
-    ] == 3
+    ] == 4
     assert settings.audit_path.exists()
 
 

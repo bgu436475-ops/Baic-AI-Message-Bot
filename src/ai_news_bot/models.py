@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from datetime import date, datetime
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
@@ -10,6 +11,21 @@ from pydantic import BaseModel, Field, computed_field, field_validator, model_va
 
 EVIDENCE_URL_LIMIT_BYTES = 256
 _DATE_ONLY = re.compile(r"\d{4}-\d{2}-\d{2}")
+_CJK_CHARACTER = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
+
+
+def _validated_chinese(value: str, field_name: str) -> str:
+    normalized = value.strip()
+    if len(_CJK_CHARACTER.findall(normalized)) < 2:
+        raise ValueError(f"{field_name} must contain at least two CJK characters")
+    return normalized
+
+
+def _validated_chinese_list(values: list[str], field_name: str) -> list[str]:
+    return [
+        _validated_chinese(value, f"{field_name}[{index}]")
+        for index, value in enumerate(values)
+    ]
 
 
 Category = Literal[
@@ -23,6 +39,7 @@ Category = Literal[
     "skills",
     "industry_business",
 ]
+EditorialLane = Literal["global", "technical"]
 
 CATEGORY_LABELS: dict[str, str] = {
     "new_models": "新模型",
@@ -122,6 +139,14 @@ SourceType = Literal[
 ]
 VerificationStatus = Literal["verified", "unavailable", "blocked", "insufficient"]
 BoardName = Literal["must_read", "try_now", "watch"]
+GlobalEventCategory = Literal[
+    "models_products",
+    "companies_business",
+    "policy_regulation",
+    "research_breakthroughs",
+    "adoption_society",
+]
+GlobalImpactScope = Literal["global", "multi_market", "single_market", "niche"]
 RejectionCode = Literal[
     "funding_only",
     "opinion_without_evidence",
@@ -154,8 +179,8 @@ class EvidenceAnchor(BaseModel):
 
 class EvidenceRecord(BaseModel):
     candidate_id: str
-    title_zh: str
-    summary_zh: str
+    title_zh: str = Field(min_length=1)
+    summary_zh: str = Field(min_length=1)
     category: Category
     extra_categories: list[Category] = Field(default_factory=list, max_length=3)
     source_url: str
@@ -186,6 +211,124 @@ class EvidenceRecord(BaseModel):
     marketing_exaggeration: bool = False
     evidence_covers_full_claim: bool = True
     original_source_status: VerificationStatus | None = None
+
+    @field_validator("title_zh", "summary_zh")
+    @classmethod
+    def validate_chinese_content(cls, value: str, info: object) -> str:
+        return _validated_chinese(value, getattr(info, "field_name", "content"))
+
+
+class GlobalEventScore(BaseModel):
+    impact: int = Field(ge=0, le=30)
+    global_relevance: int = Field(ge=0, le=20)
+    recency: int = Field(ge=0, le=20)
+    evidence_quality: int = Field(ge=0, le=15)
+    information_gain: int = Field(ge=0, le=10)
+    clarity: int = Field(ge=0, le=5)
+
+    @computed_field
+    @property
+    def total(self) -> int:
+        return (
+            self.impact
+            + self.global_relevance
+            + self.recency
+            + self.evidence_quality
+            + self.information_gain
+            + self.clarity
+        )
+
+
+class GlobalEventEvidence(BaseModel):
+    candidate_id: str = Field(min_length=1, max_length=160)
+    occurred: bool
+    material_change: bool
+    category: GlobalEventCategory
+    title_zh: str = Field(min_length=1, max_length=80)
+    what_happened_zh: str = Field(min_length=1, max_length=360)
+    why_it_matters_zh: str = Field(min_length=1, max_length=320)
+    affected_groups_zh: list[str] = Field(min_length=1, max_length=5)
+    key_facts: list[str] = Field(min_length=1, max_length=5)
+    evidence_anchors: list[EvidenceAnchor] = Field(min_length=1, max_length=8)
+    source_url: str = Field(max_length=1000)
+    source_type: SourceType
+    verification_status: VerificationStatus
+    primary_entity: str = Field(min_length=1, max_length=160)
+    product_or_policy: str = Field(default="", max_length=160)
+    change_signature: str = Field(min_length=1, max_length=160)
+    version_or_metric: str = Field(default="", max_length=120)
+    effective_date: str | None = Field(default=None, max_length=32)
+    event_entities: list[str] = Field(default_factory=list, max_length=10)
+    impact_scope: GlobalImpactScope
+    geographic_scope: list[str] = Field(default_factory=list, max_length=8)
+    funding_only: bool = False
+    opinion_only: bool = False
+    policy_claim: bool = False
+    policy_text_available: bool = False
+    title_body_conflict: bool = False
+    scientific_claim: bool = False
+    scientific_verified: bool = False
+
+    @field_validator("title_zh", "what_happened_zh", "why_it_matters_zh")
+    @classmethod
+    def validate_chinese_content(cls, value: str, info: object) -> str:
+        return _validated_chinese(value, getattr(info, "field_name", "content"))
+
+    @field_validator("affected_groups_zh", "key_facts")
+    @classmethod
+    def validate_chinese_list(cls, value: list[str], info: object) -> list[str]:
+        return _validated_chinese_list(
+            value,
+            getattr(info, "field_name", "content"),
+        )
+
+
+class GlobalEventGateDecision(BaseModel):
+    eligible: bool
+    rejection_reasons: list[str] = Field(default_factory=list, max_length=20)
+
+
+class GlobalEventItem(BaseModel):
+    event_id: str = Field(min_length=1, max_length=1000)
+    candidate_id: str = Field(min_length=1, max_length=160)
+    category: GlobalEventCategory
+    title_zh: str = Field(min_length=1, max_length=80)
+    what_happened_zh: str = Field(min_length=1, max_length=360)
+    why_it_matters_zh: str = Field(min_length=1, max_length=320)
+    affected_groups_zh: list[str] = Field(min_length=1, max_length=5)
+    key_facts: list[str] = Field(min_length=1, max_length=5)
+    source_name: str = Field(min_length=1, max_length=120)
+    source_url: str = Field(max_length=1000)
+    supporting_urls: list[str] = Field(default_factory=list, max_length=2)
+    published_at: datetime
+    primary_entity: str = Field(min_length=1, max_length=160)
+    product_or_policy: str = Field(default="", max_length=160)
+    change_signature: str = Field(min_length=1, max_length=160)
+    version_or_metric: str = Field(default="", max_length=120)
+    effective_date: str | None = Field(default=None, max_length=32)
+    event_entities: list[str] = Field(default_factory=list, max_length=10)
+    score: GlobalEventScore
+
+    @field_validator("title_zh", "what_happened_zh", "why_it_matters_zh")
+    @classmethod
+    def validate_chinese_content(cls, value: str, info: object) -> str:
+        return _validated_chinese(value, getattr(info, "field_name", "content"))
+
+    @field_validator("affected_groups_zh", "key_facts")
+    @classmethod
+    def validate_chinese_list(cls, value: list[str], info: object) -> list[str]:
+        return _validated_chinese_list(
+            value,
+            getattr(info, "field_name", "content"),
+        )
+
+
+class GlobalPipelineStats(BaseModel):
+    candidate_count: int = Field(ge=0)
+    shortlist_count: int = Field(ge=0)
+    source_verified_count: int = Field(ge=0)
+    rejected_count: int = Field(ge=0)
+    top_rejection_reasons: dict[str, int] = Field(default_factory=dict)
 
 
 class GateDecision(BaseModel):
@@ -223,8 +366,8 @@ class EditorialDraft(BaseModel):
     original_title: str = Field(max_length=120)
     title_en: str = Field(default="", max_length=120)
     summary_en: str = Field(default="", max_length=320)
-    title_zh: str = Field(max_length=80)
-    summary_zh: str = Field(max_length=220)
+    title_zh: str = Field(min_length=1, max_length=80)
+    summary_zh: str = Field(min_length=1, max_length=220)
     concrete_change: str = Field(max_length=1200)
     affected_audience: list[
         Annotated[str, Field(max_length=160)]
@@ -257,6 +400,11 @@ class EditorialDraft(BaseModel):
         max_length=3,
     )
     score: ScoreBreakdown
+
+    @field_validator("title_zh", "summary_zh")
+    @classmethod
+    def validate_chinese_content(cls, value: str, info: object) -> str:
+        return _validated_chinese(value, getattr(info, "field_name", "content"))
 
     @field_validator("evidence_url")
     @classmethod
@@ -330,8 +478,29 @@ class PipelineStats(BaseModel):
     top_rejection_reasons: dict[str, int] = Field(default_factory=dict)
 
 
+class TechnicalDigestSlice(BaseModel):
+    generated_at: datetime
+    candidate_count: int = Field(ge=0)
+    source_count: int = Field(ge=0)
+    lookback_hours: int = Field(ge=0)
+    fallback_used: bool = False
+    boards: DigestBoards
+    items: list[EditorialNewsItem] = Field(max_length=11)
+    pipeline_stats: PipelineStats
+
+    @model_validator(mode="after")
+    def validate_contract(self) -> "TechnicalDigestSlice":
+        flattened = self.boards.flatten()
+        fingerprints = [item.event_fingerprint for item in flattened]
+        if len(fingerprints) != len(set(fingerprints)):
+            raise ValueError("board items must be mutually exclusive")
+        if self.items != flattened:
+            raise ValueError("items must equal the flattened boards")
+        return self
+
+
 class EditorialDigest(BaseModel):
-    schema_version: Literal[3] = 3
+    schema_version: Literal[4] = 4
     run_status: Literal["published", "no_qualifying_items"] = "published"
     generated_at: datetime
     candidate_count: int
@@ -340,9 +509,17 @@ class EditorialDigest(BaseModel):
     fresh_count_24h: int = 0
     lookback_hours: int = 36
     fallback_used: bool = False
+    daily_narrative_zh: str = Field(min_length=1, max_length=600)
+    global_events: list[GlobalEventItem] = Field(default_factory=list, max_length=5)
+    global_pipeline_stats: GlobalPipelineStats
     boards: DigestBoards
     items: list[EditorialNewsItem] = Field(max_length=11)
     pipeline_stats: PipelineStats
+
+    @field_validator("daily_narrative_zh")
+    @classmethod
+    def validate_daily_narrative(cls, value: str) -> str:
+        return _validated_chinese(value, "daily_narrative_zh")
 
     @model_validator(mode="after")
     def validate_contract(self) -> "EditorialDigest":
@@ -352,8 +529,17 @@ class EditorialDigest(BaseModel):
             raise ValueError("board items must be mutually exclusive")
         if self.items != flattened:
             raise ValueError("items must equal the flattened boards")
-        if self.run_status == "published" and not flattened:
-            raise ValueError("published digests require an item")
-        if self.run_status == "no_qualifying_items" and flattened:
-            raise ValueError("empty digests cannot include items")
+        event_ids = [event.event_id for event in self.global_events]
+        if len(event_ids) != len(set(event_ids)):
+            raise ValueError("global events must have unique event IDs")
+        category_counts = Counter(event.category for event in self.global_events)
+        if any(count > 2 for count in category_counts.values()):
+            raise ValueError("global event categories are capped at two items")
+        if set(event_ids).intersection(fingerprints):
+            raise ValueError("global and technical lanes must not repeat events")
+        has_content = bool(self.global_events or flattened)
+        if self.run_status == "published" and not has_content:
+            raise ValueError("published digests require global or technical content")
+        if self.run_status == "no_qualifying_items" and has_content:
+            raise ValueError("empty digests cannot include global or technical content")
         return self

@@ -15,6 +15,7 @@ from ai_news_bot.models import (
     EditorialNewsItem,
     EvidenceAnchor,
     EvidenceRecord,
+    GlobalPipelineStats,
     PipelineStats,
     ScoreBreakdown,
 )
@@ -123,6 +124,13 @@ def digest_with(record: EvidenceRecord) -> EditorialDigest:
         generated_at=NOW,
         candidate_count=1,
         source_count=1,
+        daily_narrative_zh="今天有一条技术情报通过核验。",
+        global_pipeline_stats=GlobalPipelineStats(
+            candidate_count=0,
+            shortlist_count=0,
+            source_verified_count=0,
+            rejected_count=0,
+        ),
         boards=DigestBoards(must_read=[item]),
         items=[item],
         pipeline_stats=PipelineStats(

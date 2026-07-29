@@ -1,0 +1,71 @@
+{
+  "schema_version": 4,
+  "run_status": "published",
+  "generated_at": "2026-07-29T01:05:00Z",
+  "candidate_count": 20,
+  "source_count": 8,
+  "latest_published_at": "2026-07-29T00:30:00Z",
+  "fresh_count_24h": 1,
+  "lookback_hours": 48,
+  "fallback_used": false,
+  "daily_narrative_zh": "今天的重点是 Acme 正式发布 Model X。",
+  "global_events": [
+    {
+      "event_id": "acme|model-x|release|2026-07-29",
+      "candidate_id": "global-model-x",
+      "category": "models_products",
+      "title_zh": "Acme 正式发布 Model X",
+      "what_happened_zh": "Acme 于 7 月 29 日正式发布 Model X，并向公众开放使用。",
+      "why_it_matters_zh": "该产品改变了普通用户可直接使用的模型能力范围。",
+      "affected_groups_zh": [
+        "普通用户",
+        "企业采购者"
+      ],
+      "key_facts": [
+        "2026-07-29 正式发布"
+      ],
+      "source_name": "Acme Newsroom",
+      "source_url": "https://example.com/model-x",
+      "supporting_urls": [],
+      "published_at": "2026-07-29T00:30:00Z",
+      "primary_entity": "Acme",
+      "product_or_policy": "Model X",
+      "change_signature": "public-release",
+      "version_or_metric": "Model X",
+      "effective_date": "2026-07-29",
+      "event_entities": [
+        "Acme",
+        "Model X"
+      ],
+      "score": {
+        "impact": 24,
+        "global_relevance": 16,
+        "recency": 20,
+        "evidence_quality": 15,
+        "information_gain": 10,
+        "clarity": 5,
+        "total": 90
+      }
+    }
+  ],
+  "global_pipeline_stats": {
+    "candidate_count": 20,
+    "shortlist_count": 8,
+    "source_verified_count": 8,
+    "rejected_count": 7,
+    "top_rejection_reasons": {}
+  },
+  "boards": {
+    "must_read": [],
+    "try_now": [],
+    "watch": []
+  },
+  "items": [],
+  "pipeline_stats": {
+    "candidate_count": 20,
+    "shortlist_count": 4,
+    "source_verified_count": 4,
+    "rejected_count": 4,
+    "top_rejection_reasons": {}
+  }
+}

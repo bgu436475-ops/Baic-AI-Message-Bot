@@ -10,6 +10,7 @@ import pytest
 from ai_news_bot.models import (
     DigestBoards,
     EditorialDigest,
+    GlobalPipelineStats,
     PipelineStats,
 )
 from ai_news_bot.send_ledger import SendLedger
@@ -30,6 +31,13 @@ def empty_digest(
         generated_at=generated_at,
         candidate_count=0,
         source_count=0,
+        daily_narrative_zh="今天没有技术情报通过核验。",
+        global_pipeline_stats=GlobalPipelineStats(
+            candidate_count=0,
+            shortlist_count=0,
+            source_verified_count=0,
+            rejected_count=0,
+        ),
         boards=DigestBoards(),
         items=[],
         pipeline_stats=PipelineStats(

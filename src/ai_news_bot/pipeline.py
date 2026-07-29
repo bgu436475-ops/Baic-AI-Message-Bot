@@ -26,6 +26,7 @@ from .models import (
     EvidenceAnchor,
     EvidenceRecord,
     GateDecision,
+    GlobalPipelineStats,
     PipelineStats,
     RejectionCode,
     ScoreBreakdown,
@@ -611,6 +612,17 @@ def run_editorial_pipeline(
         ),
         lookback_hours=dependencies.lookback_hours,
         fallback_used=dependencies.fallback_used,
+        daily_narrative_zh=(
+            f"今天有 {len(items)} 条技术情报通过核验。"
+            if items
+            else "今天没有技术情报通过核验。"
+        ),
+        global_pipeline_stats=GlobalPipelineStats(
+            candidate_count=0,
+            shortlist_count=0,
+            source_verified_count=0,
+            rejected_count=0,
+        ),
         boards=boards,
         items=items,
         pipeline_stats=PipelineStats(

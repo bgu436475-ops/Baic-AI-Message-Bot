@@ -9,6 +9,9 @@ from ai_news_bot.models import (
     EditorialDigest,
     EditorialNewsItem,
     EvidenceAnchor,
+    GlobalEventItem,
+    GlobalEventScore,
+    GlobalPipelineStats,
     PipelineStats,
     ScoreBreakdown,
 )
@@ -50,12 +53,59 @@ def item(board: str = "must_read") -> EditorialNewsItem:
     )
 
 
-def test_schema_v3_flattens_mutually_exclusive_boards() -> None:
+def global_event(
+    *,
+    event_id: str = "acme|model-x|release|2026-07-29",
+    candidate_id: str = "global-model-x",
+    category: str = "models_products",
+) -> GlobalEventItem:
+    return GlobalEventItem(
+        event_id=event_id,
+        candidate_id=candidate_id,
+        category=category,
+        title_zh="Acme 正式发布 Model X",
+        what_happened_zh="Acme 于 7 月 29 日正式发布 Model X，并向公众开放使用。",
+        why_it_matters_zh="该产品改变了普通用户可直接使用的模型能力范围。",
+        affected_groups_zh=["普通用户", "企业采购者"],
+        key_facts=["2026-07-29 正式发布"],
+        source_name="Acme Newsroom",
+        source_url="https://example.com/model-x",
+        supporting_urls=[],
+        published_at=datetime(2026, 7, 29, tzinfo=UTC),
+        primary_entity="Acme",
+        product_or_policy="Model X",
+        change_signature="public-release",
+        version_or_metric="Model X",
+        effective_date="2026-07-29",
+        event_entities=["Acme", "Model X"],
+        score=GlobalEventScore(
+            impact=24,
+            global_relevance=16,
+            recency=20,
+            evidence_quality=15,
+            information_gain=10,
+            clarity=5,
+        ),
+    )
+
+
+def global_stats() -> GlobalPipelineStats:
+    return GlobalPipelineStats(
+        candidate_count=20,
+        shortlist_count=8,
+        source_verified_count=8,
+        rejected_count=7,
+    )
+
+
+def test_schema_v4_flattens_mutually_exclusive_boards() -> None:
     story = item()
     digest = EditorialDigest(
         generated_at=datetime(2026, 7, 23, tzinfo=UTC),
         candidate_count=80,
         source_count=20,
+        daily_narrative_zh="今天有一条经过核验的技术情报。",
+        global_pipeline_stats=global_stats(),
         boards=DigestBoards(must_read=[story]),
         items=[story],
         pipeline_stats=PipelineStats(
@@ -65,18 +115,45 @@ def test_schema_v3_flattens_mutually_exclusive_boards() -> None:
             rejected_count=17,
         ),
     )
-    assert digest.schema_version == 3
+    assert digest.schema_version == 4
     assert digest.items == digest.boards.flatten()
     assert digest.run_status == "published"
     assert digest.items[0].score.total == 100
 
 
-def test_schema_v3_accepts_legal_empty_digest() -> None:
+def test_schema_v4_accepts_global_only_published_digest() -> None:
+    event = global_event()
+    digest = EditorialDigest(
+        generated_at=datetime(2026, 7, 29, 1, 5, tzinfo=UTC),
+        candidate_count=20,
+        source_count=8,
+        daily_narrative_zh="今天的重点是 Acme 正式发布 Model X。",
+        global_events=[event],
+        global_pipeline_stats=global_stats(),
+        boards=DigestBoards(),
+        items=[],
+        pipeline_stats=PipelineStats(
+            candidate_count=20,
+            shortlist_count=4,
+            source_verified_count=4,
+            rejected_count=4,
+        ),
+    )
+
+    assert digest.schema_version == 4
+    assert digest.run_status == "published"
+    assert digest.items == []
+    assert digest.global_events == [event]
+
+
+def test_schema_v4_accepts_legal_empty_digest() -> None:
     digest = EditorialDigest(
         generated_at=datetime(2026, 7, 23, tzinfo=UTC),
         candidate_count=12,
         source_count=7,
         run_status="no_qualifying_items",
+        daily_narrative_zh="今天没有全球重大事件或技术信息通过核验。",
+        global_pipeline_stats=global_stats(),
         boards=DigestBoards(),
         items=[],
         pipeline_stats=PipelineStats(
@@ -90,13 +167,15 @@ def test_schema_v3_accepts_legal_empty_digest() -> None:
     assert digest.items == []
 
 
-def test_schema_v3_rejects_duplicate_or_mismatched_boards() -> None:
+def test_schema_v4_rejects_duplicate_or_mismatched_boards() -> None:
     story = item()
     with pytest.raises(ValidationError):
         EditorialDigest(
             generated_at=datetime(2026, 7, 23, tzinfo=UTC),
             candidate_count=1,
             source_count=1,
+            daily_narrative_zh="今天有重复的技术情报。",
+            global_pipeline_stats=global_stats(),
             boards=DigestBoards(
                 must_read=[story],
                 try_now=[story.model_copy(update={"board": "try_now"})],
@@ -111,9 +190,170 @@ def test_schema_v3_rejects_duplicate_or_mismatched_boards() -> None:
         )
 
 
-def test_schema_v3_rejects_item_in_wrong_named_board() -> None:
+def test_schema_v4_rejects_item_in_wrong_named_board() -> None:
     with pytest.raises(ValidationError):
         DigestBoards(must_read=[item(board="try_now")])
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("title_zh", "Model X release"),
+        ("what_happened_zh", "Public release"),
+        ("why_it_matters_zh", "Broad access"),
+        ("affected_groups_zh", ["developers"]),
+        ("key_facts", ["released"]),
+    ],
+)
+def test_global_event_rejects_missing_chinese_explanation(
+    field: str,
+    value: str | list[str],
+) -> None:
+    with pytest.raises(ValidationError):
+        GlobalEventItem.model_validate(
+            {**global_event().model_dump(), field: value}
+        )
+
+
+def test_schema_v4_rejects_more_than_five_global_events() -> None:
+    events = [
+        global_event(
+            event_id=f"event-{index}",
+            candidate_id=f"candidate-{index}",
+            category=(
+                "models_products"
+                if index < 2
+                else "companies_business"
+                if index < 4
+                else "policy_regulation"
+            ),
+        )
+        for index in range(6)
+    ]
+    with pytest.raises(ValidationError):
+        EditorialDigest(
+            generated_at=datetime(2026, 7, 29, tzinfo=UTC),
+            candidate_count=6,
+            source_count=6,
+            daily_narrative_zh="今天有多条全球人工智能重大事件。",
+            global_events=events,
+            global_pipeline_stats=global_stats(),
+            boards=DigestBoards(),
+            items=[],
+            pipeline_stats=PipelineStats(
+                candidate_count=6,
+                shortlist_count=0,
+                source_verified_count=0,
+                rejected_count=0,
+            ),
+        )
+
+
+def test_schema_v4_rejects_more_than_two_events_in_one_category() -> None:
+    events = [
+        global_event(
+            event_id=f"event-{index}",
+            candidate_id=f"candidate-{index}",
+        )
+        for index in range(3)
+    ]
+    with pytest.raises(ValidationError):
+        EditorialDigest(
+            generated_at=datetime(2026, 7, 29, tzinfo=UTC),
+            candidate_count=3,
+            source_count=3,
+            daily_narrative_zh="今天同一类别事件数量超过上限。",
+            global_events=events,
+            global_pipeline_stats=global_stats(),
+            boards=DigestBoards(),
+            items=[],
+            pipeline_stats=PipelineStats(
+                candidate_count=3,
+                shortlist_count=0,
+                source_verified_count=0,
+                rejected_count=0,
+            ),
+        )
+
+
+def test_schema_v4_rejects_identical_global_and_technical_fingerprint() -> None:
+    story = item()
+    event = global_event(event_id=story.event_fingerprint)
+    with pytest.raises(ValidationError):
+        EditorialDigest(
+            generated_at=datetime(2026, 7, 29, tzinfo=UTC),
+            candidate_count=2,
+            source_count=2,
+            daily_narrative_zh="今天同一事件不能跨栏重复。",
+            global_events=[event],
+            global_pipeline_stats=global_stats(),
+            boards=DigestBoards(must_read=[story]),
+            items=[story],
+            pipeline_stats=PipelineStats(
+                candidate_count=2,
+                shortlist_count=1,
+                source_verified_count=1,
+                rejected_count=0,
+            ),
+        )
+
+
+def test_schema_v4_allows_same_candidate_with_distinct_event_fingerprints() -> None:
+    story = item().model_copy(update={"candidate_id": "shared-candidate"})
+    event = global_event(candidate_id="shared-candidate")
+    digest = EditorialDigest(
+        generated_at=datetime(2026, 7, 29, tzinfo=UTC),
+        candidate_count=1,
+        source_count=1,
+        daily_narrative_zh="同一来源保留了不同的全球与技术视角。",
+        global_events=[event],
+        global_pipeline_stats=global_stats(),
+        boards=DigestBoards(must_read=[story]),
+        items=[story],
+        pipeline_stats=PipelineStats(
+            candidate_count=1,
+            shortlist_count=1,
+            source_verified_count=1,
+            rejected_count=0,
+        ),
+    )
+
+    assert digest.global_events[0].candidate_id == digest.items[0].candidate_id
+
+
+def test_schema_v4_rejects_empty_status_with_global_content() -> None:
+    with pytest.raises(ValidationError):
+        EditorialDigest(
+            generated_at=datetime(2026, 7, 29, tzinfo=UTC),
+            candidate_count=1,
+            source_count=1,
+            run_status="no_qualifying_items",
+            daily_narrative_zh="状态为空榜时不能包含全球事件。",
+            global_events=[global_event()],
+            global_pipeline_stats=global_stats(),
+            boards=DigestBoards(),
+            items=[],
+            pipeline_stats=PipelineStats(
+                candidate_count=1,
+                shortlist_count=0,
+                source_verified_count=0,
+                rejected_count=0,
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("title_zh", ""), ("summary_zh", "English only")],
+)
+def test_technical_item_rejects_missing_chinese_content(
+    field: str,
+    value: str,
+) -> None:
+    with pytest.raises(ValidationError):
+        EditorialNewsItem.model_validate(
+            {**item().model_dump(), field: value}
+        )
 
 
 @pytest.mark.parametrize(

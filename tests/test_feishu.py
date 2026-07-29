@@ -15,6 +15,7 @@ from ai_news_bot.models import (
     DigestBoards,
     EditorialDigest,
     EditorialNewsItem,
+    GlobalPipelineStats,
     NewsItem,
     PipelineStats,
     ScoreBreakdown,
@@ -78,6 +79,15 @@ def editorial_item(
     )
 
 
+def global_stats() -> GlobalPipelineStats:
+    return GlobalPipelineStats(
+        candidate_count=0,
+        shortlist_count=0,
+        source_verified_count=0,
+        rejected_count=0,
+    )
+
+
 def three_board_digest() -> EditorialDigest:
     must_read = editorial_item("model-api", "must_read")
     try_now = editorial_item("coding-agent", "try_now")
@@ -90,6 +100,8 @@ def three_board_digest() -> EditorialDigest:
         generated_at=datetime(2026, 7, 23, 1, 5, tzinfo=UTC),
         candidate_count=12,
         source_count=6,
+        daily_narrative_zh="今天有三条技术情报通过核验。",
+        global_pipeline_stats=global_stats(),
         boards=DigestBoards(
             must_read=[must_read],
             try_now=[try_now],
@@ -111,6 +123,8 @@ def legal_empty_digest() -> EditorialDigest:
         generated_at=datetime(2026, 7, 23, 1, 5, tzinfo=UTC),
         candidate_count=12,
         source_count=3,
+        daily_narrative_zh="今天没有技术情报通过核验。",
+        global_pipeline_stats=global_stats(),
         boards=DigestBoards(),
         items=[],
         pipeline_stats=PipelineStats(
@@ -171,6 +185,8 @@ def test_only_non_empty_editorial_boards_are_rendered() -> None:
         generated_at=datetime(2026, 7, 23, 1, 5, tzinfo=UTC),
         candidate_count=1,
         source_count=1,
+        daily_narrative_zh="今天有一条技术情报通过核验。",
+        global_pipeline_stats=global_stats(),
         boards=DigestBoards(must_read=[must_read]),
         items=[must_read],
         pipeline_stats=PipelineStats(
@@ -249,6 +265,8 @@ def maximum_legal_digest() -> EditorialDigest:
         generated_at=datetime(2026, 7, 23, 1, 5, tzinfo=UTC),
         candidate_count=80,
         source_count=20,
+        daily_narrative_zh="今天有十一条技术情报通过核验。",
+        global_pipeline_stats=global_stats(),
         boards=DigestBoards(**boards),
         items=all_items,
         pipeline_stats=PipelineStats(
@@ -327,6 +345,8 @@ def test_original_source_warning_is_watch_only(
         generated_at=datetime(2026, 7, 23, 1, 5, tzinfo=UTC),
         candidate_count=1,
         source_count=1,
+        daily_narrative_zh="今天有一条技术情报通过核验。",
+        global_pipeline_stats=global_stats(),
         boards=DigestBoards(**{board: [item]}),
         items=[item],
         pipeline_stats=PipelineStats(
@@ -395,6 +415,8 @@ def test_overlong_evidence_url_fails_closed_instead_of_rendering_broken_link() -
         generated_at=datetime(2026, 7, 23, 1, 5, tzinfo=UTC),
         candidate_count=1,
         source_count=1,
+        daily_narrative_zh="今天有一条技术情报通过核验。",
+        global_pipeline_stats=global_stats(),
         boards=DigestBoards(must_read=[item]),
         items=[item],
         pipeline_stats=PipelineStats(

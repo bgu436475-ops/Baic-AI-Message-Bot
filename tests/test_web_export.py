@@ -9,6 +9,7 @@ from ai_news_bot.models import (
     DigestBoards,
     EditorialDigest,
     EditorialNewsItem,
+    GlobalPipelineStats,
     NewsItem,
     PipelineStats,
     ScoreBreakdown,
@@ -113,7 +114,7 @@ def test_digest_v2_rejects_status_and_item_mismatches(
         )
 
 
-def test_export_digest_for_web_serializes_schema_v3_boards_and_items(tmp_path) -> None:
+def test_export_digest_for_web_serializes_schema_v4_boards_and_items(tmp_path) -> None:
     generated_at = datetime(2026, 7, 23, tzinfo=timezone.utc)
     story = EditorialNewsItem(
         candidate_id="model-x",
@@ -147,6 +148,13 @@ def test_export_digest_for_web_serializes_schema_v3_boards_and_items(tmp_path) -
         generated_at=generated_at,
         candidate_count=1,
         source_count=1,
+        daily_narrative_zh="今天有一条技术情报通过核验。",
+        global_pipeline_stats=GlobalPipelineStats(
+            candidate_count=0,
+            shortlist_count=0,
+            source_verified_count=0,
+            rejected_count=0,
+        ),
         boards=DigestBoards(must_read=[story]),
         items=[story],
         pipeline_stats=PipelineStats(
@@ -161,6 +169,6 @@ def test_export_digest_for_web_serializes_schema_v3_boards_and_items(tmp_path) -
     export_digest_for_web(digest, output)
 
     payload = json.loads(output.read_text(encoding="utf-8"))
-    assert payload["schema_version"] == 3
+    assert payload["schema_version"] == 4
     assert payload["boards"]["must_read"][0]["candidate_id"] == "model-x"
     assert payload["items"] == [payload["boards"]["must_read"][0]]
