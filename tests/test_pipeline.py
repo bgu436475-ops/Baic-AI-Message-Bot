@@ -229,7 +229,6 @@ def test_pipeline_shortlists_fetches_extracts_gates_scores_and_builds_digest(
         "score",
         "boards",
     ]
-    assert result.digest.run_status == "published"
     assert [item.candidate_id for item in result.digest.items] == ["qualifying"]
     assert [entry.candidate_id for entry in result.audit.rejected] == ["rejected"]
     assert result.digest.pipeline_stats.top_rejection_reasons == {}
@@ -248,7 +247,6 @@ def test_successful_pipeline_with_zero_qualifiers_is_legal_empty() -> None:
         now=NOW,
     )
 
-    assert result.digest.run_status == "no_qualifying_items"
     assert result.digest.items == []
 
 
@@ -261,7 +259,6 @@ def test_pipeline_derives_grounded_action_before_hard_gates() -> None:
         now=NOW,
     )
 
-    assert result.digest.run_status == "published"
     assert [item.candidate_id for item in result.digest.items] == [
         candidate.id
     ]
@@ -297,7 +294,7 @@ def test_grounded_action_cannot_bypass_invalid_evidence() -> None:
         now=NOW,
     )
 
-    assert result.digest.run_status == "no_qualifying_items"
+    assert result.digest.items == []
     reasons = result.audit.entries[0].gate_reasons
     assert "missing_action" not in reasons
     assert "invalid_evidence_anchor" in reasons
@@ -333,7 +330,6 @@ def test_one_extraction_failure_is_audited_while_other_candidate_publishes() -> 
         now=NOW,
     )
 
-    assert result.digest.run_status == "published"
     assert [item.candidate_id for item in result.digest.items] == ["qualifying"]
     failed = next(
         entry
@@ -399,7 +395,7 @@ def test_model_cannot_invent_original_source_status_for_secondary_exception() ->
     assert result.audit.entries[0].gate_reasons == [
         "unverified_primary_source"
     ]
-    assert result.digest.run_status == "no_qualifying_items"
+    assert result.digest.items == []
 
 
 def test_explicit_fetched_original_source_can_enable_secondary_watch() -> None:
@@ -453,7 +449,7 @@ def test_tier_three_media_cannot_claim_official_primary_status(
         now=NOW,
     )
 
-    assert result.digest.run_status == "no_qualifying_items"
+    assert result.digest.items == []
     assert result.audit.entries[0].gate_reasons == ["unverified_primary_source"]
 
 

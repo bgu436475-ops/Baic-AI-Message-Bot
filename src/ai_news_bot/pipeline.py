@@ -21,15 +21,14 @@ from .models import (
     Candidate,
     ChangeFact,
     DigestBoards,
-    EditorialDigest,
     EditorialDraft,
     EvidenceAnchor,
     EvidenceRecord,
     GateDecision,
-    GlobalPipelineStats,
     PipelineStats,
     RejectionCode,
     ScoreBreakdown,
+    TechnicalDigestSlice,
     VerificationStatus,
 )
 from .source_fetcher import FetchedSource, _sanitize_url
@@ -341,7 +340,7 @@ class PipelineAudit(BaseModel):
 
 
 class PipelineResult(BaseModel):
-    digest: EditorialDigest
+    digest: TechnicalDigestSlice
     audit: PipelineAudit
 
 
@@ -596,33 +595,12 @@ def run_editorial_pipeline(
         for reason in entry.gate_reasons
     )
 
-    digest = EditorialDigest(
-        run_status="published" if items else "no_qualifying_items",
+    digest = TechnicalDigestSlice(
         generated_at=now,
         candidate_count=len(candidates),
         source_count=len({candidate.source for candidate in candidates}),
-        latest_published_at=max(
-            (item.published_at for item in items),
-            default=None,
-        ),
-        fresh_count_24h=sum(
-            1
-            for item in items
-            if (now - item.published_at).total_seconds() <= 24 * 3600
-        ),
         lookback_hours=dependencies.lookback_hours,
         fallback_used=dependencies.fallback_used,
-        daily_narrative_zh=(
-            f"今天有 {len(items)} 条技术情报通过核验。"
-            if items
-            else "今天没有技术情报通过核验。"
-        ),
-        global_pipeline_stats=GlobalPipelineStats(
-            candidate_count=0,
-            shortlist_count=0,
-            source_verified_count=0,
-            rejected_count=0,
-        ),
         boards=boards,
         items=items,
         pipeline_stats=PipelineStats(

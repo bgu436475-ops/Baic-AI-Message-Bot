@@ -30,6 +30,7 @@ from ai_news_bot.models import (
     GlobalPipelineStats,
     PipelineStats,
     ScoreBreakdown,
+    TechnicalDigestSlice,
 )
 from ai_news_bot.pipeline import (
     PipelineAudit,
@@ -168,7 +169,16 @@ def _legal_empty_digest() -> EditorialDigest:
 
 def _result(digest: EditorialDigest) -> PipelineResult:
     return PipelineResult(
-        digest=digest,
+        digest=TechnicalDigestSlice(
+            generated_at=digest.generated_at,
+            candidate_count=digest.candidate_count,
+            source_count=digest.source_count,
+            lookback_hours=digest.lookback_hours,
+            fallback_used=digest.fallback_used,
+            boards=digest.boards,
+            items=digest.items,
+            pipeline_stats=digest.pipeline_stats,
+        ),
         audit=PipelineAudit(
             generated_at=NOW,
             entries=[],
@@ -568,6 +578,14 @@ class _PipelineEventStore:
         self.classified.append(record.candidate_id)
         return DuplicateAssessment(status="unique")
 
+    def classify_global(
+        self,
+        record: Any,
+        now: datetime,
+    ) -> DuplicateAssessment:
+        self.classified.append(record.candidate_id)
+        return DuplicateAssessment(status="unique")
+
 
 def _model_record() -> EvidenceRecord:
     return EvidenceRecord(
@@ -759,7 +777,7 @@ def test_generation_writes_schema_v4_digest_and_private_audit_without_sending_or
     )
     monkeypatch.setattr(
         cli.HistoryStore,
-        "record",
+        "record_digest",
         lambda *args: (_ for _ in ()).throw(
             AssertionError("generation must not mutate URL history")
         ),
@@ -806,7 +824,7 @@ def test_send_existing_records_success_then_nonempty_histories_in_order(
     )
     monkeypatch.setattr(
         cli.HistoryStore,
-        "record",
+        "record_digest",
         lambda self, items: events.append("url-history"),
     )
     monkeypatch.setattr(
@@ -854,7 +872,7 @@ def test_send_existing_sends_empty_card_and_records_daily_success(
     )
     monkeypatch.setattr(
         cli.HistoryStore,
-        "record",
+        "record_digest",
         lambda *args: histories.append("url"),
     )
     monkeypatch.setattr(
@@ -899,7 +917,7 @@ def test_feishu_failure_does_not_record_any_success_state(
     )
     monkeypatch.setattr(
         cli.HistoryStore,
-        "record",
+        "record_digest",
         lambda *args: recorded.append("url"),
     )
     monkeypatch.setattr(
@@ -961,7 +979,7 @@ def test_post_send_history_failures_do_not_erase_delivery_success(
         if event_history_fails:
             raise OSError("event history unavailable")
 
-    monkeypatch.setattr(cli.HistoryStore, "record", record_urls)
+    monkeypatch.setattr(cli.HistoryStore, "record_digest", record_urls)
     monkeypatch.setattr(
         cli.EventHistoryStore,
         "record_digest",
@@ -1009,7 +1027,7 @@ def test_ledger_failure_after_feishu_stops_before_noncritical_histories(
     )
     monkeypatch.setattr(
         cli.HistoryStore,
-        "record",
+        "record_digest",
         lambda *args: events.append("url"),
     )
     monkeypatch.setattr(

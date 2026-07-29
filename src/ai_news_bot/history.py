@@ -4,7 +4,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from .models import EditorialNewsItem
+from .models import EditorialDigest, EditorialNewsItem
 from .text import canonicalize_url
 
 
@@ -46,7 +46,27 @@ class HistoryStore:
         items: list[EditorialNewsItem],
         now: datetime | None = None,
     ) -> None:
-        now = _aware(now or datetime.now(UTC))
+        recorded_at = _aware(now or datetime.now(UTC))
+        self._record_urls(
+            [item.evidence_url for item in items],
+            recorded_at,
+        )
+
+    def record_digest(
+        self,
+        digest: EditorialDigest,
+        now: datetime | None = None,
+    ) -> None:
+        recorded_at = _aware(now or datetime.now(UTC))
+        self._record_urls(
+            [
+                *(event.source_url for event in digest.global_events),
+                *(item.evidence_url for item in digest.items),
+            ],
+            recorded_at,
+        )
+
+    def _record_urls(self, urls: list[str], now: datetime) -> None:
         cutoff = now - timedelta(days=self.retention_days)
         fresh: dict[str, str] = {}
         for url, timestamp in self._items.items():
@@ -56,8 +76,8 @@ class HistoryStore:
                     fresh[url] = parsed.isoformat()
             except ValueError:
                 continue
-        for item in items:
-            fresh[canonicalize_url(item.evidence_url)] = now.isoformat()
+        for url in urls:
+            fresh[canonicalize_url(url)] = now.isoformat()
         self._items = fresh
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(

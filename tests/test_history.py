@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 from ai_news_bot import cli
 from ai_news_bot.history import HistoryStore
@@ -85,3 +86,29 @@ def test_expired_url_never_blocks_candidates_without_a_record_write(
 
     assert first == [candidate]
     assert second == [candidate]
+
+
+def test_record_digest_persists_urls_from_both_editorial_lanes(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "history.json"
+    digest = SimpleNamespace(
+        global_events=[
+            SimpleNamespace(
+                source_url="https://example.com/global?utm_source=test"
+            )
+        ],
+        items=[
+            SimpleNamespace(
+                evidence_url="https://example.com/technical?utm_source=test"
+            )
+        ],
+    )
+
+    HistoryStore(path).record_digest(digest, now=NOW)
+
+    stored = json.loads(path.read_text(encoding="utf-8"))["sent"]
+    assert list(stored) == [
+        "https://example.com/global",
+        "https://example.com/technical",
+    ]
