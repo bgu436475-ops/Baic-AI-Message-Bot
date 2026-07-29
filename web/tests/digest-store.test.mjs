@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import { createServer } from "vite";
 
@@ -66,10 +66,9 @@ test("persisted malformed rows fail closed so the caller can use its static fall
 
 test("actual eight-item production schema v2 digest normalizes into board capacities", async () => {
   const store = await vite.ssrLoadModule("/db/digest-store.ts");
-  const payload = execFileSync(
-    "git",
-    ["show", "4128027:web/public/data/latest.json"],
-    { cwd: new URL("../..", import.meta.url), encoding: "utf8" },
+  const payload = await readFile(
+    new URL("./fixtures/production-schema-v2.json", import.meta.url),
+    "utf8",
   );
   const legacy = JSON.parse(payload);
 
