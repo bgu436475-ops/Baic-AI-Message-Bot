@@ -24,6 +24,8 @@ do not add outside knowledge, assumptions, or fabricated details.
 Return exactly one EvidenceRecord for the supplied candidate_id. Extract evidence only:
 do not score or rank the candidate, choose a board, or produce score/board fields. Evidence
 quotes must be literal excerpts from the supplied source text.
+Return a complete Chinese title_zh and Chinese summary_zh. Do not leave either field
+blank and do not substitute an English-only title or summary.
 Provide at least one literal quote for every concrete_changes entry. Each quote must
 contain that claim's numbers, versions, dates, currency, API/SDK identifiers, and enough
 of its substantive wording to identify the same change. A generic nearby quote is not
@@ -520,7 +522,10 @@ def extract_evidence(
     for attempt in range(2):
         try:
             parsed = _parse_response(client, model, messages, base_url)
-            if parsed is None or parsed.candidate_id != candidate.id:
+            if parsed is None:
+                raise ValueError("missing evidence record")
+            parsed = EvidenceRecord.model_validate(parsed.model_dump())
+            if parsed.candidate_id != candidate.id:
                 raise ValueError("missing or mismatched evidence record")
             return validate_anchors(parsed, source).model_copy(
                 update={

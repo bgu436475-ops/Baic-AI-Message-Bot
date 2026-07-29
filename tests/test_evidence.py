@@ -259,6 +259,19 @@ def test_extractor_retries_a_mismatched_candidate_id() -> None:
     assert client.calls == 2
 
 
+def test_extractor_retries_blank_chinese_instead_of_returning_it() -> None:
+    invalid = valid_record().model_copy(
+        update={"title_zh": "", "summary_zh": ""}
+    )
+    client = FakeStructuredClient([invalid, valid_record()])
+
+    result = extract_evidence(candidate(), fetched(), client, "test-model")
+
+    assert result.title_zh == "Model X API 输入价格调整"
+    assert result.summary_zh == "输入价格为每百万 token 1 美元。"
+    assert client.calls == 2
+
+
 def test_extractor_rejects_candidate_source_mismatch_before_model_call() -> None:
     client = FakeStructuredClient([valid_record()])
 
