@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from ai_news_bot.event_history import EventHistoryStore, event_fingerprint
+from ai_news_bot.global_rules import global_event_fingerprint
 from ai_news_bot.models import (
     ChangeFact,
     DigestBoards,
@@ -15,6 +16,9 @@ from ai_news_bot.models import (
     EditorialNewsItem,
     EvidenceAnchor,
     EvidenceRecord,
+    GlobalEventEvidence,
+    GlobalEventItem,
+    GlobalEventScore,
     GlobalPipelineStats,
     PipelineStats,
     ScoreBreakdown,
@@ -158,6 +162,7 @@ def test_fingerprint_and_persisted_fields_are_normalized_deterministically(
     assert stored == [
         {
             "fingerprint": "acme|model-x|price|v2-$1|2026-07-23",
+            "lane": "technical",
             "recorded_at": "2026-07-23T01:05:00+00:00",
             "entities": ["acme", "model-x"],
             "primary_entity": "acme",
@@ -167,9 +172,160 @@ def test_fingerprint_and_persisted_fields_are_normalized_deterministically(
             "effective_date": "2026-07-23",
             "resource_available": False,
             "scientific_verified": False,
+            "source_type": "official_announcement",
+            "geographic_scope": [],
             "source_url": "https://example.com/pricing",
         }
     ]
+
+
+def global_record(
+    *,
+    version_or_metric: str = "Model X",
+    effective_date: str = "2026-07-29",
+    source_type: str = "official_announcement",
+    geographic_scope: list[str] | None = None,
+) -> GlobalEventEvidence:
+    return GlobalEventEvidence(
+        candidate_id="global-model-x",
+        occurred=True,
+        material_change=True,
+        category="models_products",
+        title_zh="Acme 正式发布 Model X",
+        what_happened_zh="Acme 正式发布 Model X，并向公众开放使用。",
+        why_it_matters_zh="普通用户现在可以直接使用该模型的新能力。",
+        affected_groups_zh=["普通用户", "企业采购者"],
+        key_facts=["模型已经正式发布"],
+        evidence_anchors=[
+            EvidenceAnchor(
+                quote="Acme officially released Model X.",
+                locator="Announcement",
+            )
+        ],
+        source_url="https://example.com/model-x",
+        source_type=source_type,
+        verification_status="verified",
+        primary_entity="Acme",
+        product_or_policy="Model X",
+        change_signature="public-release",
+        version_or_metric=version_or_metric,
+        effective_date=effective_date,
+        event_entities=["Acme", "Model X"],
+        impact_scope="global",
+        geographic_scope=(
+            geographic_scope
+            if geographic_scope is not None
+            else ["全球市场"]
+        ),
+    )
+
+
+def global_item(record: GlobalEventEvidence) -> GlobalEventItem:
+    return GlobalEventItem(
+        event_id=global_event_fingerprint(record),
+        candidate_id=record.candidate_id,
+        category=record.category,
+        title_zh=record.title_zh,
+        what_happened_zh=record.what_happened_zh,
+        why_it_matters_zh=record.why_it_matters_zh,
+        affected_groups_zh=record.affected_groups_zh,
+        key_facts=record.key_facts,
+        source_name="Acme Newsroom",
+        source_url=record.source_url,
+        published_at=NOW,
+        primary_entity=record.primary_entity,
+        product_or_policy=record.product_or_policy,
+        change_signature=record.change_signature,
+        version_or_metric=record.version_or_metric,
+        effective_date=record.effective_date,
+        event_entities=record.event_entities,
+        score=GlobalEventScore(
+            impact=30,
+            global_relevance=20,
+            recency=20,
+            evidence_quality=15,
+            information_gain=10,
+            clarity=5,
+        ),
+    )
+
+
+def test_global_exact_event_is_duplicate_within_seven_days(
+    tmp_path: Path,
+) -> None:
+    store = EventHistoryStore(tmp_path / "events.json")
+    record = global_record()
+    store.record_global([record], NOW)
+
+    assessment = store.classify_global(record, NOW + timedelta(days=1))
+
+    assert assessment.status == "duplicate"
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"version_or_metric": "Model X 2"},
+        {"effective_date": "2026-08-01"},
+        {"source_type": "official_announcement"},
+        {"geographic_scope": ["全球市场", "欧洲市场"]},
+    ],
+)
+def test_global_new_formal_fact_is_material_update(
+    tmp_path: Path,
+    changes: dict[str, object],
+) -> None:
+    store = EventHistoryStore(tmp_path / "events.json")
+    original_kwargs: dict[str, object] = {}
+    if changes.get("source_type") == "official_announcement":
+        original_kwargs["source_type"] = "trusted_secondary"
+    if "geographic_scope" in changes:
+        original_kwargs["geographic_scope"] = ["美国市场"]
+    original = global_record(**original_kwargs)  # type: ignore[arg-type]
+    store.record_global([original], NOW)
+
+    updated = global_record(**changes)  # type: ignore[arg-type]
+    assessment = store.classify_global(
+        updated,
+        NOW + timedelta(days=1),
+    )
+
+    assert assessment.status == "material_update"
+
+
+def test_record_digest_persists_both_global_and_technical_lanes(
+    tmp_path: Path,
+) -> None:
+    technical_record = event()
+    technical_item = editorial_item(technical_record)
+    record = global_record()
+    digest = EditorialDigest(
+        generated_at=NOW,
+        candidate_count=2,
+        source_count=2,
+        daily_narrative_zh="今天同时有全球事件和技术情报。",
+        global_events=[global_item(record)],
+        global_pipeline_stats=GlobalPipelineStats(
+            candidate_count=1,
+            shortlist_count=1,
+            source_verified_count=1,
+            rejected_count=0,
+        ),
+        boards=DigestBoards(must_read=[technical_item]),
+        items=[technical_item],
+        pipeline_stats=PipelineStats(
+            candidate_count=1,
+            shortlist_count=1,
+            source_verified_count=1,
+            rejected_count=0,
+        ),
+    )
+
+    path = tmp_path / "events.json"
+    EventHistoryStore(path).record_digest(digest, NOW)
+    stored = json.loads(path.read_text(encoding="utf-8"))["events"]
+
+    assert {entry["lane"] for entry in stored} == {"global", "technical"}
 
 
 @pytest.mark.parametrize(
