@@ -1,236 +1,90 @@
 {
   "schema_version": 4,
   "run_status": "published",
-  "generated_at": "2026-07-29T01:06:24.200405Z",
-  "candidate_count": 74,
-  "source_count": 13,
-  "latest_published_at": "2026-07-27T00:57:50Z",
+  "generated_at": "2026-07-30T01:06:10.281530Z",
+  "candidate_count": 79,
+  "source_count": 15,
+  "latest_published_at": "2026-07-28T20:49:21Z",
   "fresh_count_24h": 0,
-  "lookback_hours": 36,
+  "lookback_hours": 48,
   "fallback_used": false,
-  "daily_narrative_zh": "今天没有全球重大事件通过核验；技术与工具栏保留已核查的可行动信息。",
-  "global_events": [],
-  "global_pipeline_stats": {
-    "candidate_count": 74,
-    "shortlist_count": 0,
-    "source_verified_count": 0,
-    "rejected_count": 0,
-    "top_rejection_reasons": {}
-  },
-  "boards": {
-    "must_read": [
-      {
-        "candidate_id": "e738e46dadf4156a",
-        "original_title": "OneInterface/stormy-cookbook",
-        "title_en": "OneInterface/stormy-cookbook",
-        "summary_en": "Open-source cookbook for the Stormy Social Data API and MCP server (Model Context Protocol) — one REST API for the TikTok API, YouTube API, Instagram API, LinkedIn API, X (Twitter) API and Reddit API. Search creators, resolve profiles, read posts and find verified emails from Claude, Cursor, Codex, ChatGPT or curl. On…",
-        "title_zh": "",
-        "summary_zh": "",
-        "concrete_change": "One REST API for the TikTok API, YouTube API, Instagram API, LinkedIn API, X (Twitter) API and Reddit API.；find verified emails from Claude, Cursor, Codex, ChatGPT or curl.；One key, no scrapers.",
-        "affected_audience": [
-          "Developers",
-          "Data Scientists"
-        ],
-        "affected_area": [
-          "API",
-          "Documentation"
-        ],
-        "recommended_action": [
-          "Developers应在7天内针对API进行小范围验证，再决定是否扩大使用。依据：One REST API for the TikTok API, YouTube API, Instagram API, LinkedIn API, X (Twitter) API and Reddit API."
-        ],
-        "evidence_url": "https://github.com/OneInterface/stormy-cookbook",
-        "verification_status": "verified",
-        "event_fingerprint": "oneinterface|stormy%20cookbook|new%20release%20of%20the%20stormy%20social%20data%20api%20and%20mcp%20server%20appears%20to%20integrate%20multiple%20social%20media%20apis%20into%20one%20rest%20api.||",
-        "update_of": null,
-        "primary_entity": "OneInterface",
-        "product_or_model": "Stormy Cookbook",
-        "event_entities": [],
-        "change_signature": "New release of the Stormy Social Data API and MCP server appears to integrate multiple social media APIs into one REST API.",
-        "version_or_metric": "",
-        "effective_date": null,
-        "resource_available": false,
-        "scientific_verified": false,
-        "source": "GitHub · MCP 新项目",
-        "published_at": "2026-07-27T00:57:50Z",
-        "category": "open_source",
-        "extra_categories": [],
-        "score": {
-          "relevance": 25,
-          "actionability": 14,
-          "specificity": 15,
-          "information_gain": 15,
-          "evidence_quality": 14,
-          "time_sensitivity": 7,
-          "penalties": 0,
-          "total": 90
-        },
-        "board": "must_read"
-      }
-    ],
-    "try_now": [],
-    "watch": [
-      {
-        "candidate_id": "0de35240709b2a42",
-        "original_title": "realchendahuang/pi-config",
-        "title_en": "realchendahuang/pi-config",
-        "summary_en": "My Pi coding agent setup: 17 plugins + 18 global skills + 2 MCP servers, with a one-line installer and tutorial README. GitHub: 100 stars, 3 forks.",
-        "title_zh": "",
-        "summary_zh": "",
-        "concrete_change": "My Pi coding agent setup: 17 plugins + 18 global skills + 2 MCP servers",
-        "affected_audience": [
-          "developers",
-          "programmers"
-        ],
-        "affected_area": [
-          "plugins",
-          "skills",
-          "MCP servers",
-          "one-line installer"
-        ],
-        "recommended_action": [
-          "developers应在7天内针对plugins进行小范围验证，再决定是否扩大使用。依据：My Pi coding agent setup: 17 plugins + 18 global skills + 2 MCP servers"
-        ],
-        "evidence_url": "https://github.com/realchendahuang/pi-config",
-        "verification_status": "verified",
-        "event_fingerprint": "realchendahuang|pi-config|1.0|1.0|",
-        "update_of": null,
-        "primary_entity": "realchendahuang",
-        "product_or_model": "pi-config",
-        "event_entities": [],
-        "change_signature": "1.0",
-        "version_or_metric": "1.0",
-        "effective_date": null,
-        "resource_available": true,
-        "scientific_verified": false,
-        "source": "GitHub · MCP 新项目",
-        "published_at": "2026-07-25T09:35:04Z",
-        "category": "agents",
-        "extra_categories": [],
-        "score": {
-          "relevance": 25,
-          "actionability": 14,
-          "specificity": 11,
-          "information_gain": 15,
-          "evidence_quality": 14,
-          "time_sensitivity": 2,
-          "penalties": -10,
-          "total": 71
-        },
-        "board": "watch"
-      }
-    ]
-  },
-  "items": [
+  "daily_narrative_zh": "今天的全球 AI 重点包括：使用GPU原生医学物理模拟开发医疗机器人。主要影响医疗机器人开发者、医疗行业专业人士，事实与原始来源见下方。",
+  "global_events": [
     {
-      "candidate_id": "e738e46dadf4156a",
-      "original_title": "OneInterface/stormy-cookbook",
-      "title_en": "OneInterface/stormy-cookbook",
-      "summary_en": "Open-source cookbook for the Stormy Social Data API and MCP server (Model Context Protocol) — one REST API for the TikTok API, YouTube API, Instagram API, LinkedIn API, X (Twitter) API and Reddit API. Search creators, resolve profiles, read posts and find verified emails from Claude, Cursor, Codex, ChatGPT or curl. On…",
-      "title_zh": "",
-      "summary_zh": "",
-      "concrete_change": "One REST API for the TikTok API, YouTube API, Instagram API, LinkedIn API, X (Twitter) API and Reddit API.；find verified emails from Claude, Cursor, Codex, ChatGPT or curl.；One key, no scrapers.",
-      "affected_audience": [
-        "Developers",
-        "Data Scientists"
+      "event_id": "nvidia|%E5%8C%BB%E7%96%97%E7%89%A9%E7%90%86%E6%A8%A1%E6%8B%9F%E6%A1%86%E6%9E%B6|developing%20healthcare%20robotics%20with%20gpu-native%20medical%20physics%20simulation|nvidia%20isaac%20for%20healthcare%20%E5%8F%8A%E5%85%B6%E5%8C%BB%E7%96%97%E7%89%A9%E7%90%86%E6%A8%A1%E6%8B%9F%E6%A1%86%E6%9E%B6|",
+      "candidate_id": "09df956f4e5a6bb9",
+      "category": "research_breakthroughs",
+      "title_zh": "使用GPU原生医学物理模拟开发医疗机器人",
+      "what_happened_zh": "NVIDIA推出了一种新的医疗物理模拟框架，该框架通过GPU加速帮助开发医疗机器人，解决了数据稀缺和开发周期长的问题。",
+      "why_it_matters_zh": "此框架的推出显著提高了医疗机器人开发的效率，使得开发者可以更快地进行训练和原型测试，从而提升医疗机器人在临床环境中的应用潜力。",
+      "affected_groups_zh": [
+        "医疗机器人开发者",
+        "医疗行业专业人士"
       ],
-      "affected_area": [
-        "API",
-        "Documentation"
+      "key_facts": [
+        "NVIDIA开发的医疗物理模拟框架提供GPU加速的医疗机器人训练环境。",
+        "Endoluminal模拟模块为真实时间模拟提供支持，从而加速医疗机器人开发。",
+        "该框架首次发布的模块包括用于胆囊切除手术的完整模拟流程。"
       ],
-      "recommended_action": [
-        "Developers应在7天内针对API进行小范围验证，再决定是否扩大使用。依据：One REST API for the TikTok API, YouTube API, Instagram API, LinkedIn API, X (Twitter) API and Reddit API."
-      ],
-      "evidence_url": "https://github.com/OneInterface/stormy-cookbook",
-      "verification_status": "verified",
-      "event_fingerprint": "oneinterface|stormy%20cookbook|new%20release%20of%20the%20stormy%20social%20data%20api%20and%20mcp%20server%20appears%20to%20integrate%20multiple%20social%20media%20apis%20into%20one%20rest%20api.||",
-      "update_of": null,
-      "primary_entity": "OneInterface",
-      "product_or_model": "Stormy Cookbook",
-      "event_entities": [],
-      "change_signature": "New release of the Stormy Social Data API and MCP server appears to integrate multiple social media APIs into one REST API.",
-      "version_or_metric": "",
+      "source_name": "NVIDIA Technical Blog - Generative AI",
+      "source_url": "https://developer.nvidia.com/blog/developing-healthcare-robotics-with-gpu-native-medical-physics-simulation",
+      "supporting_urls": [],
+      "published_at": "2026-07-28T20:49:21Z",
+      "primary_entity": "NVIDIA",
+      "product_or_policy": "医疗物理模拟框架",
+      "change_signature": "Developing Healthcare Robotics with GPU-Native Medical Physics Simulation",
+      "version_or_metric": "NVIDIA Isaac for Healthcare 及其医疗物理模拟框架",
       "effective_date": null,
-      "resource_available": false,
-      "scientific_verified": false,
-      "source": "GitHub · MCP 新项目",
-      "published_at": "2026-07-27T00:57:50Z",
-      "category": "open_source",
-      "extra_categories": [],
+      "event_entities": [
+        "NVIDIA",
+        "医疗机器人",
+        "人工智能"
+      ],
       "score": {
-        "relevance": 25,
-        "actionability": 14,
-        "specificity": 15,
-        "information_gain": 15,
-        "evidence_quality": 14,
-        "time_sensitivity": 7,
-        "penalties": 0,
-        "total": 90
-      },
-      "board": "must_read"
-    },
-    {
-      "candidate_id": "0de35240709b2a42",
-      "original_title": "realchendahuang/pi-config",
-      "title_en": "realchendahuang/pi-config",
-      "summary_en": "My Pi coding agent setup: 17 plugins + 18 global skills + 2 MCP servers, with a one-line installer and tutorial README. GitHub: 100 stars, 3 forks.",
-      "title_zh": "",
-      "summary_zh": "",
-      "concrete_change": "My Pi coding agent setup: 17 plugins + 18 global skills + 2 MCP servers",
-      "affected_audience": [
-        "developers",
-        "programmers"
-      ],
-      "affected_area": [
-        "plugins",
-        "skills",
-        "MCP servers",
-        "one-line installer"
-      ],
-      "recommended_action": [
-        "developers应在7天内针对plugins进行小范围验证，再决定是否扩大使用。依据：My Pi coding agent setup: 17 plugins + 18 global skills + 2 MCP servers"
-      ],
-      "evidence_url": "https://github.com/realchendahuang/pi-config",
-      "verification_status": "verified",
-      "event_fingerprint": "realchendahuang|pi-config|1.0|1.0|",
-      "update_of": null,
-      "primary_entity": "realchendahuang",
-      "product_or_model": "pi-config",
-      "event_entities": [],
-      "change_signature": "1.0",
-      "version_or_metric": "1.0",
-      "effective_date": null,
-      "resource_available": true,
-      "scientific_verified": false,
-      "source": "GitHub · MCP 新项目",
-      "published_at": "2026-07-25T09:35:04Z",
-      "category": "agents",
-      "extra_categories": [],
-      "score": {
-        "relevance": 25,
-        "actionability": 14,
-        "specificity": 11,
-        "information_gain": 15,
-        "evidence_quality": 14,
-        "time_sensitivity": 2,
-        "penalties": -10,
-        "total": 71
-      },
-      "board": "watch"
+        "impact": 30,
+        "global_relevance": 20,
+        "recency": 16,
+        "evidence_quality": 15,
+        "information_gain": 10,
+        "clarity": 5,
+        "total": 96
+      }
     }
   ],
-  "pipeline_stats": {
-    "candidate_count": 74,
+  "global_pipeline_stats": {
+    "candidate_count": 79,
     "shortlist_count": 20,
-    "source_verified_count": 20,
-    "rejected_count": 18,
+    "source_verified_count": 9,
+    "rejected_count": 19,
     "top_rejection_reasons": {
-      "unverified_primary_source": 17,
+      "insufficient_corroboration": 18,
       "invalid_evidence_anchor": 15,
-      "scientific_claim_unverified": 2,
+      "global_extraction_failed": 1,
+      "missing_material_change": 1,
+      "policy_without_text": 1
+    }
+  },
+  "boards": {
+    "must_read": [],
+    "try_now": [],
+    "watch": []
+  },
+  "items": [],
+  "pipeline_stats": {
+    "candidate_count": 79,
+    "shortlist_count": 20,
+    "source_verified_count": 16,
+    "rejected_count": 20,
+    "top_rejection_reasons": {
+      "unverified_primary_source": 18,
+      "invalid_evidence_anchor": 15,
+      "missing_action": 3,
+      "missing_affected_area": 2,
+      "missing_affected_audience": 2,
+      "policy_without_terms_or_date": 2,
+      "evidence_extraction_failed": 1,
       "funding_only": 1,
-      "missing_action": 1,
-      "missing_affected_area": 1,
-      "policy_without_terms_or_date": 1
+      "missing_concrete_change": 1
     }
   }
 }
