@@ -10,6 +10,7 @@ from ai_news_bot.global_editor import (
     extract_global_event,
     validate_global_anchors,
 )
+from ai_news_bot.model_backend import BackendSpec
 from ai_news_bot.models import (
     Candidate,
     EvidenceAnchor,
@@ -82,6 +83,30 @@ def valid_global_record() -> GlobalEventEvidence:
     )
 
 
+def openai_backend(model: str = "test-model") -> BackendSpec:
+    return BackendSpec(
+        provider_id="openai",
+        provider_label="OpenAI",
+        api_key="test-key",
+        model=model,
+        base_url=None,
+    )
+
+
+def cloudflare_backend(
+    model: str = "@cf/meta/llama-3.1-8b-instruct-fast",
+) -> BackendSpec:
+    return BackendSpec(
+        provider_id="cloudflare",
+        provider_label="Cloudflare Workers AI",
+        api_key="cf-token",
+        model=model,
+        base_url=(
+            "https://api.cloudflare.com/client/v4/accounts/account-123/ai/v1"
+        ),
+    )
+
+
 class FakeResponses:
     def __init__(self, owner: "FakeStructuredClient") -> None:
         self.owner = owner
@@ -133,7 +158,7 @@ def test_global_editor_retries_once_for_missing_chinese() -> None:
         candidate(),
         fetched(),
         client,
-        "test-model",
+        openai_backend(),
     )
 
     assert result.title_zh == "Acme 正式发布 Model X"
@@ -150,7 +175,7 @@ def test_global_editor_rejects_repository_style_reader_title() -> None:
         candidate(),
         fetched(),
         client,
-        "test-model",
+        openai_backend(),
     )
 
     assert result.title_zh == "Acme 正式发布 Model X"
@@ -182,7 +207,7 @@ def test_global_editor_overwrites_model_source_provenance() -> None:
         candidate(source_tier=1),
         fetched(),
         client,
-        "test-model",
+        openai_backend(),
     )
 
     assert result.source_url == "https://example.com/model-x"
@@ -197,7 +222,7 @@ def test_global_editor_forces_non_tier_one_source_to_secondary() -> None:
         candidate(source_tier=3),
         fetched(),
         client,
-        "test-model",
+        openai_backend(),
     )
 
     assert result.source_type == "trusted_secondary"
@@ -210,7 +235,7 @@ def test_global_editor_stops_after_two_controlled_failures() -> None:
         GlobalEventExtractionError,
         match="global event parsing failed twice",
     ):
-        extract_global_event(candidate(), fetched(), client, "test-model")
+        extract_global_event(candidate(), fetched(), client, openai_backend())
 
     assert client.calls == 2
 
@@ -218,7 +243,7 @@ def test_global_editor_stops_after_two_controlled_failures() -> None:
 def test_global_editor_uses_constrained_prompt_and_expected_schema() -> None:
     client = FakeStructuredClient([valid_global_record()])
 
-    extract_global_event(candidate(), fetched(), client, "test-model")
+    extract_global_event(candidate(), fetched(), client, openai_backend())
 
     interface, request = client.requests[0]
     assert interface == "responses"
@@ -239,10 +264,7 @@ def test_global_editor_uses_chat_completions_for_cloudflare() -> None:
         candidate(),
         fetched(),
         client,
-        "@cf/meta/llama-3.1-8b-instruct-fast",
-        base_url=(
-            "https://api.cloudflare.com/client/v4/accounts/account-123/ai/v1"
-        ),
+        cloudflare_backend(),
     )
 
     assert result.candidate_id == "global-model-x"

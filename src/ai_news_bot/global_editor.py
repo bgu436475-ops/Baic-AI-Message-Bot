@@ -16,6 +16,7 @@ from .evidence import (
     _normalized,
 )
 from .models import Candidate, GlobalEventEvidence
+from .model_backend import BackendSpec, structured_chat_parse
 from .source_fetcher import FetchedSource
 from .text import truncate
 
@@ -83,20 +84,19 @@ def _global_event_messages(
 
 def _parse_global_response(
     client: Any,
-    model: str,
+    backend: BackendSpec,
     messages: list[dict[str, str]],
-    base_url: str | None,
 ) -> object | None:
-    if base_url:
-        response = client.chat.completions.parse(
-            model=model,
-            messages=messages,
+    if backend.provider_id != "openai":
+        return structured_chat_parse(
+            client,
+            backend,
+            messages,
+            GlobalEventEvidence,
             max_tokens=CHAT_COMPLETIONS_MAX_TOKENS,
-            response_format=GlobalEventEvidence,
         )
-        return response.choices[0].message.parsed
     response = client.responses.parse(
-        model=model,
+        model=backend.model,
         input=messages,
         text_format=GlobalEventEvidence,
     )
@@ -139,8 +139,7 @@ def extract_global_event(
     candidate: Candidate,
     source: FetchedSource,
     client: Any,
-    model: str,
-    base_url: str | None = None,
+    backend: BackendSpec,
 ) -> GlobalEventEvidence:
     if source.candidate_id != candidate.id:
         raise GlobalEventExtractionError(
@@ -156,9 +155,8 @@ def extract_global_event(
         try:
             parsed = _parse_global_response(
                 client,
-                model,
+                backend,
                 messages,
-                base_url,
             )
             if parsed is None:
                 raise ValueError("missing global event record")

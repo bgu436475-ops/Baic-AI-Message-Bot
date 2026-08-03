@@ -634,6 +634,7 @@ def _model_record() -> EvidenceRecord:
         "expected_base_url",
         "expected_interface",
         "expected_model",
+        "expected_chat_options",
     ),
     [
         (
@@ -641,12 +642,21 @@ def _model_record() -> EvidenceRecord:
             None,
             "responses",
             "gpt-5.6-luna",
+            {},
         ),
         (
             "cloudflare",
             "https://api.cloudflare.com/client/v4/accounts/account-123/ai/v1",
             "chat",
             "@cf/meta/llama-3.1-8b-instruct-fast",
+            {},
+        ),
+        (
+            "ollama",
+            "http://127.0.0.1:11434/v1",
+            "chat",
+            "qwen3:8b",
+            {"temperature": 0, "extra_body": {"think": False}},
         ),
     ],
 )
@@ -657,6 +667,7 @@ def test_production_pipeline_wiring_uses_backend_adapter_and_real_stages(
     expected_base_url: str | None,
     expected_interface: str,
     expected_model: str,
+    expected_chat_options: dict[str, Any],
 ) -> None:
     settings = _settings(tmp_path).model_copy(
         update={
@@ -669,6 +680,11 @@ def test_production_pipeline_wiring_uses_backend_adapter_and_real_stages(
             "cloudflare_ai_api_token": (
                 "cf-token" if backend == "cloudflare" else ""
             ),
+            "ai_backend_name": "ollama" if backend == "ollama" else "",
+            "ollama_base_url": (
+                "http://127.0.0.1:11434/v1" if backend == "ollama" else ""
+            ),
+            "ollama_model": "qwen3:8b" if backend == "ollama" else "",
         }
     )
     web_output = tmp_path / f"{backend}.json"
@@ -717,13 +733,15 @@ def test_production_pipeline_wiring_uses_backend_adapter_and_real_stages(
             "api_key": (
                 "openai-key"
                 if backend == "openai"
-                else "cf-token"
+                else ("cf-token" if backend == "cloudflare" else "ollama")
             ),
             "base_url": expected_base_url,
         }
     ]
     assert model_client.interfaces == [expected_interface]
     assert model_client.requests[0]["model"] == expected_model
+    for key, value in expected_chat_options.items():
+        assert model_client.requests[0][key] == value
     assert event_store.classified == ["one"]
     assert session.calls == [_candidate().url]
 

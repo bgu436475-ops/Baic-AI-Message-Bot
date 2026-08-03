@@ -25,6 +25,7 @@ from .evidence import extract_evidence
 from .feishu import send_to_feishu
 from .gatekeeper import evaluate_gates
 from .global_editor import extract_global_event
+from .model_backend import BackendSpec
 from .global_pipeline import (
     GlobalPipelineDependencies,
     run_global_pipeline,
@@ -50,7 +51,7 @@ from .source_fetcher import SourceFetcher
 from .web_export import export_digest_for_web
 
 LOGGER = logging.getLogger(__name__)
-ModelClientProvider = Callable[[], tuple[Any, str, str | None]]
+ModelClientProvider = Callable[[], tuple[Any, BackendSpec]]
 
 
 def _collect_candidates(
@@ -163,13 +164,12 @@ def _build_pipeline_dependencies(
     get_client = client_provider or _build_model_client_provider(settings)
 
     def extract(candidate, source, original_source):
-        client, model, base_url = get_client()
+        client, backend = get_client()
         return extract_evidence(
             candidate,
             source,
             client,
-            model,
-            base_url,
+            backend,
             original_source=original_source,
         )
 
@@ -190,20 +190,20 @@ def _build_model_client_provider(
     settings: Settings,
 ) -> ModelClientProvider:
     client: OpenAI | None = None
-    model = ""
-    base_url: str | None = None
+    backend: BackendSpec | None = None
 
-    def get_client() -> tuple[Any, str, str | None]:
-        nonlocal client, model, base_url
+    def get_client() -> tuple[Any, BackendSpec]:
+        nonlocal client, backend
         if client is None:
-            api_key, model, base_url, provider = settings.ai_backend()
+            backend = settings.ai_backend()
             LOGGER.info(
                 "Extracting structured evidence with %s (%s)",
-                provider,
-                model,
+                backend.provider_label,
+                backend.model,
             )
-            client = OpenAI(api_key=api_key, base_url=base_url)
-        return client, model, base_url
+            client = OpenAI(api_key=backend.api_key, base_url=backend.base_url)
+        assert backend is not None
+        return client, backend
 
     return get_client
 
@@ -217,13 +217,12 @@ def _build_global_pipeline_dependencies(
     get_client = client_provider or _build_model_client_provider(settings)
 
     def extract(candidate, source):
-        client, model, base_url = get_client()
+        client, backend = get_client()
         return extract_global_event(
             candidate,
             source,
             client,
-            model,
-            base_url,
+            backend,
         )
 
     return GlobalPipelineDependencies(

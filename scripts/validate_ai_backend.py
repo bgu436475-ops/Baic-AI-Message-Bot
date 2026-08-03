@@ -43,8 +43,12 @@ def validate_backend(
     settings: Settings,
     client_factory: Callable[..., Any] = OpenAI,
 ) -> EvidenceRecord:
-    api_key, model, base_url, _provider = settings.ai_backend()
-    client = client_factory(api_key=api_key, base_url=base_url, max_retries=0)
+    backend = settings.ai_backend()
+    client = client_factory(
+        api_key=backend.api_key,
+        base_url=backend.base_url,
+        max_retries=0,
+    )
     now = datetime.now(UTC)
     candidate = Candidate(
         id=SMOKE_CANDIDATE_ID,
@@ -70,8 +74,7 @@ def validate_backend(
         candidate,
         source,
         client,
-        model,
-        base_url=base_url,
+        backend,
         max_attempts=1,
     )
     if (
@@ -89,7 +92,9 @@ def main() -> int:
     model = "unavailable"
     try:
         settings = Settings.from_env()
-        _api_key, model, _base_url, provider = settings.ai_backend()
+        backend = settings.ai_backend()
+        model = backend.model
+        provider = backend.provider_label
         validate_backend(settings)
     except Exception as error:
         diagnostics = _safe_error_diagnostics(error)

@@ -120,6 +120,43 @@ def test_validate_backend_never_retries_a_model_parse_failure() -> None:
     assert calls == 1
 
 
+def test_validate_backend_uses_explicit_ollama_settings() -> None:
+    from scripts.validate_ai_backend import validate_backend
+
+    captured: dict[str, Any] = {}
+
+    def fake_factory(**kwargs: Any) -> SimpleNamespace:
+        captured.update(kwargs)
+
+        def parse(**request: Any) -> SimpleNamespace:
+            captured["request"] = request
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(parsed=_smoke_record()))]
+            )
+
+        return SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(parse=parse))
+        )
+
+    record = validate_backend(
+        Settings(
+            ai_backend_name="ollama",
+            ollama_base_url="http://127.0.0.1:11434/v1",
+            ollama_model="qwen3:8b",
+            cloudflare_account_id="unrelated-cloud-account",
+            cloudflare_ai_api_token="unrelated-cloud-token",
+        ),
+        client_factory=fake_factory,
+    )
+
+    assert record.candidate_id == "cloudflare-smoke-test"
+    assert captured["api_key"] == "ollama"
+    assert captured["base_url"] == "http://127.0.0.1:11434/v1"
+    assert captured["request"]["model"] == "qwen3:8b"
+    assert captured["request"]["temperature"] == 0
+    assert captured["request"]["extra_body"] == {"think": False}
+
+
 def test_main_sanitizes_backend_validation_failures(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

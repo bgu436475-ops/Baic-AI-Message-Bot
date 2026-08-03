@@ -30,11 +30,14 @@ def test_ai_backend_prefers_complete_cloudflare_configuration() -> None:
         github_token="github-token",
     )
 
-    assert settings.ai_backend() == (
-        "cf-token",
-        "@cf/meta/llama-3.1-8b-instruct-fast",
-        "https://api.cloudflare.com/client/v4/accounts/account-123/ai/v1",
-        "Cloudflare Workers AI",
+    backend = settings.ai_backend()
+
+    assert backend.provider_id == "cloudflare"
+    assert backend.provider_label == "Cloudflare Workers AI"
+    assert backend.api_key == "cf-token"
+    assert backend.model == "@cf/meta/llama-3.1-8b-instruct-fast"
+    assert backend.base_url == (
+        "https://api.cloudflare.com/client/v4/accounts/account-123/ai/v1"
     )
 
 
@@ -55,12 +58,46 @@ def test_ai_backend_rejects_account_ids_that_can_change_the_endpoint(
 
 
 def test_ai_backend_uses_openai_when_cloudflare_is_unconfigured() -> None:
-    assert Settings(openai_api_key="openai-key").ai_backend() == (
-        "openai-key",
-        "gpt-5.6-luna",
-        None,
-        "OpenAI",
+    backend = Settings(openai_api_key="openai-key").ai_backend()
+
+    assert backend.provider_id == "openai"
+    assert backend.provider_label == "OpenAI"
+    assert backend.api_key == "openai-key"
+    assert backend.model == "gpt-5.6-luna"
+    assert backend.base_url is None
+
+
+def test_explicit_ollama_ignores_cloud_credentials() -> None:
+    settings = Settings(
+        ai_backend_name="ollama",
+        ollama_base_url="http://127.0.0.1:11434/v1",
+        ollama_model="qwen3:8b",
+        cloudflare_account_id="wrong-cloud-account",
+        cloudflare_ai_api_token="cloud-token",
     )
+
+    backend = settings.ai_backend()
+
+    assert backend.provider_id == "ollama"
+    assert backend.api_key == "ollama"
+    assert backend.model == "qwen3:8b"
+    assert backend.base_url == "http://127.0.0.1:11434/v1"
+    assert backend.chat_options == {"temperature": 0, "extra_body": {"think": False}}
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.com/v1",
+        "http://192.168.1.5:11434/v1",
+        "http://user:pass@127.0.0.1:11434/v1",
+        "http://127.0.0.1:11434/v1?token=secret",
+        "http://127.0.0.1:11434/api",
+    ],
+)
+def test_ollama_rejects_non_loopback_or_malformed_urls(url: str) -> None:
+    with pytest.raises(ValueError, match="loopback"):
+        Settings(ai_backend_name="ollama", ollama_base_url=url).ai_backend()
 
 
 @pytest.mark.parametrize(
@@ -109,6 +146,20 @@ def test_environment_loads_stripped_cloudflare_settings_and_model(
     assert settings.cloudflare_account_id == "account-123"
     assert settings.cloudflare_ai_api_token == "cf-token"
     assert settings.cloudflare_ai_model == expected_model
+
+
+def test_environment_loads_explicit_ollama_selection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AI_BACKEND", " ollama ")
+    monkeypatch.setenv("OLLAMA_BASE_URL", " http://localhost:11434/v1/ ")
+    monkeypatch.setenv("OLLAMA_MODEL", " qwen3:8b ")
+
+    backend = Settings.from_env().ai_backend()
+
+    assert backend.provider_id == "ollama"
+    assert backend.base_url == "http://localhost:11434/v1"
+    assert backend.model == "qwen3:8b"
 
 
 def test_editorial_state_paths_default_to_private_state_directory() -> None:

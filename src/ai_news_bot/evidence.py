@@ -10,6 +10,7 @@ from typing import Any, Literal
 from openai import OpenAIError
 from pydantic import BaseModel
 
+from .model_backend import BackendSpec, structured_chat_parse
 from .models import Candidate, EvidenceRecord
 from .source_fetcher import FetchedSource
 from .text import truncate
@@ -482,20 +483,19 @@ def validate_anchors(
 
 def _parse_response(
     client: Any,
-    model: str,
+    backend: BackendSpec,
     messages: list[dict[str, str]],
-    base_url: str | None,
 ) -> EvidenceRecord | None:
-    if base_url:
-        response = client.chat.completions.parse(
-            model=model,
-            messages=messages,
+    if backend.provider_id != "openai":
+        return structured_chat_parse(
+            client,
+            backend,
+            messages,
+            EvidenceRecord,
             max_tokens=CHAT_COMPLETIONS_MAX_TOKENS,
-            response_format=EvidenceRecord,
         )
-        return response.choices[0].message.parsed
     response = client.responses.parse(
-        model=model,
+        model=backend.model,
         input=messages,
         text_format=EvidenceRecord,
     )
@@ -506,8 +506,7 @@ def extract_evidence(
     candidate: Candidate,
     source: FetchedSource,
     client: Any,
-    model: str,
-    base_url: str | None = None,
+    backend: BackendSpec,
     *,
     original_source: FetchedSource | None = None,
     max_attempts: int = 2,
@@ -526,7 +525,7 @@ def extract_evidence(
     last_error: Exception | None = None
     for attempt in range(max_attempts):
         try:
-            parsed = _parse_response(client, model, messages, base_url)
+            parsed = _parse_response(client, backend, messages)
             if parsed is None:
                 raise ValueError("missing evidence record")
             parsed = EvidenceRecord.model_validate(parsed.model_dump())

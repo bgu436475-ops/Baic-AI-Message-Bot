@@ -17,6 +17,7 @@ from ai_news_bot.evidence import (
     validate_anchors,
 )
 from ai_news_bot.gatekeeper import evaluate_gates
+from ai_news_bot.model_backend import BackendSpec
 from ai_news_bot.models import Candidate, ChangeFact, EvidenceAnchor, EvidenceRecord
 from ai_news_bot.source_fetcher import FetchedSource
 
@@ -97,6 +98,29 @@ def valid_record() -> EvidenceRecord:
     )
 
 
+def openai_backend(model: str = "test-model") -> BackendSpec:
+    return BackendSpec(
+        provider_id="openai",
+        provider_label="OpenAI",
+        api_key="test-key",
+        model=model,
+        base_url=None,
+    )
+
+
+def chat_backend(
+    model: str = "compatible-model",
+    base_url: str = "https://compatible.example/v1",
+) -> BackendSpec:
+    return BackendSpec(
+        provider_id="cloudflare",
+        provider_label="Compatible test backend",
+        api_key="test-key",
+        model=model,
+        base_url=base_url,
+    )
+
+
 class FakeResponses:
     def __init__(self, owner: "FakeStructuredClient") -> None:
         self.owner = owner
@@ -167,7 +191,7 @@ def chat_response(record: EvidenceRecord) -> SimpleNamespace:
 def test_extractor_retries_once_then_returns_record() -> None:
     client = FakeStructuredClient([ValueError("bad json"), valid_record()])
 
-    result = extract_evidence(candidate(), fetched(), client, "test-model")
+    result = extract_evidence(candidate(), fetched(), client, openai_backend())
 
     assert result.candidate_id == "one"
     assert result.source_url == "https://example.test/pricing-v2"
@@ -180,7 +204,7 @@ def test_extractor_stops_after_second_parse_failure() -> None:
     with pytest.raises(
         EvidenceExtractionError, match="model evidence parsing failed twice"
     ) as raised:
-        extract_evidence(candidate(), fetched(), client, "test-model")
+        extract_evidence(candidate(), fetched(), client, openai_backend())
 
     assert client.calls == 2
     assert isinstance(raised.value.__cause__, ValueError)
@@ -195,7 +219,7 @@ def test_extractor_honors_single_max_attempt() -> None:
             candidate(),
             fetched(),
             client,
-            "test-model",
+            openai_backend(),
             max_attempts=1,
         )
 
@@ -210,7 +234,7 @@ def test_extractor_rejects_non_positive_max_attempts_without_requesting() -> Non
             candidate(),
             fetched(),
             client,
-            "test-model",
+            openai_backend(),
             max_attempts=0,
         )
 
@@ -236,8 +260,7 @@ def test_extractor_retries_controlled_parser_and_adapter_failures(
         candidate(),
         fetched(),
         client,
-        "compatible-model",
-        base_url="https://compatible.example/v1",
+        chat_backend(),
     )
 
     assert result.candidate_id == "one"
@@ -271,8 +294,7 @@ def test_extractor_wraps_second_controlled_failure_as_extraction_error(
             candidate(),
             fetched(),
             client,
-            "compatible-model",
-            base_url="https://compatible.example/v1",
+            chat_backend(),
         )
 
     assert client.calls == 2
@@ -283,7 +305,7 @@ def test_extractor_retries_a_mismatched_candidate_id() -> None:
     mismatched = valid_record().model_copy(update={"candidate_id": "another"})
     client = FakeStructuredClient([mismatched, valid_record()])
 
-    result = extract_evidence(candidate(), fetched(), client, "test-model")
+    result = extract_evidence(candidate(), fetched(), client, openai_backend())
 
     assert result.candidate_id == "one"
     assert client.calls == 2
@@ -295,7 +317,7 @@ def test_extractor_retries_blank_chinese_instead_of_returning_it() -> None:
     )
     client = FakeStructuredClient([invalid, valid_record()])
 
-    result = extract_evidence(candidate(), fetched(), client, "test-model")
+    result = extract_evidence(candidate(), fetched(), client, openai_backend())
 
     assert result.title_zh == "Model X API 输入价格调整"
     assert result.summary_zh == "输入价格为每百万 token 1 美元。"
@@ -310,7 +332,7 @@ def test_extractor_rejects_candidate_source_mismatch_before_model_call() -> None
             candidate(),
             fetched(candidate_id="another"),
             client,
-            "test-model",
+            openai_backend(),
         )
 
     assert client.calls == 0
@@ -325,7 +347,7 @@ def test_extractor_clears_model_claimed_original_status_without_original_source(
     )
     client = FakeStructuredClient([claimed])
 
-    result = extract_evidence(candidate(), fetched(), client, "test-model")
+    result = extract_evidence(candidate(), fetched(), client, openai_backend())
 
     assert result.original_source_status is None
     assert not evaluate_gates(result, "unique").eligible_watch
@@ -344,7 +366,7 @@ def test_extractor_uses_fetched_original_status_for_verified_secondary_watch() -
         candidate(),
         fetched(),
         client,
-        "test-model",
+        openai_backend(),
         original_source=fetched(status="unavailable"),
     )
 
@@ -372,7 +394,7 @@ def test_extractor_does_not_watch_verified_secondary_when_original_is_accessible
         candidate(),
         fetched(),
         client,
-        "test-model",
+        openai_backend(),
         original_source=fetched(status=original_status),
     )
 
@@ -390,7 +412,7 @@ def test_extractor_rejects_original_source_mismatch_before_model_call() -> None:
             candidate(),
             fetched(),
             client,
-            "test-model",
+            openai_backend(),
             original_source=fetched(candidate_id="another"),
         )
 
@@ -404,9 +426,9 @@ def test_extractor_uses_cloudflare_structured_chat_parse() -> None:
         candidate(),
         fetched(),
         client,
-        "@cf/meta/llama-3.1-8b-instruct-fast",
-        base_url=(
-            "https://api.cloudflare.com/client/v4/accounts/account-123/ai/v1"
+        chat_backend(
+            "@cf/meta/llama-3.1-8b-instruct-fast",
+            "https://api.cloudflare.com/client/v4/accounts/account-123/ai/v1",
         ),
     )
 
@@ -420,10 +442,30 @@ def test_extractor_uses_cloudflare_structured_chat_parse() -> None:
     assert request["messages"][0]["content"] == EVIDENCE_SYSTEM_PROMPT
 
 
+def test_ollama_structured_parse_disables_thinking() -> None:
+    client = FakeStructuredClient([valid_record()])
+    backend = BackendSpec(
+        provider_id="ollama",
+        provider_label="Ollama",
+        api_key="ollama",
+        model="qwen3:8b",
+        base_url="http://127.0.0.1:11434/v1",
+        chat_options={"temperature": 0, "extra_body": {"think": False}},
+    )
+
+    result = extract_evidence(candidate(), fetched(), client, backend)
+
+    assert result.candidate_id == "one"
+    request = client.requests[0][1]
+    assert request["temperature"] == 0
+    assert request["extra_body"] == {"think": False}
+    assert request["response_format"] is EvidenceRecord
+
+
 def test_extractor_uses_responses_structured_parse_and_constrained_payload() -> None:
     client = FakeStructuredClient([valid_record()])
 
-    extract_evidence(candidate(), fetched(), client, "openai-model")
+    extract_evidence(candidate(), fetched(), client, openai_backend("openai-model"))
 
     interface, request = client.requests[0]
     assert interface == "responses"
@@ -467,7 +509,7 @@ def test_extractor_bounds_multilingual_source_before_first_request() -> None:
         }
     )
 
-    extract_evidence(candidate(), source, client, "openai-model")
+    extract_evidence(candidate(), source, client, openai_backend("openai-model"))
 
     _, request = client.requests[0]
     payload = json.loads(request["input"][1]["content"])
@@ -493,8 +535,7 @@ def test_extractor_retries_payload_limit_with_smaller_source_excerpt() -> None:
         candidate(),
         source,
         client,
-        "compatible-model",
-        base_url="https://compatible.example/v1",
+        chat_backend(),
     )
 
     first = json.loads(client.requests[0][1]["messages"][1]["content"])
@@ -519,8 +560,7 @@ def test_extractor_bounds_the_serialized_prompt_including_json_escaping() -> Non
         oversized_candidate,
         source,
         client,
-        "compatible-model",
-        base_url="https://compatible.example/v1",
+        chat_backend(),
     )
 
     messages = client.requests[0][1]["messages"]
@@ -900,7 +940,7 @@ def test_extraction_and_gate_cannot_bypass_direction_binding(
         candidate(),
         source,
         FakeStructuredClient([record]),
-        "test-model",
+        openai_backend(),
     )
     decision = evaluate_gates(extracted, "unique")
 
