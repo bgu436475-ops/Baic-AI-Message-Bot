@@ -97,7 +97,7 @@ OLLAMA_MODEL=qwen3:8b \
 | 当天云端任务均完成但无发送证据，且远端状态清楚 | 09:50 前继续观察；09:50 后才 `run_local` 并生成候选。 |
 | GitHub 认证/API/时钟、远端 JSON 或状态无法验证 | fail closed：停止自动发送，先修复原因。 |
 
-本地也会检查当天的发送账本和本地 `state/fallback.json`。云端运行历史通过 `gh` 的分页 `--limit` 查询到北京时间日期边界；正常超过 30 条历史不会阻断当天成功证据，但在高限额内仍无法确认边界时会 fail closed。已确认发送、远端已送达、已有本地发送账本或另一进程占有锁时，都不产生第二条飞书消息。
+本地也会检查当天的发送账本和本地 `state/fallback.json`。云端运行历史通过 `gh` 的分页 `--limit` 查询到北京时间日期边界；只有当天的 `schedule` 与 `repository_dispatch` 运行会再以 `gh run view` 检查发送步骤，历史或其他触发事件不会造成逐条检查。正常超过 30 条历史不会阻断当天成功证据，但在高限额内仍无法确认边界时会 fail closed。已确认发送、远端已送达、已有本地发送账本或另一进程占有锁时，都不产生第二条飞书消息。
 
 ## Desktop 控件、状态和恢复
 
@@ -128,7 +128,7 @@ OLLAMA_MODEL=qwen3:8b \
 .venv/bin/python scripts/uninstall_local_fallback.py
 ```
 
-脚本总会先用 `launchctl print` 检查标签（即使 plist 已缺失）；仅明确的 service-not-found 结果才视为未加载。仅标签已加载时才 `bootout`，随后再次用 `launchctl print` 确认标签不再加载。任何其他非零状态都视为不明确的失败。只有检查与卸载成功时才删除以下项目；标签未加载时视为幂等成功。若失败或标签仍加载，脚本以非零退出、报告明确原因并保留 plist 和 Desktop 控件供排障：
+脚本总会先用 `launchctl print` 检查标签（即使 plist 已缺失）；仅退出码 `3`，或退出码 `113` 且标准错误规范化后包含已知的 service-not-found 文本（如 `Could not find specified service`），才视为未加载。仅标签已加载时才 `bootout`，随后再次用 `launchctl print` 确认标签不再加载。任何其他非零状态都视为不明确的失败。只有检查与卸载成功时才删除以下项目；标签未加载时视为幂等成功。若失败或标签仍加载，脚本以非零退出、报告明确原因并保留 plist 和 Desktop 控件供排障：
 
 - `~/Library/LaunchAgents/com.baic.ai-news-bot.local-fallback.plist`
 - `~/Desktop/立即运行 Plan 2.command`

@@ -9,42 +9,44 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from install_local_fallback import INSTALLER_LABEL
+from launchctl_status import CommandStatus, _is_service_absent, command_status
 
 
-CommandRunner = Callable[[Sequence[str]], int]
-LAUNCHCTL_SERVICE_NOT_FOUND = 3
+CommandRunner = Callable[[Sequence[str]], int | CommandStatus]
 
 
 class UninstallError(RuntimeError):
     """The launch agent could not be safely confirmed as unloaded."""
 
 
-def _run_silently(command: Sequence[str]) -> int:
+def _run_silently(command: Sequence[str]) -> CommandStatus:
     try:
-        return subprocess.run(
+        completed = subprocess.run(
             list(command),
             check=False,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        ).returncode
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        return CommandStatus(completed.returncode, completed.stderr)
     except OSError:
-        return 127
+        return CommandStatus(127)
 
 
 def _launch_agent_is_loaded(context: "UninstallContext") -> bool:
     try:
-        returncode = context.runner(
+        status = command_status(context.runner(
             [
                 "/bin/launchctl",
                 "print",
                 f"gui/{context.uid}/{INSTALLER_LABEL}",
             ]
-        )
-    except OSError as error:
+        ))
+    except (OSError, ValueError) as error:
         raise UninstallError("launch_agent_status_failed") from error
-    if returncode == 0:
+    if status.returncode == 0:
         return True
-    if returncode == LAUNCHCTL_SERVICE_NOT_FOUND:
+    if _is_service_absent(status.returncode, status.stderr):
         return False
     raise UninstallError("launch_agent_status_failed")
 
@@ -97,8 +99,10 @@ def uninstall_local_fallback(
             f"gui/{context.uid}/{INSTALLER_LABEL}",
         ]
         try:
-            bootout_returncode = context.runner(bootout_command)
-        except OSError:
+            bootout_returncode = command_status(
+                context.runner(bootout_command)
+            ).returncode
+        except (OSError, ValueError):
             bootout_returncode = 127
         try:
             still_loaded = _launch_agent_is_loaded(context)

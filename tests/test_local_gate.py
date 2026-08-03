@@ -612,6 +612,100 @@ def test_github_cli_sync_scans_more_than_thirty_recorder_runs(
     client.dispatch_local_delivery(DAY, delivery_id, "published")
 
 
+def test_github_cli_inspects_only_current_relevant_runs_from_long_history(
+) -> None:
+    """Old or irrelevant runs must not trigger unbounded per-run job lookups."""
+    runs = [
+        {
+            "databaseId": 1,
+            "event": "schedule",
+            "status": "completed",
+            "conclusion": "success",
+            "createdAt": "2026-08-03T01:40:00Z",
+            "url": "https://github.com/o/r/actions/runs/1",
+        },
+        {
+            "databaseId": 2,
+            "event": "repository_dispatch",
+            "status": "completed",
+            "conclusion": "failure",
+            "createdAt": "2026-08-03T01:39:00Z",
+            "url": "https://github.com/o/r/actions/runs/2",
+        },
+        {
+            "databaseId": 3,
+            "event": "workflow_dispatch",
+            "status": "completed",
+            "conclusion": "success",
+            "createdAt": "2026-08-03T01:38:00Z",
+            "url": "https://github.com/o/r/actions/runs/3",
+        },
+        *[
+            {
+                "databaseId": index + 4,
+                "event": "schedule",
+                "status": "completed",
+                "conclusion": "failure",
+                "createdAt": "2026-08-02T15:00:00Z",
+                "url": f"https://github.com/o/r/actions/runs/{index + 4}",
+            }
+            for index in range(120)
+        ],
+    ]
+    viewed_ids: list[str] = []
+
+    def long_history(
+        arguments: tuple[str, ...], stdin: str | None = None
+    ) -> CommandResult:
+        del stdin
+        if arguments[1:4] == ("api", "-i", "rate_limit"):
+            return CommandResult(
+                0,
+                "HTTP/2 200 OK\r\nDate: Mon, 03 Aug 2026 02:00:00 GMT\r\n\r\n{}",
+            )
+        if arguments[1:3] == ("run", "list"):
+            return CommandResult(0, json.dumps(runs))
+        if arguments[1:3] == ("run", "view"):
+            viewed_ids.append(arguments[3])
+            return CommandResult(
+                0,
+                json.dumps(
+                    {
+                        "jobs": [
+                            {
+                                "name": "send-digest",
+                                "steps": [
+                                    {
+                                        "name": "Send persisted daily result",
+                                        "conclusion": (
+                                            "success"
+                                            if arguments[3] == "1"
+                                            else "failure"
+                                        ),
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                ),
+            )
+        if arguments[1:3] == (
+            "api",
+            "repos/bgu436475-ops/Baic-AI-Message-Bot/contents/"
+            "web/public/data/latest.json?ref=main",
+        ):
+            return CommandResult(1, "", "404")
+        raise AssertionError(f"unexpected command: {arguments}")
+
+    client = GitHubCLIClient(
+        Path("/usr/local/bin/gh"),
+        command_runner=long_history,
+    )
+
+    assert evaluate_cloud_snapshot(DAY, client.snapshot(DAY)).decision == "skip_delivered"
+    assert viewed_ids == ["1", "2"]
+
+
 def test_github_authentication_failure_blocks_automatic_local_send() -> None:
     def unauthenticated(
         arguments: tuple[str, ...], stdin: str | None = None

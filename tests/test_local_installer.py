@@ -40,12 +40,18 @@ from uninstall_local_fallback import (  # noqa: E402
 GIB = 1024**3
 
 
+@dataclass(frozen=True)
+class CommandOutcome:
+    returncode: int
+    stderr: str = ""
+
+
 @dataclass
 class RecordingRunner:
     """Controlled command boundary: no test may execute a real command."""
 
-    results: dict[tuple[str, ...], int] = field(default_factory=dict)
-    sequence_results: dict[tuple[str, ...], list[int]] = field(
+    results: dict[tuple[str, ...], object] = field(default_factory=dict)
+    sequence_results: dict[tuple[str, ...], list[object]] = field(
         default_factory=dict
     )
     commands: list[tuple[str, ...]] = field(default_factory=list)
@@ -377,6 +383,47 @@ def test_inactive_install_refuses_to_touch_an_existing_loaded_label(
     assert not (context.runtime_root / "staging").exists()
 
 
+def test_inactive_install_accepts_macos_service_not_found_output(
+    tmp_path: Path,
+) -> None:
+    """macOS rc=113 is absent only with the verified service-not-found message."""
+    runner = RecordingRunner()
+    context = _context(tmp_path, runner=runner)
+    status = (
+        "/bin/launchctl",
+        "print",
+        "gui/501/com.baic.ai-news-bot.local-fallback",
+    )
+    runner.results[status] = CommandOutcome(
+        113,
+        "  could NOT find   specified SERVICE\n",
+    )
+
+    install_local_fallback(context)
+
+    assert context.staged_launch_agent_path.exists()
+    assert not context.launch_agent_path.exists()
+
+
+def test_inactive_install_rejects_ambiguous_macos_service_status(
+    tmp_path: Path,
+) -> None:
+    """Exit code 113 without a service-not-found message must fail closed."""
+    runner = RecordingRunner()
+    context = _context(tmp_path, runner=runner)
+    status = (
+        "/bin/launchctl",
+        "print",
+        "gui/501/com.baic.ai-news-bot.local-fallback",
+    )
+    runner.results[status] = CommandOutcome(113, "launchctl transport error")
+
+    with pytest.raises(InstallerError, match="launch_agent_status_failed"):
+        install_local_fallback(context)
+
+    assert not (context.runtime_root / "staging").exists()
+
+
 def test_inactive_install_creates_run_now_only_after_smoke_validation(
     tmp_path: Path,
 ) -> None:
@@ -631,6 +678,29 @@ def test_uninstall_retains_controls_when_launchctl_status_is_ambiguous(
     assert context.run_now_path.exists()
     assert context.view_logs_path.exists()
     assert messages == ["launch_agent_status_failed"]
+
+
+def test_uninstall_accepts_macos_service_not_found_output(
+    tmp_path: Path,
+) -> None:
+    """A fresh uninstall should accept macOS's documented absent-service response."""
+    context = _context(tmp_path)
+    runner = RecordingRunner()
+    status = (
+        "/bin/launchctl",
+        "print",
+        "gui/501/com.baic.ai-news-bot.local-fallback",
+    )
+    runner.results[status] = CommandOutcome(
+        113,
+        "Could not find specified service\n",
+    )
+
+    summary = uninstall_local_fallback(
+        UninstallContext(home=context.home, runner=runner, uid=501)
+    )
+
+    assert str(context.runtime_root) in summary
 
 
 def test_uninstall_cli_returns_nonzero_when_unload_verification_fails(

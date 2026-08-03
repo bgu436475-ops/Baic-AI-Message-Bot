@@ -13,14 +13,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from shlex import quote as shell_quote
 
+from launchctl_status import CommandStatus, _is_service_absent, command_status
+
 
 INSTALLER_LABEL = "com.baic.ai-news-bot.local-fallback"
 DEFAULT_REPOSITORY = "bgu436475-ops/Baic-AI-Message-Bot"
 DEFAULT_MODEL = "qwen3:8b"
 MINIMUM_FREE_BYTES = 8 * 1024**3
-LAUNCHCTL_SERVICE_NOT_FOUND = 3
 
-CommandRunner = Callable[[Sequence[str]], int]
+CommandRunner = Callable[[Sequence[str]], int | CommandStatus]
 VenvBuilder = Callable[[Path], None]
 FreeSpace = Callable[[Path], int]
 
@@ -29,16 +30,18 @@ class InstallerError(RuntimeError):
     """A prerequisite for the local fallback is missing or unsafe."""
 
 
-def _run_silently(command: Sequence[str]) -> int:
+def _run_silently(command: Sequence[str]) -> CommandStatus:
     try:
-        return subprocess.run(
+        completed = subprocess.run(
             list(command),
             check=False,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        ).returncode
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        return CommandStatus(completed.returncode, completed.stderr)
     except OSError:
-        return 127
+        return CommandStatus(127)
 
 
 def _build_venv(path: Path) -> None:
@@ -201,8 +204,8 @@ def _create_environment(path: Path) -> None:
 
 def _run_or_raise(context: InstallerContext, command: Sequence[str], reason: str) -> None:
     try:
-        return_code = context.runner(command)
-    except OSError as error:
+        return_code = command_status(context.runner(command)).returncode
+    except (OSError, ValueError) as error:
         raise InstallerError(reason) from error
     if return_code != 0:
         raise InstallerError(reason)
@@ -301,18 +304,18 @@ def _install_runtime(
 
 def _launch_agent_is_loaded(context: InstallerContext) -> bool:
     try:
-        returncode = context.runner(
+        status = command_status(context.runner(
             [
                 "/bin/launchctl",
                 "print",
                 f"gui/{context.uid}/{INSTALLER_LABEL}",
             ]
-        )
-    except OSError as error:
+        ))
+    except (OSError, ValueError) as error:
         raise InstallerError("launch_agent_status_failed") from error
-    if returncode == 0:
+    if status.returncode == 0:
         return True
-    if returncode == LAUNCHCTL_SERVICE_NOT_FOUND:
+    if _is_service_absent(status.returncode, status.stderr):
         return False
     raise InstallerError("launch_agent_status_failed")
 

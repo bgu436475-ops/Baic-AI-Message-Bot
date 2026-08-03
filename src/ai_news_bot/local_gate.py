@@ -422,6 +422,12 @@ class GitHubCLIClient:
         try:
             server_time = self._server_time(self._run("api", "-i", "rate_limit"))
             runs, may_have_unseen_older_runs = self._list_runs()
+            relevant_runs = tuple(
+                run
+                for run in runs
+                if _shanghai_day(run.created_at) == day
+                and run.event in {"repository_dispatch", "schedule"}
+            )
             inspected_runs = tuple(
                 CloudRun(
                     run_id=run.run_id,
@@ -432,7 +438,7 @@ class GitHubCLIClient:
                     url=run.url,
                     send_step_conclusion=self._send_step_conclusion(run.run_id),
                 )
-                for run in runs
+                for run in relevant_runs
             )
             remote_digest = self._remote_digest()
             if remote_digest.status == "unavailable":
