@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 from typing import Any
 
@@ -113,3 +114,51 @@ def test_validate_backend_never_retries_a_model_parse_failure() -> None:
         validate_backend(settings, client_factory=fake_factory)
 
     assert calls == 1
+
+
+def test_main_sanitizes_backend_validation_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from scripts import validate_ai_backend
+
+    settings = Settings(
+        cloudflare_account_id="sensitive-account-id",
+        cloudflare_ai_api_token="sensitive-api-token",
+        cloudflare_ai_model="@cf/meta/llama-3.1-8b-instruct-fp8",
+    )
+    sensitive_error = (
+        "sensitive-api-token response_body={'request_id': 'secret-request'}"
+    )
+
+    monkeypatch.setattr(
+        validate_ai_backend.Settings,
+        "from_env",
+        classmethod(lambda cls: settings),
+    )
+
+    def fail_validation(_settings: Settings) -> EvidenceRecord:
+        raise RuntimeError(sensitive_error)
+
+    monkeypatch.setattr(validate_ai_backend, "validate_backend", fail_validation)
+
+    assert validate_ai_backend.main() != 0
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert json.loads(captured.err) == {
+        "provider": "Cloudflare Workers AI",
+        "model": "@cf/meta/llama-3.1-8b-instruct-fp8",
+        "success": False,
+        "error_class": "RuntimeError",
+    }
+    combined_output = captured.out + captured.err
+    for forbidden in (
+        sensitive_error,
+        "sensitive-api-token",
+        "sensitive-account-id",
+        "secret-request",
+        "response_body",
+        "Traceback",
+    ):
+        assert forbidden not in combined_output

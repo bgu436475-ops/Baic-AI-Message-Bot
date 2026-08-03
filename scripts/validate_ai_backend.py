@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import sys
 from datetime import UTC, datetime
 from typing import Any, Callable
 
@@ -63,7 +65,21 @@ def validate_backend(
 def main() -> int:
     settings = Settings.from_env()
     _api_key, model, _base_url, provider = settings.ai_backend()
-    validate_backend(settings)
+    try:
+        validate_backend(settings)
+    except Exception as error:
+        print(
+            json.dumps(
+                {
+                    "provider": provider,
+                    "model": model,
+                    "success": False,
+                    "error_class": type(error).__name__,
+                }
+            ),
+            file=sys.stderr,
+        )
+        return 1
     print(f"provider={provider} model={model} success=true")
     return 0
 
