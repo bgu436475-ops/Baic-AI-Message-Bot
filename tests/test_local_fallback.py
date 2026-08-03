@@ -471,6 +471,49 @@ def test_active_cloud_uses_local_deadline_when_server_time_is_stale(
     assert result.reason_code == "cloud_wait_timeout"
 
 
+def test_active_cloud_does_not_use_server_time_as_the_local_cutoff(
+    config: LocalFallbackConfig,
+) -> None:
+    """A valid +5-minute server skew must not end local polling at 09:45."""
+    class SlightlyAheadServerClient:
+        def snapshot(self, day: date) -> CloudSnapshot:
+            return CloudSnapshot(
+                runs=(
+                    CloudRun(
+                        run_id=1,
+                        event="schedule",
+                        status="in_progress",
+                        conclusion=None,
+                        created_at=datetime(day.year, day.month, day.day, 1, tzinfo=UTC),
+                        url="https://github.com/owner/repository/actions/runs/1",
+                        send_step_conclusion=None,
+                    ),
+                ),
+                remote_digest=RemoteDigestProbe("missing"),
+                server_time=datetime(day.year, day.month, day.day, 1, 50, tzinfo=UTC),
+            )
+
+    class PollingContinues(Exception):
+        pass
+
+    sleeps: list[float] = []
+
+    def stop_after_poll_interval(seconds: float) -> None:
+        sleeps.append(seconds)
+        raise PollingContinues
+
+    gate = _clock_checked_cloud_gate(
+        SlightlyAheadServerClient(),  # type: ignore[arg-type]
+        config,
+        lambda: datetime(2026, 8, 3, 1, 45, tzinfo=UTC),
+        stop_after_poll_interval,
+    )
+
+    with pytest.raises(PollingContinues):
+        gate(DAY)
+    assert sleeps == [60]
+
+
 def test_stale_pending_delivery_blocks_a_new_day_send(
     deps: LocalFallbackDependencies,
     config: LocalFallbackConfig,

@@ -597,10 +597,7 @@ def _clock_checked_cloud_gate(
             result = evaluate_cloud_snapshot(day, snapshot)
             if result.decision != "wait":
                 return result
-            if (
-                local_now.astimezone(ZoneInfo(config.timezone)) >= deadline
-                or snapshot.server_time.astimezone(ZoneInfo(config.timezone)) >= deadline
-            ):
+            if local_now.astimezone(ZoneInfo(config.timezone)) >= deadline:
                 return CloudGateResult(
                     "blocked",
                     "cloud_wait_timeout",
