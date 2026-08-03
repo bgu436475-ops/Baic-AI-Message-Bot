@@ -1,0 +1,451 @@
+from __future__ import annotations
+
+import os
+from datetime import UTC, date, datetime
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from ai_news_bot.feishu import FeishuDeliveryUncertain
+from ai_news_bot.local_fallback import (
+    GitHubStateSyncError,
+    LocalFallbackConfig,
+    LocalFallbackDependencies,
+    _clock_checked_cloud_gate,
+    load_local_environment,
+    ollama_preflight_reason,
+    parse_args,
+    preflight_reason,
+    prune_runtime_artifacts,
+    run_local_fallback,
+    set_process_timezone,
+)
+from ai_news_bot import local_fallback
+from ai_news_bot.local_gate import (
+    CloudGateResult,
+    CloudSnapshot,
+    RemoteDigestProbe,
+)
+from ai_news_bot.local_state import FallbackLedger
+from ai_news_bot.models import (
+    DigestBoards,
+    EditorialDigest,
+    GlobalPipelineStats,
+    PipelineStats,
+)
+from ai_news_bot.send_ledger import SendLedger
+
+
+DAY = date(2026, 8, 3)
+NOW = datetime(2026, 8, 3, 2, 0, tzinfo=UTC)
+
+
+def _empty_digest() -> EditorialDigest:
+    return EditorialDigest(
+        run_status="no_qualifying_items",
+        generated_at=NOW,
+        candidate_count=0,
+        source_count=0,
+        daily_narrative_zh="今天没有通过核验的 AI 新闻。",
+        global_pipeline_stats=GlobalPipelineStats(
+            candidate_count=0,
+            shortlist_count=0,
+            source_verified_count=0,
+            rejected_count=0,
+        ),
+        boards=DigestBoards(),
+        items=[],
+        pipeline_stats=PipelineStats(
+            candidate_count=0,
+            shortlist_count=0,
+            source_verified_count=0,
+            rejected_count=0,
+        ),
+    )
+
+
+class Calls:
+    def __init__(self, values: list[object] | None = None) -> None:
+        self.values = values or []
+        self.calls: list[tuple[object, ...]] = []
+
+    def __call__(self, *args: object) -> object:
+        self.calls.append(args)
+        value = self.values.pop(0) if self.values else None
+        if isinstance(value, BaseException):
+            raise value
+        return value
+
+
+@pytest.fixture
+def config(tmp_path: Path) -> LocalFallbackConfig:
+    return LocalFallbackConfig(
+        runtime_root=tmp_path / "runtime",
+        env_path=tmp_path / ".env",
+        gh_path=Path("/usr/local/bin/gh"),
+        ollama_app_path=Path("/Applications/Ollama.app"),
+        repository="owner/repository",
+    )
+
+
+@pytest.fixture
+def deps(config: LocalFallbackConfig) -> LocalFallbackDependencies:
+    digest = _empty_digest()
+    generate = Calls([digest])
+
+    def write_generated(path: Path) -> EditorialDigest:
+        generate(path)
+        path.write_text(digest.model_dump_json(), encoding="utf-8")
+        return digest
+
+    return LocalFallbackDependencies(
+        cloud_gate=Calls(
+            [
+                CloudGateResult("run_local", "cloud_failed"),
+                CloudGateResult("run_local", "cloud_failed"),
+            ]
+        ),
+        generate=write_generated,
+        send=Calls([digest]),
+        dispatch_delivery=Calls(),
+        publish_dashboard=Calls(),
+        notify=Calls(),
+        send_ledger=SendLedger(config.runtime_root / "state" / "daily_sends.json"),
+        fallback_ledger=FallbackLedger(
+            config.runtime_root / "state" / "fallback.json"
+        ),
+        now=lambda: NOW,
+        sleep=lambda _: None,
+        preflight=lambda _: None,
+    )
+
+
+def test_cloud_success_never_generates_or_sends(
+    deps: LocalFallbackDependencies,
+    config: LocalFallbackConfig,
+) -> None:
+    """Changing the delivered branch to run local would duplicate Feishu."""
+    gate = Calls([CloudGateResult("skip_delivered", "cloud_send_step")])
+    deps.cloud_gate = gate
+    generated: list[Path] = []
+    deps.generate = lambda path: generated.append(path) or _empty_digest()
+
+    assert run_local_fallback(config, deps) == 0
+
+    assert generated == []
+    assert deps.send.calls == []  # type: ignore[attr-defined]
+
+
+def test_unknown_cloud_reason_is_redacted_from_notifications(
+    deps: LocalFallbackDependencies,
+    config: LocalFallbackConfig,
+) -> None:
+    """Forwarding an untrusted cloud reason could disclose a secret in macOS."""
+    deps.cloud_gate = Calls([CloudGateResult("blocked", "actualsecretvalue")])
+
+    assert run_local_fallback(config, deps) == 2
+
+    assert deps.notify.calls == [("local_fallback_failed",)]  # type: ignore[attr-defined]
+
+
+def test_cloud_failure_generates_rechecks_and_sends_once(
+    deps: LocalFallbackDependencies,
+    config: LocalFallbackConfig,
+) -> None:
+    """Removing the second gate would let a delayed cloud send race local send."""
+    assert run_local_fallback(config, deps) == 0
+
+    assert len(deps.cloud_gate.calls) == 2  # type: ignore[attr-defined]
+    assert len(deps.send.calls) == 1  # type: ignore[attr-defined]
+    assert len(deps.dispatch_delivery.calls) == 1  # type: ignore[attr-defined]
+
+
+def test_delayed_cloud_success_on_second_gate_discards_local_preview(
+    deps: LocalFallbackDependencies,
+    config: LocalFallbackConfig,
+) -> None:
+    """Sending after a newly delivered cloud result would create a duplicate."""
+    deps.cloud_gate = Calls(
+        [
+            CloudGateResult("run_local", "cloud_failed"),
+            CloudGateResult("skip_delivered", "cloud_completed_during_generation"),
+        ]
+    )
+
+    assert run_local_fallback(config, deps) == 0
+
+    assert len(deps.send.calls) == 0  # type: ignore[attr-defined]
+
+
+def test_no_qualifying_items_is_a_valid_send(
+    deps: LocalFallbackDependencies,
+    config: LocalFallbackConfig,
+) -> None:
+    """Rejecting a schema-valid empty board would weaken the agreed delivery contract."""
+    assert run_local_fallback(config, deps) == 0
+
+    state = deps.fallback_ledger.day_state(DAY)
+    assert state is not None
+    assert state.delivery_status == "sent"
+    assert state.run_status == "no_qualifying_items"
+
+
+def test_invalid_persisted_digest_never_reaches_feishu(
+    deps: LocalFallbackDependencies,
+    config: LocalFallbackConfig,
+) -> None:
+    """Skipping persisted-artifact validation could send an invalid preview."""
+    def generate_invalid(path: Path) -> EditorialDigest:
+        path.write_text("{}", encoding="utf-8")
+        return _empty_digest()
+
+    deps.generate = generate_invalid
+
+    assert run_local_fallback(config, deps) == 2
+
+    assert deps.send.calls == []  # type: ignore[attr-defined]
+
+
+def test_feishu_timeout_records_uncertain_and_never_dispatches(
+    deps: LocalFallbackDependencies,
+    config: LocalFallbackConfig,
+) -> None:
+    """Retrying an indeterminate delivery could produce a second card."""
+    deps.send = Calls([FeishuDeliveryUncertain("webhook-secret")])
+
+    assert run_local_fallback(config, deps) == 2
+
+    state = deps.fallback_ledger.day_state(DAY)
+    assert state is not None
+    assert state.delivery_status == "uncertain_delivery"
+    assert deps.dispatch_delivery.calls == []  # type: ignore[attr-defined]
+    assert all("webhook-secret" not in str(call) for call in deps.notify.calls)  # type: ignore[attr-defined]
+
+
+def test_sync_failure_never_resends_and_retries_only_sync(
+    deps: LocalFallbackDependencies,
+    config: LocalFallbackConfig,
+) -> None:
+    """Regenerating after confirmed delivery would risk resending Feishu."""
+    deps.dispatch_delivery = Calls([GitHubStateSyncError("sync-secret"), None])
+
+    assert run_local_fallback(config, deps) == 2
+    state = deps.fallback_ledger.day_state(DAY)
+    assert state is not None
+    assert state.delivery_status == "sent"
+    assert state.cloud_sync_pending is True
+
+    assert run_local_fallback(config, deps) == 0
+
+    assert len(deps.send.calls) == 1  # type: ignore[attr-defined]
+    assert len(deps.dispatch_delivery.calls) == 2  # type: ignore[attr-defined]
+
+
+def test_dashboard_failure_is_retried_without_resending(
+    deps: LocalFallbackDependencies,
+    config: LocalFallbackConfig,
+) -> None:
+    """Retrying the full flow after dashboard failure would duplicate Feishu."""
+    config = LocalFallbackConfig(
+        **{**config.__dict__, "dashboard_enabled": True}
+    )
+    deps.publish_dashboard = Calls([RuntimeError("dashboard-secret"), None])
+
+    assert run_local_fallback(config, deps) == 2
+    state = deps.fallback_ledger.day_state(DAY)
+    assert state is not None
+    assert state.dashboard_pending is True
+
+    assert run_local_fallback(config, deps) == 0
+
+    assert len(deps.send.calls) == 1  # type: ignore[attr-defined]
+    assert len(deps.publish_dashboard.calls) == 2  # type: ignore[attr-defined]
+
+
+def test_strict_environment_rejects_unsafe_and_permissive_files(
+    tmp_path: Path,
+) -> None:
+    """Accepting shell syntax or public secret files could expose credentials."""
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "FEISHU_WEBHOOK_URL=https://open.feishu.cn/hook/token\n"
+        "OLLAMA_MODEL=$(curl example.test)\n",
+        encoding="utf-8",
+    )
+    env_path.chmod(0o600)
+
+    with pytest.raises(ValueError, match="invalid_local_environment"):
+        load_local_environment(env_path)
+
+    env_path.write_text("FEISHU_WEBHOOK_URL=https://open.feishu.cn/hook/token\n")
+    env_path.chmod(0o644)
+    with pytest.raises(ValueError, match="invalid_local_environment"):
+        load_local_environment(env_path)
+
+
+def test_strict_environment_rejects_blank_lines(tmp_path: Path) -> None:
+    """Ignoring non-assignment lines would violate the literal file format."""
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "FEISHU_WEBHOOK_URL=https://open.feishu.cn/hook/first\n\n",
+        encoding="utf-8",
+    )
+    env_path.chmod(0o600)
+
+    with pytest.raises(ValueError, match="invalid_local_environment"):
+        load_local_environment(env_path)
+
+
+def test_unknown_timezone_fails_closed_before_generation(
+    deps: LocalFallbackDependencies,
+    config: LocalFallbackConfig,
+) -> None:
+    """Treating an unclassifiable local date as sendable could duplicate today."""
+    config = LocalFallbackConfig(**{**config.__dict__, "timezone": "Missing/Zone"})
+
+    assert run_local_fallback(config, deps) == 2
+
+    assert deps.send.calls == []  # type: ignore[attr-defined]
+
+
+def test_scheduled_preflight_requires_shanghai_timezone_symlink(
+    tmp_path: Path,
+    config: LocalFallbackConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Allowing a scheduled run under another system day can duplicate delivery."""
+    zone = tmp_path / "zoneinfo" / "Asia" / "Shanghai"
+    zone.parent.mkdir(parents=True)
+    zone.write_text("zone", encoding="utf-8")
+    localtime = tmp_path / "localtime"
+    localtime.symlink_to(zone)
+    config = LocalFallbackConfig(
+        **{
+            **config.__dict__,
+            "scheduled": True,
+            "localtime_path": localtime,
+            "minimum_free_bytes": 0,
+        }
+    )
+    monkeypatch.setattr(local_fallback, "ollama_preflight_reason", lambda *args: None)
+
+    assert preflight_reason(config, lambda _: None) is None
+
+    other_zone = tmp_path / "zoneinfo" / "America" / "New_York"
+    other_zone.parent.mkdir(parents=True)
+    other_zone.write_text("zone", encoding="utf-8")
+    localtime.unlink()
+    localtime.symlink_to(other_zone)
+    assert preflight_reason(config, lambda _: None) == "timezone_mismatch"
+
+
+def test_preflight_blocks_when_free_space_is_below_minimum(
+    config: LocalFallbackConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Generating without model headroom could leave an incomplete local run."""
+    monkeypatch.setattr(
+        local_fallback.shutil,
+        "disk_usage",
+        lambda _: SimpleNamespace(free=8 * 1024**3 - 1),
+    )
+
+    assert preflight_reason(config, lambda _: None) == "insufficient_disk_space"
+
+
+def test_ollama_preflight_rejects_a_missing_model_without_starting_download(
+    config: LocalFallbackConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Treating a reachable but model-less runtime as ready could pull at schedule time."""
+    monkeypatch.setattr(local_fallback, "_ollama_models", lambda _: set())
+
+    assert ollama_preflight_reason(config, lambda _: None) == "ollama_model_missing"
+
+
+def test_github_clock_drift_blocks_the_local_gate(
+    config: LocalFallbackConfig,
+) -> None:
+    """Ignoring a stale local clock could make the date gate evaluate the wrong day."""
+    class DriftedClient:
+        def snapshot(self, day: date) -> CloudSnapshot:
+            del day
+            return CloudSnapshot(
+                runs=(),
+                remote_digest=RemoteDigestProbe("missing"),
+                server_time=datetime(2026, 8, 3, 2, 6, tzinfo=UTC),
+            )
+
+    gate = _clock_checked_cloud_gate(
+        DriftedClient(),  # type: ignore[arg-type]
+        config,
+        lambda: NOW,
+        lambda _: None,
+    )
+
+    assert gate(DAY) == CloudGateResult("blocked", "github_clock_drift")
+
+
+def test_retention_keeps_recent_runs_and_removes_old_logs(tmp_path: Path) -> None:
+    """Keeping every artifact forever would exhaust the fallback runtime disk."""
+    runtime = tmp_path / "runtime"
+    runs = runtime / "runs"
+    logs = runtime / "logs"
+    runs.mkdir(parents=True)
+    logs.mkdir()
+    for index in range(16):
+        path = runs / f"202608{index:02d}T020000Z"
+        path.mkdir()
+        os.utime(path, (index, index))
+    old_log = logs / "old.log"
+    old_log.write_text("reason_code=old", encoding="utf-8")
+    os.utime(old_log, (0, 0))
+    recent_log = logs / "recent.log"
+    recent_log.write_text("reason_code=recent", encoding="utf-8")
+    os.utime(recent_log, (NOW.timestamp(), NOW.timestamp()))
+
+    prune_runtime_artifacts(runtime, NOW)
+
+    assert len([path for path in runs.iterdir() if path.is_dir()]) == 14
+    assert old_log.exists() is False
+    assert recent_log.exists() is True
+
+
+def test_retention_uses_the_configured_external_log_directory(tmp_path: Path) -> None:
+    """Ignoring the configured log root would retain private logs indefinitely."""
+    runtime = tmp_path / "runtime"
+    external_logs = tmp_path / "Library" / "Logs" / "Baic-AI-Message-Bot"
+    external_logs.mkdir(parents=True)
+    old_log = external_logs / "old.log"
+    old_log.write_text("reason_code=old", encoding="utf-8")
+    os.utime(old_log, (0, 0))
+
+    prune_runtime_artifacts(runtime, NOW, logs_root=external_logs)
+
+    assert old_log.exists() is False
+
+
+def test_console_modes_keep_the_cloud_gate_and_reject_force_send() -> None:
+    """A force-send CLI flag would expose an unsafe Desktop bypass path."""
+    assert parse_args(["--scheduled"]).scheduled is True
+    assert parse_args(["--run-now"]).run_now is True
+    assert parse_args(["--check-only"]).check_only is True
+    assert parse_args(["--dry-run"]).dry_run is True
+
+    with pytest.raises(SystemExit):
+        parse_args(["--force-send"])
+
+
+def test_runner_sets_the_process_timezone_before_native_work(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Leaving the process timezone unchanged can make child code use another day."""
+    calls: list[str] = []
+    monkeypatch.setenv("TZ", "UTC")
+    monkeypatch.setattr(local_fallback.monotonic_time, "tzset", lambda: calls.append("tzset"))
+
+    set_process_timezone("Asia/Shanghai")
+
+    assert os.environ["TZ"] == "Asia/Shanghai"
+    assert calls == ["tzset"]

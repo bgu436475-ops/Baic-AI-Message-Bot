@@ -25,6 +25,7 @@ dev = [
 
 [project.scripts]
 ai-news-bot = "ai_news_bot.cli:main"
+ai-news-local-fallback = "ai_news_bot.local_fallback:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -32,4 +33,3 @@ where = ["src"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
-
