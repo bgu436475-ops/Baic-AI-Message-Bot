@@ -118,6 +118,13 @@ class Settings(BaseModel):
                 "CLOUDFLARE_ACCOUNT_ID 和 CLOUDFLARE_AI_API_TOKEN"
             )
         if cloudflare_configured:
+            if any(
+                character in self.cloudflare_account_id
+                for character in "/?#"
+            ):
+                raise ValueError(
+                    "Cloudflare account ID 不能包含 /、? 或 #"
+                )
             base_url = (
                 "https://api.cloudflare.com/client/v4/accounts/"
                 f"{self.cloudflare_account_id}/ai/v1"

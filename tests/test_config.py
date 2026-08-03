@@ -38,6 +38,22 @@ def test_ai_backend_prefers_complete_cloudflare_configuration() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "account_id",
+    ["account-123/other", "account-123?query=other", "account-123#fragment"],
+)
+def test_ai_backend_rejects_account_ids_that_can_change_the_endpoint(
+    account_id: str,
+) -> None:
+    settings = Settings(
+        cloudflare_account_id=account_id,
+        cloudflare_ai_api_token="cf-token",
+    )
+
+    with pytest.raises(ValueError, match="Cloudflare account ID"):
+        settings.ai_backend()
+
+
 def test_ai_backend_uses_openai_when_cloudflare_is_unconfigured() -> None:
     assert Settings(openai_api_key="openai-key").ai_backend() == (
         "openai-key",

@@ -229,3 +229,24 @@ def test_global_editor_uses_constrained_prompt_and_expected_schema() -> None:
     assert "chinese" in prompt
     assert "literal evidence anchor" in prompt
     assert "do not score" in prompt
+
+
+def test_global_editor_uses_chat_completions_for_cloudflare() -> None:
+    client = FakeStructuredClient([valid_global_record()])
+
+    result = extract_global_event(
+        candidate(),
+        fetched(),
+        client,
+        "@cf/meta/llama-3.1-8b-instruct-fp8",
+        base_url=(
+            "https://api.cloudflare.com/client/v4/accounts/account-123/ai/v1"
+        ),
+    )
+
+    assert result.candidate_id == "global-model-x"
+    interface, request = client.requests[0]
+    assert interface == "chat"
+    assert request["model"] == "@cf/meta/llama-3.1-8b-instruct-fp8"
+    assert request["response_format"] is GlobalEventEvidence
+    assert request["messages"][0]["content"] == GLOBAL_EVENT_SYSTEM_PROMPT
