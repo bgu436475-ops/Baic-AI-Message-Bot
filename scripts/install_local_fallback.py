@@ -270,6 +270,19 @@ def _install_runtime(context: InstallerContext) -> None:
     _write_file(context.view_logs_path, _render_view_logs(context), 0o700)
 
 
+def _launch_agent_is_loaded(context: InstallerContext) -> bool:
+    try:
+        return context.runner(
+            [
+                "/bin/launchctl",
+                "print",
+                f"gui/{context.uid}/{INSTALLER_LABEL}",
+            ]
+        ) == 0
+    except OSError:
+        return False
+
+
 def install_local_fallback(
     context: InstallerContext,
     *,
@@ -281,7 +294,7 @@ def install_local_fallback(
         raise InstallerError("smoke_validation_required")
     _validate_prerequisites(context)
     _install_runtime(context)
-    if activate_schedule:
+    if activate_schedule and not _launch_agent_is_loaded(context):
         _run_or_raise(
             context,
             ["/bin/launchctl", "bootstrap", f"gui/{context.uid}", str(context.launch_agent_path)],

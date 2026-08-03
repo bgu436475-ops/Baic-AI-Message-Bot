@@ -109,9 +109,44 @@ def _wait_for_health(context: OllamaInstallContext) -> None:
     raise OllamaInstallError("ollama_healthcheck_failed")
 
 
+def _verify_ollama(
+    context: OllamaInstallContext,
+    app_path: Path,
+) -> None:
+    _require_success(
+        context.runner,
+        ["/usr/bin/codesign", "--verify", "--deep", "--strict", str(app_path)],
+        "ollama_codesign_verification_failed",
+    )
+    _require_success(
+        context.runner,
+        ["/usr/sbin/spctl", "--assess", "--type", "execute", str(app_path)],
+        "ollama_spctl_verification_failed",
+    )
+
+
+def _start_and_prepare_ollama(
+    context: OllamaInstallContext,
+    app_path: Path,
+) -> None:
+    _require_success(
+        context.runner,
+        ["/usr/bin/open", "-gj", "-a", str(app_path)],
+        "ollama_start_failed",
+    )
+    _wait_for_health(context)
+    _require_success(
+        context.runner,
+        [str(app_path / "Contents/MacOS/ollama"), "pull", context.model],
+        "ollama_model_pull_failed",
+    )
+
+
 def install_ollama(context: OllamaInstallContext) -> OllamaInstallResult:
-    """Install a verified app once; never replace an existing user app or model."""
+    """Install a verified app once; never replace an existing user application."""
     if context.app_path.exists():
+        _verify_ollama(context, context.app_path)
+        _start_and_prepare_ollama(context, context.app_path)
         return OllamaInstallResult(app_path=context.app_path, installed=False)
 
     context.applications_dir.mkdir(parents=True, exist_ok=True)
@@ -128,33 +163,16 @@ def install_ollama(context: OllamaInstallContext) -> OllamaInstallResult:
         extracted_app = temporary_path / "Ollama.app"
         if not extracted_app.is_dir():
             raise OllamaInstallError("ollama_archive_invalid")
-        _require_success(
-            context.runner,
-            ["/usr/bin/codesign", "--verify", "--deep", "--strict", str(extracted_app)],
-            "ollama_codesign_verification_failed",
-        )
-        _require_success(
-            context.runner,
-            ["/usr/sbin/spctl", "--assess", "--type", "execute", str(extracted_app)],
-            "ollama_spctl_verification_failed",
-        )
+        _verify_ollama(context, extracted_app)
 
         # Do not race an app another installer created while we verified ours.
         if context.app_path.exists():
+            _verify_ollama(context, context.app_path)
+            _start_and_prepare_ollama(context, context.app_path)
             return OllamaInstallResult(app_path=context.app_path, installed=False)
         shutil.move(str(extracted_app), str(context.app_path))
 
-    _require_success(
-        context.runner,
-        ["/usr/bin/open", "-gj", "-a", str(context.app_path)],
-        "ollama_start_failed",
-    )
-    _wait_for_health(context)
-    _require_success(
-        context.runner,
-        [str(context.app_path / "Contents/MacOS/ollama"), "pull", context.model],
-        "ollama_model_pull_failed",
-    )
+    _start_and_prepare_ollama(context, context.app_path)
     return OllamaInstallResult(app_path=context.app_path, installed=True)
 
 

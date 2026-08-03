@@ -236,6 +236,12 @@ def test_schedule_bootstrap_requires_explicit_smoke_validation(tmp_path: Path) -
         )
     assert runner.commands == []
 
+    print_command = (
+        "/bin/launchctl",
+        "print",
+        "gui/501/com.baic.ai-news-bot.local-fallback",
+    )
+    runner.results[print_command] = 1
     install_local_fallback(
         context,
         activate_schedule=True,
@@ -248,6 +254,20 @@ def test_schedule_bootstrap_requires_explicit_smoke_validation(tmp_path: Path) -
         "gui/501",
         str(context.launch_agent_path),
     ) in runner.commands
+
+    runner.commands.clear()
+    runner.results[print_command] = 0
+    install_local_fallback(
+        context,
+        activate_schedule=True,
+        smoke_validated=True,
+    )
+
+    assert print_command in runner.commands
+    assert not any(
+        command[:2] == ("/bin/launchctl", "bootstrap")
+        for command in runner.commands
+    )
 
 
 def test_uninstall_removes_controls_and_preserves_operator_data(tmp_path: Path) -> None:
@@ -347,4 +367,24 @@ def test_ollama_installer_verifies_download_and_never_replaces_existing_app(
     assert again.app_path == installed.app_path
     assert preserved.read_text(encoding="utf-8") == "do not replace"
     assert downloaded == []
-    assert runner.commands == []
+    assert any(
+        command[:4] == ("/usr/bin/codesign", "--verify", "--deep", "--strict")
+        and command[-1] == str(installed.app_path)
+        for command in runner.commands
+    )
+    assert any(
+        command[:4] == ("/usr/sbin/spctl", "--assess", "--type", "execute")
+        and command[-1] == str(installed.app_path)
+        for command in runner.commands
+    )
+    assert (
+        "/usr/bin/open",
+        "-gj",
+        "-a",
+        str(installed.app_path),
+    ) in runner.commands
+    assert (
+        str(installed.app_path / "Contents/MacOS/ollama"),
+        "pull",
+        "qwen3:8b",
+    ) in runner.commands
