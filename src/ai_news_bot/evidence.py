@@ -508,18 +508,21 @@ def extract_evidence(
     base_url: str | None = None,
     *,
     original_source: FetchedSource | None = None,
+    max_attempts: int = 2,
 ) -> EvidenceRecord:
     if source.candidate_id != candidate.id:
         raise EvidenceExtractionError("candidate and source IDs do not match")
     if original_source is not None and original_source.candidate_id != candidate.id:
         raise EvidenceExtractionError("candidate and original source IDs do not match")
+    if max_attempts < 1:
+        raise ValueError("max_attempts must be at least 1")
     messages = _evidence_messages(
         candidate,
         source,
         DEFAULT_PROMPT_TOKEN_BUDGET,
     )
     last_error: Exception | None = None
-    for attempt in range(2):
+    for attempt in range(max_attempts):
         try:
             parsed = _parse_response(client, model, messages, base_url)
             if parsed is None:
@@ -536,10 +539,15 @@ def extract_evidence(
             )
         except (ValueError, TypeError, AttributeError, IndexError, OpenAIError) as error:
             last_error = error
-            if attempt == 0 and _is_payload_limit_error(error):
+            if attempt < max_attempts - 1 and _is_payload_limit_error(error):
                 messages = _evidence_messages(
                     candidate,
                     source,
                     RETRY_PROMPT_TOKEN_BUDGET,
                 )
-    raise EvidenceExtractionError("model evidence parsing failed twice") from last_error
+    failure_message = (
+        "model evidence parsing failed twice"
+        if max_attempts == 2
+        else f"model evidence parsing failed after {max_attempts} attempt(s)"
+    )
+    raise EvidenceExtractionError(failure_message) from last_error

@@ -187,6 +187,36 @@ def test_extractor_stops_after_second_parse_failure() -> None:
     assert str(raised.value.__cause__) == "bad again"
 
 
+def test_extractor_honors_single_max_attempt() -> None:
+    client = FakeStructuredClient([ValueError("bad json"), valid_record()])
+
+    with pytest.raises(EvidenceExtractionError):
+        extract_evidence(
+            candidate(),
+            fetched(),
+            client,
+            "test-model",
+            max_attempts=1,
+        )
+
+    assert client.calls == 1
+
+
+def test_extractor_rejects_non_positive_max_attempts_without_requesting() -> None:
+    client = FakeStructuredClient([valid_record()])
+
+    with pytest.raises(ValueError, match="max_attempts must be at least 1"):
+        extract_evidence(
+            candidate(),
+            fetched(),
+            client,
+            "test-model",
+            max_attempts=0,
+        )
+
+    assert client.calls == 0
+
+
 @pytest.mark.parametrize(
     "first_response",
     [

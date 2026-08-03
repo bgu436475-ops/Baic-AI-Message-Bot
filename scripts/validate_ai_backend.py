@@ -42,7 +42,14 @@ def validate_backend(
         text=SMOKE_STATEMENT,
         fetched_at=now,
     )
-    record = extract_evidence(candidate, source, client, model, base_url=base_url)
+    record = extract_evidence(
+        candidate,
+        source,
+        client,
+        model,
+        base_url=base_url,
+        max_attempts=1,
+    )
     if (
         record.candidate_id != SMOKE_CANDIDATE_ID
         or record.verification_status != "verified"

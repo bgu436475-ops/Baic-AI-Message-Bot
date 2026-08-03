@@ -1,7 +1,10 @@
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from ai_news_bot.config import Settings
+from ai_news_bot.evidence import EvidenceExtractionError
 from ai_news_bot.models import ChangeFact, EvidenceAnchor, EvidenceRecord
 
 
@@ -46,19 +49,23 @@ def test_validate_backend_uses_cloudflare_client_and_verified_anchor() -> None:
     from scripts.validate_ai_backend import validate_backend
 
     captured: dict[str, str | None] = {}
+    calls = 0
 
     def fake_factory(**kwargs: Any) -> SimpleNamespace:
+        nonlocal calls
         captured.update(kwargs)
+
+        def parse(**_request: Any) -> SimpleNamespace:
+            nonlocal calls
+            calls += 1
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(parsed=_smoke_record()))]
+            )
+
         return SimpleNamespace(
             chat=SimpleNamespace(
                 completions=SimpleNamespace(
-                    parse=lambda **_request: SimpleNamespace(
-                        choices=[
-                            SimpleNamespace(
-                                message=SimpleNamespace(parsed=_smoke_record())
-                            )
-                        ]
-                    )
+                    parse=parse
                 )
             )
         )
@@ -78,3 +85,30 @@ def test_validate_backend_uses_cloudflare_client_and_verified_anchor() -> None:
             "https://api.cloudflare.com/client/v4/accounts/account-123/ai/v1"
         ),
     }
+    assert calls == 1
+
+
+def test_validate_backend_never_retries_a_model_parse_failure() -> None:
+    from scripts.validate_ai_backend import validate_backend
+
+    calls = 0
+
+    def fake_factory(**_kwargs: Any) -> SimpleNamespace:
+        def parse(**_request: Any) -> SimpleNamespace:
+            nonlocal calls
+            calls += 1
+            raise ValueError("invalid structured response")
+
+        return SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(parse=parse))
+        )
+
+    settings = Settings(
+        cloudflare_account_id="account-123",
+        cloudflare_ai_api_token="cf-token",
+    )
+
+    with pytest.raises(EvidenceExtractionError):
+        validate_backend(settings, client_factory=fake_factory)
+
+    assert calls == 1
