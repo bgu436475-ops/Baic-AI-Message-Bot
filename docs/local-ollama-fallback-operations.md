@@ -56,6 +56,7 @@
 ```bash
 ~/Library/Application\ Support/Baic-AI-Message-Bot/venv/bin/python \
   -m ai_news_bot.local_fallback \
+  --gh-path ~/Library/Application\ Support/Baic-AI-Message-Bot/bin/gh \
   --check-only
 ```
 

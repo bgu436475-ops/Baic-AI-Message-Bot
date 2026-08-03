@@ -88,3 +88,4 @@ def test_local_ollama_operator_documentation_covers_safe_fallback_contract() -> 
     assert "uncertain_delivery" in operations
     assert "不会自动重试发送" in operations
     assert "~/Library/Application Support/Baic-AI-Message-Bot/.env" in operations
+    assert "--gh-path ~/Library/Application\\ Support/Baic-AI-Message-Bot/bin/gh" in operations
