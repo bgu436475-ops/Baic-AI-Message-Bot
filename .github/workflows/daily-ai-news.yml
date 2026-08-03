@@ -67,7 +67,7 @@ jobs:
           CLOUDFLARE_AI_API_TOKEN: ${{ secrets.CLOUDFLARE_AI_API_TOKEN }}
           CLOUDFLARE_AI_MODEL: ${{ vars.CLOUDFLARE_AI_MODEL || '@cf/meta/llama-3.1-8b-instruct-fast' }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-5.6-luna' }}
         run: python scripts/validate_ai_backend.py
 
       - name: Build no-send preview
@@ -106,7 +106,7 @@ jobs:
           CLOUDFLARE_AI_API_TOKEN: ${{ secrets.CLOUDFLARE_AI_API_TOKEN }}
           CLOUDFLARE_AI_MODEL: ${{ vars.CLOUDFLARE_AI_MODEL || '@cf/meta/llama-3.1-8b-instruct-fast' }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-5.6-luna' }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ai-news-bot --dry-run
 
