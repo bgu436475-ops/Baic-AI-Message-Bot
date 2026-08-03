@@ -32,7 +32,7 @@
      --repository bgu436475-ops/Baic-AI-Message-Bot
    ```
 
-   此步骤会创建运行时、`~/Library/Logs/Baic-AI-Message-Bot/`、`~/Library/LaunchAgents/com.baic.ai-news-bot.local-fallback.plist` 和两个 Desktop 控件，但不会激活定时任务。运行时使用自己的非编辑安装 virtualenv 和复制的 `gh`，不从 shell 读取密钥。
+   此步骤会创建运行时、`~/Library/Logs/Baic-AI-Message-Bot/`、`~/Library/LaunchAgents/com.baic.ai-news-bot.local-fallback.plist` 和“查看 Plan 2 日志”Desktop 控件，但不会激活定时任务或创建发送控件。运行时使用自己的非编辑安装 virtualenv 和复制的 `gh`，不从 shell 读取密钥。
 
 4. 在受保护文件中填写凭证，保持一行一个 `KEY=VALUE`，无引号、无空行、无 `export`、无 shell 展开。允许的变量名只有：
 
@@ -83,27 +83,27 @@ OLLAMA_MODEL=qwen3:8b \
   --activate-schedule
 ```
 
-激活还会经已登录的 GitHub CLI 检查远端 `main` 分支存在 `record-local-delivery.yml`；缺少该工作流时安装器拒绝激活。激活后，`~/Library/LaunchAgents/com.baic.ai-news-bot.local-fallback.plist` 每天北京时间 09:35 运行 `--scheduled`。它不会在 09:35 直接发送：先执行预检和云端门槛，若云端运行仍活跃则每 60 秒重查，使用本机上海时钟在 09:50 截止。09:50 是停止等待的安全截止点，不是送达承诺。
+激活还会经已登录的 GitHub CLI 检查远端 `main` 分支存在 `record-local-delivery.yml`；缺少该工作流时安装器拒绝激活。激活后，`~/Library/LaunchAgents/com.baic.ai-news-bot.local-fallback.plist` 每天北京时间 09:35 运行 `--scheduled`。它不会在 09:35 直接发送：在 09:50 前，即使云端已明确失败，也会每 60 秒重查；使用本机上海时钟确认窗口关闭后才允许本地候选发送。09:50 是送达结论观察窗口的下限，不是送达承诺。
 
 ## 云端门槛与本地发送决策
 
-每次本地候选发送会在生成前和发送前各检查一次云端；第二次检查发现云端已经送达时，会丢弃本地预览而不发送。
+每次本地候选发送会在生成前、生成后和持久化预发送状态前各检查一次云端；任何后续检查发现云端已经送达时，都会丢弃本地预览而不发送。该流程使用本地互斥锁，但不能把 GitHub 与飞书变成同一把全局原子锁；时间或云端状态不确定时一律停止。
 
 | 云端观察结果 | 本地行为 |
 | --- | --- |
 | 已找到当天成功的 `Send persisted daily result` 步骤 | `skip_delivered`，不生成、不发送。 |
 | 当前北京日期的远端 `latest.json` 能通过 schema 验证 | `skip_delivered`，不发送。有效的空榜（`no_qualifying_items`）也属于送达证据，不能因“没有新闻”而补发。 |
 | 当天云端任务仍在执行 | 等待，最多到 09:50；之后以 `cloud_wait_timeout` 停止。 |
-| 当天云端任务均完成但无发送证据，且远端状态清楚 | `run_local`，本地才可生成候选。 |
+| 当天云端任务均完成但无发送证据，且远端状态清楚 | 09:50 前继续观察；09:50 后才 `run_local` 并生成候选。 |
 | GitHub 认证/API/时钟、远端 JSON 或状态无法验证 | fail closed：停止自动发送，先修复原因。 |
 
 本地也会检查当天的发送账本和本地 `state/fallback.json`。已确认发送、远端已送达、已有本地发送账本或另一进程占有锁时，都不产生第二条飞书消息。
 
 ## Desktop 控件、状态和恢复
 
-安装器创建两个精确名称的 Desktop 文件：
+完成无发送 smoke validation 后，以 `--smoke-validated` 重新运行安装器才会创建“立即运行 Plan 2”控件；在此之前只创建日志控件。该步骤不激活定时任务，也不会自行发送；只在操作员明确批准后，才按上文使用 `--activate-schedule` 激活排程。两个精确名称的 Desktop 文件为：
 
-- `~/Desktop/立即运行 Plan 2.command`：运行 `--run-now`，仍执行上述两次云端门槛；它不是强制发送按钮。
+- `~/Desktop/立即运行 Plan 2.command`：运行 `--run-now`，仅在北京时间 09:50 后并通过三次云端门槛时才可发送；它不是强制发送按钮。
 - `~/Desktop/查看 Plan 2 日志.command`：打开 `~/Library/Logs/Baic-AI-Message-Bot/`。
 
 关键诊断位置如下：
@@ -128,7 +128,7 @@ OLLAMA_MODEL=qwen3:8b \
 .venv/bin/python scripts/uninstall_local_fallback.py
 ```
 
-脚本会先检查 `bootout` 的返回值，再用 `launchctl print` 确认标签不再加载；只有这两项都成功时才删除以下项目。若失败或标签仍加载，脚本以非零退出、报告明确原因并保留 plist 供排障：
+脚本总会先用 `launchctl print` 检查标签（即使 plist 已缺失）；仅标签已加载时才 `bootout`，随后再次用 `launchctl print` 确认标签不再加载。只有检查与卸载成功时才删除以下项目；标签未加载时视为幂等成功。若失败或标签仍加载，脚本以非零退出、报告明确原因并保留 plist 和 Desktop 控件供排障：
 
 - `~/Library/LaunchAgents/com.baic.ai-news-bot.local-fallback.plist`
 - `~/Desktop/立即运行 Plan 2.command`

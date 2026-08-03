@@ -43,11 +43,16 @@ class RecordingRunner:
     """Controlled command boundary: no test may execute a real command."""
 
     results: dict[tuple[str, ...], int] = field(default_factory=dict)
+    sequence_results: dict[tuple[str, ...], list[int]] = field(
+        default_factory=dict
+    )
     commands: list[tuple[str, ...]] = field(default_factory=list)
 
     def __call__(self, command: Sequence[str]) -> int:
         normalized = tuple(command)
         self.commands.append(normalized)
+        if values := self.sequence_results.get(normalized):
+            return values.pop(0)
         return self.results.get(normalized, 0)
 
 
@@ -113,12 +118,15 @@ def test_installer_reuses_runtime_and_protects_environment(tmp_path: Path) -> No
     )
     assert stat.S_IMODE(second.env_path.stat().st_mode) == 0o600
     assert second.launch_agent.exists()
-    assert second.run_now.exists()
+    assert not second.run_now.exists()
     assert second.view_logs.exists()
     assert (second.runtime_root / "config" / "sources.yaml").read_text(
         encoding="utf-8"
     ) == "rss: []\n"
     assert os.access(second.runtime_root / "bin" / "gh", os.X_OK)
+
+    smoke_validated = install_local_fallback(context, smoke_validated=True)
+    assert smoke_validated.run_now.exists()
 
 
 def test_installer_reinstalls_the_project_when_a_runtime_venv_already_exists(
@@ -153,7 +161,7 @@ def test_rendered_controls_schedule_0935_without_secret_values(tmp_path: Path) -
     env_path.chmod(0o600)
 
     plist = plistlib.loads(render_launch_agent(context))
-    installed = install_local_fallback(context)
+    installed = install_local_fallback(context, smoke_validated=True)
     rendered = "\n".join(
         [
             installed.launch_agent.read_text(encoding="utf-8"),
@@ -292,6 +300,21 @@ def test_schedule_bootstrap_requires_explicit_smoke_validation(tmp_path: Path) -
     )
 
 
+def test_inactive_install_creates_run_now_only_after_smoke_validation(
+    tmp_path: Path,
+) -> None:
+    """A Desktop send control must not appear before the no-send smoke check."""
+    context = _context(tmp_path)
+
+    inactive = install_local_fallback(context)
+    assert inactive.view_logs.exists()
+    assert not inactive.run_now.exists()
+
+    smoke_validated = install_local_fallback(context, smoke_validated=True)
+    assert smoke_validated.view_logs.exists()
+    assert smoke_validated.run_now.exists()
+
+
 def test_schedule_activation_refuses_a_remote_without_the_recorder_workflow(
     tmp_path: Path,
 ) -> None:
@@ -363,12 +386,7 @@ def test_uninstall_removes_controls_and_preserves_operator_data(tmp_path: Path) 
     assert str(result.runtime_root) in summary
     assert str(install_context.logs_root) in summary
     assert str(install_context.home / ".ollama" / "models") in summary
-    assert (
-        "/bin/launchctl",
-        "bootout",
-        "gui/501",
-        str(result.launch_agent),
-    ) in runner.commands
+    assert not any(command[1] == "bootout" for command in runner.commands)
     with pytest.raises(SystemExit):
         parse_uninstall_args(["--remove-data"])
 
@@ -376,7 +394,7 @@ def test_uninstall_removes_controls_and_preserves_operator_data(tmp_path: Path) 
 @pytest.mark.parametrize(
     ("bootout_result", "print_result", "reason"),
     [
-        (1, 1, "launch_agent_bootout_failed"),
+        (1, 0, "launch_agent_bootout_failed"),
         (0, 0, "launch_agent_still_loaded"),
     ],
 )
@@ -393,8 +411,7 @@ def test_uninstall_retains_plist_when_launch_agent_cannot_be_confirmed_unloaded(
     bootout = (
         "/bin/launchctl",
         "bootout",
-        "gui/501",
-        str(result.launch_agent),
+        "gui/501/com.baic.ai-news-bot.local-fallback",
     )
     status = (
         "/bin/launchctl",
@@ -402,7 +419,7 @@ def test_uninstall_retains_plist_when_launch_agent_cannot_be_confirmed_unloaded(
         "gui/501/com.baic.ai-news-bot.local-fallback",
     )
     runner.results[bootout] = bootout_result
-    runner.results[status] = print_result
+    runner.sequence_results[status] = [0, print_result]
     messages: list[str] = []
 
     with pytest.raises(UninstallError, match=reason):
@@ -413,6 +430,83 @@ def test_uninstall_retains_plist_when_launch_agent_cannot_be_confirmed_unloaded(
 
     assert result.launch_agent.exists()
     assert messages == [reason]
+
+
+def test_uninstall_checks_an_absent_plist_against_the_loaded_scheduler_label(
+    tmp_path: Path,
+) -> None:
+    """A stale loaded label must be removed even when its plist has gone missing."""
+    install_context = _context(tmp_path)
+    result = install_local_fallback(install_context, smoke_validated=True)
+    result.launch_agent.unlink()
+    runner = RecordingRunner()
+    status = (
+        "/bin/launchctl",
+        "print",
+        "gui/501/com.baic.ai-news-bot.local-fallback",
+    )
+    runner.sequence_results[status] = [0, 1]
+
+    uninstall_local_fallback(
+        UninstallContext(home=install_context.home, runner=runner, uid=501)
+    )
+
+    assert (
+        "/bin/launchctl",
+        "bootout",
+        "gui/501/com.baic.ai-news-bot.local-fallback",
+    ) in runner.commands
+    assert not result.run_now.exists()
+    assert not result.view_logs.exists()
+
+
+def test_uninstall_keeps_controls_when_the_loaded_label_survives_bootout(
+    tmp_path: Path,
+) -> None:
+    """Controls remain available until launchctl confirms the scheduler is gone."""
+    install_context = _context(tmp_path)
+    result = install_local_fallback(install_context, smoke_validated=True)
+    runner = RecordingRunner()
+    status = (
+        "/bin/launchctl",
+        "print",
+        "gui/501/com.baic.ai-news-bot.local-fallback",
+    )
+    runner.sequence_results[status] = [0, 0]
+    messages: list[str] = []
+
+    with pytest.raises(UninstallError, match="launch_agent_still_loaded"):
+        uninstall_local_fallback(
+            UninstallContext(home=install_context.home, runner=runner, uid=501),
+            output=messages.append,
+        )
+
+    assert result.launch_agent.exists()
+    assert result.run_now.exists()
+    assert result.view_logs.exists()
+    assert messages == ["launch_agent_still_loaded"]
+
+
+def test_uninstall_is_idempotent_when_plist_and_label_are_absent(
+    tmp_path: Path,
+) -> None:
+    """An already inactive fallback should still inspect launchctl then succeed."""
+    context = _context(tmp_path)
+    runner = RecordingRunner()
+    status = (
+        "/bin/launchctl",
+        "print",
+        "gui/501/com.baic.ai-news-bot.local-fallback",
+    )
+    runner.results[status] = 1
+
+    summary = uninstall_local_fallback(
+        UninstallContext(home=context.home, runner=runner, uid=501)
+    )
+
+    assert status in runner.commands
+    assert not any(command[1] == "bootout" for command in runner.commands)
+    assert str(context.runtime_root) in summary
 
 
 def test_uninstall_cli_returns_nonzero_when_unload_verification_fails(

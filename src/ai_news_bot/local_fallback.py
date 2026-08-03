@@ -41,7 +41,7 @@ from .local_state import (
 )
 from .model_backend import create_ollama_session, normalize_ollama_base_url
 from .models import EditorialDigest
-from .send_ledger import SendLedger
+from .send_ledger import SendLedger, SendLedgerCorruptionError
 
 
 LOGGER = logging.getLogger(__name__)
@@ -52,6 +52,7 @@ _SAFE_REASON_CODES = frozenset(
         "cloud_gate_unavailable",
         "cloud_run_active",
         "cloud_snapshot_unavailable",
+        "cloud_schedule_window_open",
         "cloud_sync_pending",
         "cloud_wait_timeout",
         "dashboard_digest_missing",
@@ -67,6 +68,7 @@ _SAFE_REASON_CODES = frozenset(
         "local_fallback_clock_invalid",
         "local_fallback_failed",
         "local_send_ledger_delivered",
+        "local_send_ledger_invalid",
         "local_state_invalid",
         "local_state_write_failed",
         "ollama_model_missing",
@@ -297,6 +299,28 @@ def _shanghai_day(timestamp: datetime, timezone: str) -> date:
     return timestamp.astimezone(ZoneInfo(timezone)).date()
 
 
+def _cloud_schedule_window_reason(
+    timestamp: datetime,
+    expected_day: date,
+    config: LocalFallbackConfig,
+) -> str | None:
+    """Require a reliable Beijing timestamp after the cloud schedule window."""
+    try:
+        if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+            raise ValueError
+        deadline = config.cloud_wait_deadline
+        if not isinstance(deadline, time) or deadline.tzinfo is not None:
+            raise ValueError
+        local_time = timestamp.astimezone(ZoneInfo(config.timezone))
+        if local_time.date() != expected_day:
+            raise ValueError
+    except (TypeError, ValueError, ZoneInfoNotFoundError):
+        return "local_fallback_clock_invalid"
+    if local_time.time() < deadline:
+        return "cloud_schedule_window_open"
+    return None
+
+
 def _latest_digest_path(config: LocalFallbackConfig) -> Path | None:
     runs_path = config.runtime_root / "runs"
     try:
@@ -420,6 +444,12 @@ def _run_locked(
         _report(dependencies, "stale_pending_delivery")
         return 2
 
+    try:
+        send_ledger_delivered = dependencies.send_ledger.was_sent(day)
+    except SendLedgerCorruptionError:
+        _report(dependencies, "local_send_ledger_invalid")
+        return 2
+
     state = dependencies.fallback_ledger.day_state(day)
     if state is not None:
         if state.delivery_status == "uncertain_delivery":
@@ -427,7 +457,7 @@ def _run_locked(
             return 2
         if state.delivery_status == "sent":
             return _retry_pending_work(config, dependencies, day, state)
-    if dependencies.send_ledger.was_sent(day):
+    if send_ledger_delivered:
         # `send_existing_daily_result` writes this ledger before returning.  If
         # the process then dies before local state is persisted, no retry is
         # safer than a duplicate delivery.
@@ -452,6 +482,12 @@ def _run_locked(
     if config.check_only:
         return 0
 
+    if not config.dry_run:
+        reason = _cloud_schedule_window_reason(now, day, config)
+        if reason is not None:
+            _report(dependencies, reason)
+            return 2
+
     run_path = _run_directory(config, now)
     digest_path = run_path / "latest.json"
     try:
@@ -469,8 +505,20 @@ def _run_locked(
     if config.dry_run:
         return 0
 
+    final_now = dependencies.now()
+    reason = _cloud_schedule_window_reason(final_now, day, config)
+    if reason is not None:
+        _report(dependencies, reason)
+        return 2
+    allowed, exit_code = _cloud_allows_local(dependencies, day)
+    if not allowed:
+        return exit_code
+
     try:
-        dependencies.fallback_ledger.mark_uncertain(day, at=dependencies.now())
+        # The local lock serializes local invocations, but GitHub and Feishu do
+        # not provide a shared atomic lock.  This durable pre-send marker makes
+        # the final checked decision fail closed if the process is interrupted.
+        dependencies.fallback_ledger.mark_uncertain(day, at=final_now)
     except Exception:
         _report(dependencies, "local_state_write_failed")
         return 2
@@ -600,14 +648,21 @@ def _clock_checked_cloud_gate(
             if drift > 5 * 60:
                 return CloudGateResult("blocked", "github_clock_drift")
             result = evaluate_cloud_snapshot(day, snapshot)
-            if result.decision != "wait":
+            local_beijing_now = local_now.astimezone(ZoneInfo(config.timezone))
+            if result.decision == "skip_delivered":
                 return result
-            if local_now.astimezone(ZoneInfo(config.timezone)) >= deadline:
-                return CloudGateResult(
-                    "blocked",
-                    "cloud_wait_timeout",
-                    result.run_urls,
-                )
+            if local_beijing_now >= deadline:
+                if result.decision == "wait":
+                    return CloudGateResult(
+                        "blocked",
+                        "cloud_wait_timeout",
+                        result.run_urls,
+                    )
+                return result
+            if result.decision not in {"wait", "run_local"}:
+                return result
+            # A completed cloud failure is not enough before the entire cloud
+            # schedule window has closed; keep observing until the deadline.
             sleep(60)
 
     return cloud_gate

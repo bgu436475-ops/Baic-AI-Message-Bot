@@ -11,8 +11,14 @@ from zoneinfo import ZoneInfo
 from .models import EditorialDigest
 
 
+class SendLedgerCorruptionError(RuntimeError):
+    """Persisted send evidence cannot be trusted for a safe delivery decision."""
+
+
 def _valid_success_entry(key: Any, value: Any) -> bool:
     if not isinstance(key, str) or not isinstance(value, dict):
+        return False
+    if set(value) != {"sent_at", "run_status"}:
         return False
     day_text, separator, target = key.partition("|")
     if not separator or not target.strip():
@@ -25,8 +31,10 @@ def _valid_success_entry(key: Any, value: Any) -> bool:
     if not isinstance(sent_at, str):
         return False
     try:
-        datetime.fromisoformat(sent_at)
+        parsed_sent_at = datetime.fromisoformat(sent_at)
     except ValueError:
+        return False
+    if parsed_sent_at.tzinfo is None or parsed_sent_at.utcoffset() is None:
         return False
     return value.get("run_status") in {
         "published",
@@ -45,23 +53,24 @@ class SendLedger:
 
     def _load(self) -> dict[str, dict[str, str]]:
         try:
-            value = json.loads(self.path.read_text(encoding="utf-8"))
-            successful_sends = value.get("successful_sends", {})
-            if not isinstance(successful_sends, dict):
-                return {}
-            return {
-                key: entry
-                for key, entry in successful_sends.items()
-                if _valid_success_entry(key, entry)
-            }
-        except (
-            AttributeError,
-            OSError,
-            TypeError,
-            UnicodeError,
-            ValueError,
-        ):
+            raw = self.path.read_text(encoding="utf-8")
+        except FileNotFoundError:
             return {}
+        except (OSError, UnicodeError) as error:
+            raise SendLedgerCorruptionError("invalid_send_ledger") from error
+        try:
+            value = json.loads(raw)
+        except (TypeError, ValueError) as error:
+            raise SendLedgerCorruptionError("invalid_send_ledger") from error
+        if not isinstance(value, dict) or set(value) != {"successful_sends"}:
+            raise SendLedgerCorruptionError("invalid_send_ledger")
+        successful_sends = value["successful_sends"]
+        if not isinstance(successful_sends, dict) or not all(
+            _valid_success_entry(key, entry)
+            for key, entry in successful_sends.items()
+        ):
+            raise SendLedgerCorruptionError("invalid_send_ledger")
+        return successful_sends
 
     def was_sent(
         self,

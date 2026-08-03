@@ -13,7 +13,7 @@ from ai_news_bot.models import (
     GlobalPipelineStats,
     PipelineStats,
 )
-from ai_news_bot.send_ledger import SendLedger
+from ai_news_bot.send_ledger import SendLedger, SendLedgerCorruptionError
 
 
 def empty_digest(
@@ -112,7 +112,7 @@ def test_record_day_success_rejects_non_success_status(tmp_path: Path) -> None:
         '{"successful_sends": null}',
     ],
 )
-def test_malformed_ledger_recovers_on_record(
+def test_malformed_ledger_fails_closed_without_overwriting_evidence(
     tmp_path: Path,
     payload: str,
 ) -> None:
@@ -120,13 +120,15 @@ def test_malformed_ledger_recovers_on_record(
     path.write_text(payload, encoding="utf-8")
     ledger = SendLedger(path)
 
-    assert not ledger.was_sent(date(2026, 7, 23))
-    ledger.record_success(empty_digest())
+    with pytest.raises(SendLedgerCorruptionError, match="invalid_send_ledger"):
+        ledger.was_sent(date(2026, 7, 23))
+    with pytest.raises(SendLedgerCorruptionError, match="invalid_send_ledger"):
+        ledger.record_success(empty_digest())
 
-    assert ledger.was_sent(date(2026, 7, 23))
+    assert path.read_text(encoding="utf-8") == payload
 
 
-def test_invalid_entries_are_skipped_while_valid_success_is_preserved(
+def test_invalid_entries_fail_closed_even_when_a_valid_success_is_present(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "daily_sends.json"
@@ -158,20 +160,13 @@ def test_invalid_entries_are_skipped_while_valid_success_is_preserved(
     )
     ledger = SendLedger(path)
 
-    assert ledger.was_sent(date(2026, 7, 22))
-    assert not ledger.was_sent(
-        date(2026, 7, 23),
-        target="bad-timestamp",
-    )
-    ledger.record_success(empty_digest())
+    original = path.read_text(encoding="utf-8")
+    with pytest.raises(SendLedgerCorruptionError, match="invalid_send_ledger"):
+        ledger.was_sent(date(2026, 7, 22))
+    with pytest.raises(SendLedgerCorruptionError, match="invalid_send_ledger"):
+        ledger.record_success(empty_digest())
 
-    stored = json.loads(path.read_text(encoding="utf-8"))[
-        "successful_sends"
-    ]
-    assert set(stored) == {
-        "2026-07-22|feishu-daily",
-        "2026-07-23|feishu-daily",
-    }
+    assert path.read_text(encoding="utf-8") == original
 
 
 def test_state_write_uses_same_directory_atomic_replace(

@@ -966,7 +966,7 @@ Run the installed check command once against a fixture reporting a successful se
   --repo-root "$PWD" \
   --gh-path "/absolute/path/to/authenticated/gh" \
   --smoke-validated \
-  --activate
+  --activate-schedule
 ```
 
 Expected: `launchctl print gui/<uid>/com.baic.ai-news-bot.local-fallback` succeeds and the next scheduled time is 09:35.

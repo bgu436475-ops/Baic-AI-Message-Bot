@@ -30,6 +30,24 @@ def _run_silently(command: Sequence[str]) -> int:
         return 127
 
 
+def _launch_agent_is_loaded(context: "UninstallContext") -> bool:
+    try:
+        returncode = context.runner(
+            [
+                "/bin/launchctl",
+                "print",
+                f"gui/{context.uid}/{INSTALLER_LABEL}",
+            ]
+        )
+    except OSError as error:
+        raise UninstallError("launch_agent_status_failed") from error
+    if returncode == 0:
+        return True
+    if returncode == 127:
+        raise UninstallError("launch_agent_status_failed")
+    return False
+
+
 @dataclass(frozen=True)
 class UninstallContext:
     home: Path
@@ -66,35 +84,39 @@ def uninstall_local_fallback(
     output: Callable[[str], None] = print,
 ) -> str:
     """Unload only the agent and exact Desktop controls; preserve all diagnostics."""
-    if context.launch_agent_path.exists():
+    try:
+        loaded = _launch_agent_is_loaded(context)
+    except UninstallError as error:
+        output(str(error))
+        raise
+    if loaded:
         bootout_command = [
             "/bin/launchctl",
             "bootout",
-            f"gui/{context.uid}",
-            str(context.launch_agent_path),
+            f"gui/{context.uid}/{INSTALLER_LABEL}",
         ]
         try:
             bootout_returncode = context.runner(bootout_command)
         except OSError:
             bootout_returncode = 127
+        try:
+            still_loaded = _launch_agent_is_loaded(context)
+        except UninstallError as error:
+            if bootout_returncode != 0:
+                reason = "launch_agent_bootout_failed"
+                output(reason)
+                raise UninstallError(reason) from error
+            output(str(error))
+            raise
         if bootout_returncode != 0:
             reason = "launch_agent_bootout_failed"
             output(reason)
             raise UninstallError(reason)
-        try:
-            loaded = context.runner(
-                [
-                    "/bin/launchctl",
-                    "print",
-                    f"gui/{context.uid}/{INSTALLER_LABEL}",
-                ]
-            ) == 0
-        except OSError:
-            loaded = True
-        if loaded:
+        if still_loaded:
             reason = "launch_agent_still_loaded"
             output(reason)
             raise UninstallError(reason)
+    if context.launch_agent_path.exists():
         context.launch_agent_path.unlink()
     for path in (context.run_now_path, context.view_logs_path):
         if path.exists():

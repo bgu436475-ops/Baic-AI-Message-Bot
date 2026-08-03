@@ -106,6 +106,7 @@ def deps(config: LocalFallbackConfig) -> LocalFallbackDependencies:
             [
                 CloudGateResult("run_local", "cloud_failed"),
                 CloudGateResult("run_local", "cloud_failed"),
+                CloudGateResult("run_local", "cloud_failed"),
             ]
         ),
         generate=write_generated,
@@ -158,7 +159,7 @@ def test_cloud_failure_generates_rechecks_and_sends_once(
     """Removing the second gate would let a delayed cloud send race local send."""
     assert run_local_fallback(config, deps) == 0
 
-    assert len(deps.cloud_gate.calls) == 2  # type: ignore[attr-defined]
+    assert len(deps.cloud_gate.calls) == 3  # type: ignore[attr-defined]
     assert len(deps.send.calls) == 1  # type: ignore[attr-defined]
     assert len(deps.dispatch_delivery.calls) == 1  # type: ignore[attr-defined]
 
@@ -178,6 +179,65 @@ def test_delayed_cloud_success_on_second_gate_discards_local_preview(
     assert run_local_fallback(config, deps) == 0
 
     assert len(deps.send.calls) == 0  # type: ignore[attr-defined]
+
+
+def test_final_cloud_gate_blocks_a_delayed_cloud_delivery(
+    deps: LocalFallbackDependencies,
+    config: LocalFallbackConfig,
+) -> None:
+    """A cloud run that finishes after preview generation must still block Feishu."""
+    deps.cloud_gate = Calls(
+        [
+            CloudGateResult("run_local", "cloud_failed"),
+            CloudGateResult("run_local", "cloud_failed"),
+            CloudGateResult("skip_delivered", "cloud_completed_before_send"),
+        ]
+    )
+
+    assert run_local_fallback(config, deps) == 0
+
+    assert len(deps.cloud_gate.calls) == 3  # type: ignore[attr-defined]
+    assert deps.send.calls == []  # type: ignore[attr-defined]
+    assert deps.fallback_ledger.day_state(DAY) is None
+
+
+def test_local_send_waits_until_the_cloud_window_is_closed(
+    deps: LocalFallbackDependencies,
+    config: LocalFallbackConfig,
+) -> None:
+    """An early local clock must fail closed instead of sending before 09:50."""
+    deps.now = lambda: datetime(2026, 8, 3, 1, 40, tzinfo=UTC)
+    generate = Calls([_empty_digest()])
+    deps.generate = generate  # type: ignore[assignment]
+
+    assert run_local_fallback(config, deps) == 2
+
+    assert len(deps.cloud_gate.calls) == 1  # type: ignore[attr-defined]
+    assert generate.calls == []
+    assert deps.send.calls == []  # type: ignore[attr-defined]
+    assert deps.notify.calls == [("cloud_schedule_window_open",)]  # type: ignore[attr-defined]
+
+
+def test_corrupt_send_ledger_blocks_new_send_and_pending_sync(
+    deps: LocalFallbackDependencies,
+    config: LocalFallbackConfig,
+) -> None:
+    """Malformed delivery evidence must never be treated as a blank ledger."""
+    deps.send_ledger.path.parent.mkdir(parents=True)
+    deps.send_ledger.path.write_text("not json", encoding="utf-8")
+    deps.fallback_ledger.mark_sent(
+        DAY,
+        "a" * 32,
+        "published",
+        at=NOW,
+        cloud_sync_pending=True,
+    )
+
+    assert run_local_fallback(config, deps) == 2
+
+    assert deps.send.calls == []  # type: ignore[attr-defined]
+    assert deps.dispatch_delivery.calls == []  # type: ignore[attr-defined]
+    assert deps.notify.calls == [("local_send_ledger_invalid",)]  # type: ignore[attr-defined]
 
 
 def test_no_qualifying_items_is_a_valid_send(
@@ -548,6 +608,47 @@ def test_active_cloud_does_not_use_server_time_as_the_local_cutoff(
 
     with pytest.raises(PollingContinues):
         gate(DAY)
+    assert sleeps == [60]
+
+
+def test_completed_cloud_failure_waits_until_the_local_deadline(
+    config: LocalFallbackConfig,
+) -> None:
+    """A conclusive early cloud failure must not make the local path send at 09:35."""
+    class FailedCloudClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def snapshot(self, day: date) -> CloudSnapshot:
+            self.calls += 1
+            return CloudSnapshot(
+                runs=(),
+                remote_digest=RemoteDigestProbe("missing"),
+                server_time=datetime(
+                    day.year,
+                    day.month,
+                    day.day,
+                    1,
+                    30 + 10 * self.calls,
+                    tzinfo=UTC,
+                ),
+            )
+
+    timestamps = iter(
+        [
+            datetime(2026, 8, 3, 1, 40, tzinfo=UTC),
+            datetime(2026, 8, 3, 1, 50, tzinfo=UTC),
+        ]
+    )
+    sleeps: list[float] = []
+    gate = _clock_checked_cloud_gate(
+        FailedCloudClient(),  # type: ignore[arg-type]
+        config,
+        lambda: next(timestamps),
+        sleeps.append,
+    )
+
+    assert gate(DAY).decision == "run_local"
     assert sleeps == [60]
 
 

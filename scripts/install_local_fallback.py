@@ -250,7 +250,11 @@ def _validate_prerequisites(
         raise InstallerError("insufficient_disk_space")
 
 
-def _install_runtime(context: InstallerContext) -> None:
+def _install_runtime(
+    context: InstallerContext,
+    *,
+    smoke_validated: bool,
+) -> None:
     runtime_root = context.runtime_root
     for directory in (
         runtime_root,
@@ -283,7 +287,10 @@ def _install_runtime(context: InstallerContext) -> None:
     )
 
     _write_file(context.launch_agent_path, render_launch_agent(context), 0o644)
-    _write_file(context.run_now_path, _render_run_now(context), 0o700)
+    if smoke_validated:
+        _write_file(context.run_now_path, _render_run_now(context), 0o700)
+    else:
+        context.run_now_path.unlink(missing_ok=True)
     _write_file(context.view_logs_path, _render_view_logs(context), 0o700)
 
 
@@ -313,7 +320,7 @@ def install_local_fallback(
         context,
         require_recorder_workflow=activate_schedule,
     )
-    _install_runtime(context)
+    _install_runtime(context, smoke_validated=smoke_validated)
     if activate_schedule and not _launch_agent_is_loaded(context):
         _run_or_raise(
             context,
