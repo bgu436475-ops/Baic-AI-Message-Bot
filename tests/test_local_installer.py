@@ -854,3 +854,35 @@ def test_ollama_installer_verifies_download_and_never_replaces_existing_app(
         "pull",
         "qwen3:8b",
     ) in runner.commands
+
+
+def test_ollama_archive_extraction_uses_ditto_to_preserve_bundle_symlinks(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Python's ZipFile extraction loses app-bundle symlinks required by codesign."""
+    commands: list[list[str]] = []
+
+    class Result:
+        returncode = 0
+
+    def fake_run(command: list[str], **_: object) -> Result:
+        commands.append(command)
+        return Result()
+
+    monkeypatch.setattr(ollama_installer.subprocess, "run", fake_run)
+
+    ollama_installer._extract_ollama_archive(
+        tmp_path / "Ollama-darwin.zip",
+        tmp_path,
+    )
+
+    assert commands == [
+        [
+            "/usr/bin/ditto",
+            "-x",
+            "-k",
+            str(tmp_path / "Ollama-darwin.zip"),
+            str(tmp_path),
+        ]
+    ]

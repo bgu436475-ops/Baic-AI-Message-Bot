@@ -110,6 +110,27 @@ def _safe_ollama_members(archive: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
     return members
 
 
+def _extract_ollama_archive(archive_path: Path, destination: Path) -> None:
+    """Extract with ditto so macOS app-bundle symlinks survive verification."""
+    try:
+        result = subprocess.run(
+            [
+                "/usr/bin/ditto",
+                "-x",
+                "-k",
+                str(archive_path),
+                str(destination),
+            ],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError as error:
+        raise OllamaInstallError("ollama_archive_extract_failed") from error
+    if result.returncode != 0:
+        raise OllamaInstallError("ollama_archive_extract_failed")
+
+
 def _wait_for_health(context: OllamaInstallContext) -> None:
     for attempt in range(context.health_attempts):
         if context.healthcheck():
@@ -166,7 +187,8 @@ def install_ollama(context: OllamaInstallContext) -> OllamaInstallResult:
         try:
             context.downloader(OLLAMA_DOWNLOAD_URL, archive_path)
             with zipfile.ZipFile(archive_path) as archive:
-                archive.extractall(temporary_path, members=_safe_ollama_members(archive))
+                _safe_ollama_members(archive)
+            _extract_ollama_archive(archive_path, temporary_path)
         except (OSError, zipfile.BadZipFile) as error:
             raise OllamaInstallError("ollama_download_failed") from error
 
