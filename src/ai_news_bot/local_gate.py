@@ -16,6 +16,7 @@ from .models import EditorialDigest
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
+_RUN_HISTORY_LIMIT = 1000
 GateDecision = Literal["skip_delivered", "wait", "run_local", "blocked"]
 DigestStatus = Literal["missing", "valid", "malformed", "unavailable"]
 
@@ -196,7 +197,8 @@ class GitHubCLIClient:
                     raise _GitHubUnavailable from error
         raise _GitHubUnavailable
 
-    def _list_runs(self) -> tuple[CloudRun, ...]:
+    def _list_runs(self) -> tuple[tuple[CloudRun, ...], bool]:
+        """Use gh's paginated --limit traversal and flag an unbounded tail."""
         value = self._json(
             self._run(
                 "run",
@@ -208,16 +210,12 @@ class GitHubCLIClient:
                 "--workflow",
                 "daily-ai-news.yml",
                 "--limit",
-                "30",
+                str(_RUN_HISTORY_LIMIT),
                 "--json",
                 "databaseId,event,status,conclusion,createdAt,url",
             )
         )
         if not isinstance(value, list):
-            raise _GitHubUnavailable
-        if len(value) >= 30:
-            # `gh run list --limit 30` may have omitted an older same-day run.
-            # Missing that run could turn a cloud delivery into a duplicate send.
             raise _GitHubUnavailable
         runs: list[CloudRun] = []
         for entry in value:
@@ -255,7 +253,12 @@ class GitHubCLIClient:
             except (KeyError, TypeError, ValueError) as error:
                 raise _GitHubUnavailable from error
             runs.append(run)
-        return tuple(runs)
+        if any(
+            newer.created_at < older.created_at
+            for newer, older in zip(runs, runs[1:])
+        ):
+            raise _GitHubUnavailable
+        return tuple(runs), len(runs) >= _RUN_HISTORY_LIMIT
 
     def _recorder_runs(self) -> tuple[_RecorderRun, ...]:
         value = self._json(
@@ -271,12 +274,12 @@ class GitHubCLIClient:
                 "--event",
                 "repository_dispatch",
                 "--limit",
-                "30",
+                str(_RUN_HISTORY_LIMIT),
                 "--json",
                 "databaseId,displayTitle,status,conclusion",
             )
         )
-        if not isinstance(value, list) or len(value) >= 30:
+        if not isinstance(value, list):
             raise _GitHubUnavailable
         runs: list[_RecorderRun] = []
         for entry in value:
@@ -415,11 +418,10 @@ class GitHubCLIClient:
         return RemoteDigestProbe("valid", digest)
 
     def snapshot(self, day: date) -> CloudSnapshot:
-        del day
         fallback_time = datetime.now(UTC)
         try:
             server_time = self._server_time(self._run("api", "-i", "rate_limit"))
-            runs = self._list_runs()
+            runs, may_have_unseen_older_runs = self._list_runs()
             inspected_runs = tuple(
                 CloudRun(
                     run_id=run.run_id,
@@ -435,6 +437,15 @@ class GitHubCLIClient:
             remote_digest = self._remote_digest()
             if remote_digest.status == "unavailable":
                 raise _GitHubUnavailable
+            if may_have_unseen_older_runs and not any(
+                _shanghai_day(run.created_at) < day for run in runs
+            ):
+                # The `gh run list` command has already requested paginated
+                # history through the high limit.  If its final run has not
+                # crossed the Beijing-day boundary, an omitted same-day send
+                # remains possible.  Preserve any visible success evidence,
+                # but otherwise force the evaluator to fail closed.
+                remote_digest = RemoteDigestProbe("unavailable")
             return CloudSnapshot(inspected_runs, remote_digest, server_time)
         except _GitHubUnavailable:
             return CloudSnapshot(

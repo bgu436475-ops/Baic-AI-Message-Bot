@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import os
 import plistlib
 import stat
@@ -26,6 +27,7 @@ from install_ollama_macos import (  # noqa: E402
     OllamaInstallContext,
     install_ollama,
 )
+import install_ollama_macos as ollama_installer  # noqa: E402
 from uninstall_local_fallback import (  # noqa: E402
     UninstallContext,
     UninstallError,
@@ -53,6 +55,8 @@ class RecordingRunner:
         self.commands.append(normalized)
         if values := self.sequence_results.get(normalized):
             return values.pop(0)
+        if normalized[:2] == ("/bin/launchctl", "print"):
+            return self.results.get(normalized, 3)
         return self.results.get(normalized, 0)
 
 
@@ -117,7 +121,8 @@ def test_installer_reuses_runtime_and_protects_environment(tmp_path: Path) -> No
         "FEISHU_WEBHOOK_URL=https://hooks.example.test/secret\n"
     )
     assert stat.S_IMODE(second.env_path.stat().st_mode) == 0o600
-    assert second.launch_agent.exists()
+    assert not second.launch_agent.exists()
+    assert context.staged_launch_agent_path.exists()
     assert not second.run_now.exists()
     assert second.view_logs.exists()
     assert (second.runtime_root / "config" / "sources.yaml").read_text(
@@ -164,7 +169,7 @@ def test_rendered_controls_schedule_0935_without_secret_values(tmp_path: Path) -
     installed = install_local_fallback(context, smoke_validated=True)
     rendered = "\n".join(
         [
-            installed.launch_agent.read_text(encoding="utf-8"),
+            context.staged_launch_agent_path.read_text(encoding="utf-8"),
             installed.run_now.read_text(encoding="utf-8"),
             installed.view_logs.read_text(encoding="utf-8"),
         ]
@@ -271,7 +276,7 @@ def test_schedule_bootstrap_requires_explicit_smoke_validation(tmp_path: Path) -
         "print",
         "gui/501/com.baic.ai-news-bot.local-fallback",
     )
-    runner.results[print_command] = 1
+    runner.results[print_command] = 3
     install_local_fallback(
         context,
         activate_schedule=True,
@@ -287,17 +292,89 @@ def test_schedule_bootstrap_requires_explicit_smoke_validation(tmp_path: Path) -
 
     runner.commands.clear()
     runner.results[print_command] = 0
-    install_local_fallback(
-        context,
-        activate_schedule=True,
-        smoke_validated=True,
-    )
+    with pytest.raises(InstallerError, match="launch_agent_already_loaded"):
+        install_local_fallback(
+            context,
+            activate_schedule=True,
+            smoke_validated=True,
+        )
 
     assert print_command in runner.commands
     assert not any(
         command[:2] == ("/bin/launchctl", "bootstrap")
         for command in runner.commands
     )
+
+
+def test_inactive_install_stages_the_plist_without_loading_it(
+    tmp_path: Path,
+) -> None:
+    """A pre-smoke install must not create a launchd-visible scheduler file."""
+    runner = RecordingRunner()
+    context = _context(tmp_path, runner=runner)
+
+    install_local_fallback(context)
+
+    status = (
+        "/bin/launchctl",
+        "print",
+        "gui/501/com.baic.ai-news-bot.local-fallback",
+    )
+    staged = (
+        context.runtime_root / "staging" / f"{INSTALLER_LABEL}.plist"
+    )
+    assert status in runner.commands
+    assert staged.exists()
+    assert not context.launch_agent_path.exists()
+    assert not any(command[1] == "bootstrap" for command in runner.commands)
+
+
+def test_schedule_activation_promotes_the_smoke_validated_staged_plist(
+    tmp_path: Path,
+) -> None:
+    """Only explicit smoke-validated activation may expose the plist to launchd."""
+    runner = RecordingRunner()
+    context = _context(tmp_path, runner=runner)
+
+    install_local_fallback(
+        context,
+        activate_schedule=True,
+        smoke_validated=True,
+    )
+
+    staged = (
+        context.runtime_root / "staging" / f"{INSTALLER_LABEL}.plist"
+    )
+    assert context.launch_agent_path.exists()
+    assert not staged.exists()
+    assert (
+        "/bin/launchctl",
+        "bootstrap",
+        "gui/501",
+        str(context.launch_agent_path),
+    ) in runner.commands
+
+
+def test_inactive_install_refuses_to_touch_an_existing_loaded_label(
+    tmp_path: Path,
+) -> None:
+    """An unexpected active service must be retained for explicit operator recovery."""
+    runner = RecordingRunner()
+    context = _context(tmp_path, runner=runner)
+    context.launch_agent_path.parent.mkdir(parents=True)
+    context.launch_agent_path.write_text("existing plist", encoding="utf-8")
+    status = (
+        "/bin/launchctl",
+        "print",
+        "gui/501/com.baic.ai-news-bot.local-fallback",
+    )
+    runner.results[status] = 0
+
+    with pytest.raises(InstallerError, match="launch_agent_already_loaded"):
+        install_local_fallback(context)
+
+    assert context.launch_agent_path.read_text(encoding="utf-8") == "existing plist"
+    assert not (context.runtime_root / "staging").exists()
 
 
 def test_inactive_install_creates_run_now_only_after_smoke_validation(
@@ -348,7 +425,11 @@ def test_schedule_activation_refuses_a_remote_without_the_recorder_workflow(
 def test_uninstall_removes_controls_and_preserves_operator_data(tmp_path: Path) -> None:
     """Rollback must not erase credentials, delivery state, models, or diagnostics."""
     install_context = _context(tmp_path)
-    result = install_local_fallback(install_context)
+    result = install_local_fallback(
+        install_context,
+        activate_schedule=True,
+        smoke_validated=True,
+    )
     result.env_path.write_text("FEISHU_WEBHOOK_URL=https://hooks.example.test/x\n")
     state = result.runtime_root / "state" / "daily_sends.json"
     state.parent.mkdir(parents=True, exist_ok=True)
@@ -366,7 +447,7 @@ def test_uninstall_removes_controls_and_preserves_operator_data(tmp_path: Path) 
             "print",
             "gui/501/com.baic.ai-news-bot.local-fallback",
         )
-    ] = 1
+    ] = 3
 
     summary = uninstall_local_fallback(
         UninstallContext(
@@ -406,7 +487,11 @@ def test_uninstall_retains_plist_when_launch_agent_cannot_be_confirmed_unloaded(
 ) -> None:
     """Deleting a live plist can leave an unmanageable scheduled process behind."""
     install_context = _context(tmp_path)
-    result = install_local_fallback(install_context)
+    result = install_local_fallback(
+        install_context,
+        activate_schedule=True,
+        smoke_validated=True,
+    )
     runner = RecordingRunner()
     bootout = (
         "/bin/launchctl",
@@ -437,7 +522,11 @@ def test_uninstall_checks_an_absent_plist_against_the_loaded_scheduler_label(
 ) -> None:
     """A stale loaded label must be removed even when its plist has gone missing."""
     install_context = _context(tmp_path)
-    result = install_local_fallback(install_context, smoke_validated=True)
+    result = install_local_fallback(
+        install_context,
+        activate_schedule=True,
+        smoke_validated=True,
+    )
     result.launch_agent.unlink()
     runner = RecordingRunner()
     status = (
@@ -445,7 +534,7 @@ def test_uninstall_checks_an_absent_plist_against_the_loaded_scheduler_label(
         "print",
         "gui/501/com.baic.ai-news-bot.local-fallback",
     )
-    runner.sequence_results[status] = [0, 1]
+    runner.sequence_results[status] = [0, 3]
 
     uninstall_local_fallback(
         UninstallContext(home=install_context.home, runner=runner, uid=501)
@@ -465,7 +554,11 @@ def test_uninstall_keeps_controls_when_the_loaded_label_survives_bootout(
 ) -> None:
     """Controls remain available until launchctl confirms the scheduler is gone."""
     install_context = _context(tmp_path)
-    result = install_local_fallback(install_context, smoke_validated=True)
+    result = install_local_fallback(
+        install_context,
+        activate_schedule=True,
+        smoke_validated=True,
+    )
     runner = RecordingRunner()
     status = (
         "/bin/launchctl",
@@ -498,7 +591,7 @@ def test_uninstall_is_idempotent_when_plist_and_label_are_absent(
         "print",
         "gui/501/com.baic.ai-news-bot.local-fallback",
     )
-    runner.results[status] = 1
+    runner.results[status] = 3
 
     summary = uninstall_local_fallback(
         UninstallContext(home=context.home, runner=runner, uid=501)
@@ -507,6 +600,37 @@ def test_uninstall_is_idempotent_when_plist_and_label_are_absent(
     assert status in runner.commands
     assert not any(command[1] == "bootout" for command in runner.commands)
     assert str(context.runtime_root) in summary
+
+
+def test_uninstall_retains_controls_when_launchctl_status_is_ambiguous(
+    tmp_path: Path,
+) -> None:
+    """A non-service-not-found launchctl status cannot prove an absent scheduler."""
+    context = _context(tmp_path)
+    context.launch_agent_path.parent.mkdir(parents=True)
+    context.launch_agent_path.write_text("existing plist", encoding="utf-8")
+    context.run_now_path.parent.mkdir(parents=True)
+    context.run_now_path.write_text("run now", encoding="utf-8")
+    context.view_logs_path.write_text("view logs", encoding="utf-8")
+    runner = RecordingRunner()
+    status = (
+        "/bin/launchctl",
+        "print",
+        "gui/501/com.baic.ai-news-bot.local-fallback",
+    )
+    runner.results[status] = 2
+    messages: list[str] = []
+
+    with pytest.raises(UninstallError, match="launch_agent_status_failed"):
+        uninstall_local_fallback(
+            UninstallContext(home=context.home, runner=runner, uid=501),
+            output=messages.append,
+        )
+
+    assert context.launch_agent_path.exists()
+    assert context.run_now_path.exists()
+    assert context.view_logs_path.exists()
+    assert messages == ["launch_agent_status_failed"]
 
 
 def test_uninstall_cli_returns_nonzero_when_unload_verification_fails(
@@ -525,6 +649,65 @@ def test_uninstall_cli_returns_nonzero_when_unload_verification_fails(
     )
 
     assert uninstall_main(["--home", str(tmp_path / "home")]) == 2
+
+
+def test_ollama_download_and_healthcheck_ignore_proxy_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ollama setup network traffic must never inherit HTTP proxy settings."""
+    opened: list[str] = []
+
+    class Response(io.BytesIO):
+        status = 200
+
+        def __enter__(self) -> "Response":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+    class NoProxyOpener:
+        def open(self, url: str, *, timeout: int) -> Response:
+            opened.append(url)
+            assert timeout in {2, 30}
+            return Response(b"official payload")
+
+    def build_no_proxy_opener(
+        handler: object,
+    ) -> NoProxyOpener:
+        assert getattr(handler, "proxies") == {}
+        return NoProxyOpener()
+
+    monkeypatch.setenv("HTTP_PROXY", "http://proxy.example.test:8080")
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.example.test:8443")
+    monkeypatch.setattr(
+        ollama_installer.urllib.request,
+        "build_opener",
+        build_no_proxy_opener,
+    )
+    monkeypatch.setattr(
+        ollama_installer.urllib.request,
+        "urlretrieve",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("proxy-aware download")),
+    )
+    monkeypatch.setattr(
+        ollama_installer.urllib.request,
+        "urlopen",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("proxy-aware healthcheck")
+        ),
+    )
+
+    destination = tmp_path / "Ollama-darwin.zip"
+    ollama_installer._download("https://ollama.com/download/Ollama-darwin.zip", destination)
+
+    assert destination.read_bytes() == b"official payload"
+    assert ollama_installer._ollama_healthy() is True
+    assert opened == [
+        "https://ollama.com/download/Ollama-darwin.zip",
+        "http://127.0.0.1:11434/api/tags",
+    ]
 
 
 def test_ollama_installer_verifies_download_and_never_replaces_existing_app(

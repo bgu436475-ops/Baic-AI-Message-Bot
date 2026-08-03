@@ -488,18 +488,18 @@ def test_github_cli_keeps_sync_unconfirmed_when_recorder_times_out() -> None:
         client.dispatch_local_delivery(DAY, "a" * 32, "published")
 
 
-def test_github_cli_blocks_when_the_daily_run_list_reaches_its_limit() -> None:
-    """A capped run list can hide a same-day cloud send, so the local gate must fail closed."""
+def test_github_cli_scans_more_than_thirty_runs_for_current_day_success() -> None:
+    """Normal historical volume must not hide a current-day successful send."""
     runs = [
         {
-            "databaseId": index,
+            "databaseId": index + 1,
             "event": "repository_dispatch",
             "status": "completed",
             "conclusion": "failure",
             "createdAt": "2026-08-03T01:05:00Z",
-            "url": f"https://github.com/o/r/actions/runs/{index}",
+            "url": f"https://github.com/o/r/actions/runs/{index + 1}",
         }
-        for index in range(30)
+        for index in range(31)
     ]
 
     def capped_runs(
@@ -513,6 +513,32 @@ def test_github_cli_blocks_when_the_daily_run_list_reaches_its_limit() -> None:
             )
         if arguments[1:3] == ("run", "list"):
             return CommandResult(0, json.dumps(runs))
+        if arguments[1:3] == ("run", "view"):
+            conclusion = "success" if arguments[3] == "31" else "failure"
+            return CommandResult(
+                0,
+                json.dumps(
+                    {
+                        "jobs": [
+                            {
+                                "name": "send-digest",
+                                "steps": [
+                                    {
+                                        "name": "Send persisted daily result",
+                                        "conclusion": conclusion,
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                ),
+            )
+        if arguments[1:3] == (
+            "api",
+            "repos/bgu436475-ops/Baic-AI-Message-Bot/contents/"
+            "web/public/data/latest.json?ref=main",
+        ):
+            return CommandResult(1, "", "404")
         raise AssertionError(f"unexpected command: {arguments}")
 
     client = GitHubCLIClient(
@@ -521,8 +547,69 @@ def test_github_cli_blocks_when_the_daily_run_list_reaches_its_limit() -> None:
 
     result = evaluate_cloud_snapshot(DAY, client.snapshot(DAY))
 
-    assert result.decision == "blocked"
-    assert result.reason_code == "cloud_snapshot_unavailable"
+    assert result.decision == "skip_delivered"
+
+
+def test_github_cli_sync_scans_more_than_thirty_recorder_runs(
+) -> None:
+    """The just-dispatched recorder must remain discoverable after normal history."""
+    delivery_id = "a" * 32
+    recorder_runs = [
+        {
+            "databaseId": index + 1,
+            "displayTitle": f"unrelated recorder run {index}",
+            "status": "completed",
+            "conclusion": "success",
+        }
+        for index in range(30)
+    ] + [
+        {
+            "databaseId": 99,
+            "displayTitle": f"Record local delivery {delivery_id}",
+            "status": "completed",
+            "conclusion": "success",
+        }
+    ]
+
+    def historical_recorder_runs(
+        arguments: tuple[str, ...], stdin: str | None = None
+    ) -> CommandResult:
+        del stdin
+        if arguments[1:3] == (
+            "api",
+            "repos/bgu436475-ops/Baic-AI-Message-Bot/dispatches",
+        ):
+            return CommandResult(0, "")
+        if arguments[1:3] == ("run", "list"):
+            return CommandResult(0, json.dumps(recorder_runs))
+        if arguments[1:3] == ("run", "view") and arguments[3] == "99":
+            return CommandResult(
+                0,
+                json.dumps(
+                    {
+                        "jobs": [
+                            {
+                                "name": "record-delivery",
+                                "steps": [
+                                    {
+                                        "name": "Save delivery state",
+                                        "conclusion": "success",
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                ),
+            )
+        raise AssertionError(f"unexpected command: {arguments}")
+
+    client = GitHubCLIClient(
+        Path("/usr/local/bin/gh"),
+        command_runner=historical_recorder_runs,
+        sync_monotonic=lambda: 0,
+    )
+
+    client.dispatch_local_delivery(DAY, delivery_id, "published")
 
 
 def test_github_authentication_failure_blocks_automatic_local_send() -> None:

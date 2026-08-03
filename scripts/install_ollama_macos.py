@@ -67,13 +67,23 @@ def _run_silently(command: Sequence[str]) -> int:
         return 127
 
 
+def _no_proxy_opener() -> urllib.request.OpenerDirector:
+    """Do not let setup traffic inherit operator proxy environment variables."""
+    return urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
 def _download(url: str, destination: Path) -> None:
-    urllib.request.urlretrieve(url, destination)
+    with _no_proxy_opener().open(url, timeout=30) as response:
+        with destination.open("wb") as archive:
+            shutil.copyfileobj(response, archive)
 
 
 def _ollama_healthy() -> bool:
     try:
-        with urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=2) as response:
+        with _no_proxy_opener().open(
+            "http://127.0.0.1:11434/api/tags",
+            timeout=2,
+        ) as response:
             return 200 <= response.status < 300
     except OSError:
         return False

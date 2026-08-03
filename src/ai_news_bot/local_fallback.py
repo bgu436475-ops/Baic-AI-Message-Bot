@@ -482,13 +482,14 @@ def _run_locked(
     if config.check_only:
         return 0
 
+    generation_now = dependencies.now()
     if not config.dry_run:
-        reason = _cloud_schedule_window_reason(now, day, config)
+        reason = _cloud_schedule_window_reason(generation_now, day, config)
         if reason is not None:
             _report(dependencies, reason)
             return 2
 
-    run_path = _run_directory(config, now)
+    run_path = _run_directory(config, generation_now)
     digest_path = run_path / "latest.json"
     try:
         generated = dependencies.generate(digest_path)

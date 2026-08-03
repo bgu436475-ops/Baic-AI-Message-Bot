@@ -740,7 +740,7 @@ git commit -m "Sync local delivery state"
 - Create: `tests/test_local_installer.py`
 
 **Interfaces:**
-- Produces: user-local Ollama installation, runtime venv, protected config, LaunchAgent, and two Desktop controls.
+- Produces: user-local Ollama installation, runtime venv, protected config, staged LaunchAgent plist, and Desktop controls; the plist enters `~/Library/LaunchAgents/` only after explicit smoke-validated schedule activation.
 - Consumes: checked-out repository, authenticated GitHub CLI binary, official Ollama zip, and Task 4 console command.
 
 - [ ] **Step 1: Write failing installer rendering and permissions tests**
@@ -784,7 +784,7 @@ It installs to `~/Applications/Ollama.app` only when no app exists, starts it wi
 
 - [ ] **Step 4: Implement runtime installation and exact templates**
 
-The installer creates the documented directories, copies the authenticated `gh` executable to `runtime/bin/gh`, creates `runtime/venv`, installs the project non-editably, copies `config/sources.yaml`, creates a mode-0600 environment template, and renders absolute paths into the LaunchAgent/Desktop templates.
+The installer creates the documented directories, copies the authenticated `gh` executable to `runtime/bin/gh`, creates `runtime/venv`, installs the project non-editably, copies `config/sources.yaml`, creates a mode-0600 environment template, and renders absolute paths into a runtime staging plist and the Desktop templates.
 
 The LaunchAgent contains:
 
@@ -803,7 +803,7 @@ The LaunchAgent contains:
 <key>StandardErrorPath</key><string>__STDERR_LOG__</string>
 ```
 
-Activation uses `launchctl bootstrap gui/<uid> <plist>` only after `--smoke-validated` is present. Desktop commands invoke the installed Python with `--run-now` and open the logs without sourcing the secret file in a shell.
+Activation moves the staging plist into `~/Library/LaunchAgents/` and uses `launchctl bootstrap gui/<uid> <plist>` only when both `--smoke-validated` and `--activate-schedule` are present. Desktop commands invoke the installed Python with `--run-now` and open the logs without sourcing the secret file in a shell.
 
 - [ ] **Step 5: Implement rollback**
 
@@ -903,7 +903,8 @@ git commit -m "Document local Ollama fallback"
 - Create: `~/Applications/Ollama.app`
 - Create model-managed files under: `~/.ollama/models/`
 - Create runtime-managed files under: `~/Library/Application Support/Baic-AI-Message-Bot/`
-- Create after validation: `~/Library/LaunchAgents/com.baic.ai-news-bot.local-fallback.plist`
+- Stage before activation: `~/Library/Application Support/Baic-AI-Message-Bot/staging/com.baic.ai-news-bot.local-fallback.plist`
+- Create after `--smoke-validated --activate-schedule`: `~/Library/LaunchAgents/com.baic.ai-news-bot.local-fallback.plist`
 - Create after validation: the two documented Desktop controls.
 
 **Interfaces:**
@@ -928,7 +929,7 @@ Expected: notarization checks pass, loopback health succeeds, and `qwen3:8b` app
   --gh-path "/absolute/path/to/authenticated/gh"
 ```
 
-Expected: runtime, protected environment template, venv, logs, and inactive templates exist; no LaunchAgent is loaded.
+Expected: runtime, protected environment template, venv, logs, and staged plist exist; no LaunchAgent plist is installed or loaded.
 
 - [ ] **Step 3: Obtain local credentials without reading GitHub Secrets**
 

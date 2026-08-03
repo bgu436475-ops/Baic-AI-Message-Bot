@@ -9,7 +9,7 @@
 - 仅支持 Apple Silicon macOS。Ollama 应用安装位置为 `~/Applications/Ollama.app`，模型数据由 Ollama 管理在 `~/.ollama/models/`。
 - 后备运行时目录为 `~/Library/Application Support/Baic-AI-Message-Bot/`；其中包括 `venv/`、`bin/gh`、`config/sources.yaml`、`state/`、`runs/` 和受保护的环境文件。
 - 环境文件的唯一位置是 `~/Library/Application Support/Baic-AI-Message-Bot/.env`。安装器会以 `0600` 创建或收紧该文件权限；不要将它加入 shell profile、复制到仓库根目录 `.env`，或提交到 Git。
-- 本地模型后端固定为 `AI_BACKEND=ollama`，默认 `OLLAMA_BASE_URL=http://127.0.0.1:11434/v1` 和 `OLLAMA_MODEL=qwen3:8b`。地址必须是无凭据、无查询参数的 loopback HTTP `/v1` 地址；不能把它指向局域网或公网服务。所有 Ollama 模型和健康检查请求都会忽略 `HTTP_PROXY`/`HTTPS_PROXY` 等环境代理。
+- 本地模型后端固定为 `AI_BACKEND=ollama`，默认 `OLLAMA_BASE_URL=http://127.0.0.1:11434/v1` 和 `OLLAMA_MODEL=qwen3:8b`。地址必须是无凭据、无查询参数的 loopback HTTP `/v1` 地址；不能把它指向局域网或公网服务。Ollama 官方下载、模型请求和健康检查都会忽略 `HTTP_PROXY`/`HTTPS_PROXY` 等环境代理。
 - 运行器不提供 force-send、自动重发或绕过云端门槛的参数。所有日期和截止时间按 `Asia/Shanghai` 判断。
 
 ## 安装前检查与安装
@@ -32,7 +32,7 @@
      --repository bgu436475-ops/Baic-AI-Message-Bot
    ```
 
-   此步骤会创建运行时、`~/Library/Logs/Baic-AI-Message-Bot/`、`~/Library/LaunchAgents/com.baic.ai-news-bot.local-fallback.plist` 和“查看 Plan 2 日志”Desktop 控件，但不会激活定时任务或创建发送控件。运行时使用自己的非编辑安装 virtualenv 和复制的 `gh`，不从 shell 读取密钥。
+   此步骤会创建运行时、`~/Library/Logs/Baic-AI-Message-Bot/`、运行时内的 `staging/com.baic.ai-news-bot.local-fallback.plist` 和“查看 Plan 2 日志”Desktop 控件，但不会写入 `~/Library/LaunchAgents/`、激活定时任务或创建发送控件。运行时使用自己的非编辑安装 virtualenv 和复制的 `gh`，不从 shell 读取密钥。
 
 4. 在受保护文件中填写凭证，保持一行一个 `KEY=VALUE`，无引号、无空行、无 `export`、无 shell 展开。允许的变量名只有：
 
@@ -72,7 +72,7 @@ OLLAMA_MODEL=qwen3:8b \
   scripts/validate_ai_backend.py
 ```
 
-仅在操作员已审阅无发送结果后，才允许安装器激活定时任务；这两个标志必须同时给出：
+仅在操作员已审阅无发送结果后，才允许安装器激活定时任务；这两个标志必须同时给出。此时安装器才会把 staging 中的 plist 移入 `~/Library/LaunchAgents/` 并 bootstrap；若 `launchctl print` 显示标签已经加载，或其状态不能明确证明服务不存在，安装器会停止并保留现有文件：
 
 ```bash
 .venv/bin/python scripts/install_local_fallback.py \
@@ -87,7 +87,7 @@ OLLAMA_MODEL=qwen3:8b \
 
 ## 云端门槛与本地发送决策
 
-每次本地候选发送会在生成前、生成后和持久化预发送状态前各检查一次云端；任何后续检查发现云端已经送达时，都会丢弃本地预览而不发送。该流程使用本地互斥锁，但不能把 GitHub 与飞书变成同一把全局原子锁；时间或云端状态不确定时一律停止。
+每次本地候选发送会在生成前、生成后和持久化预发送状态前各检查一次云端；每次云端门槛返回后都会重新读取北京时间，避免用轮询开始前的旧时间作 09:50 决策。任何后续检查发现云端已经送达时，都会丢弃本地预览而不发送。该流程使用本地互斥锁，但不能把 GitHub 与飞书变成同一把全局原子锁；时间或云端状态不确定时一律停止。
 
 | 云端观察结果 | 本地行为 |
 | --- | --- |
@@ -97,7 +97,7 @@ OLLAMA_MODEL=qwen3:8b \
 | 当天云端任务均完成但无发送证据，且远端状态清楚 | 09:50 前继续观察；09:50 后才 `run_local` 并生成候选。 |
 | GitHub 认证/API/时钟、远端 JSON 或状态无法验证 | fail closed：停止自动发送，先修复原因。 |
 
-本地也会检查当天的发送账本和本地 `state/fallback.json`。已确认发送、远端已送达、已有本地发送账本或另一进程占有锁时，都不产生第二条飞书消息。
+本地也会检查当天的发送账本和本地 `state/fallback.json`。云端运行历史通过 `gh` 的分页 `--limit` 查询到北京时间日期边界；正常超过 30 条历史不会阻断当天成功证据，但在高限额内仍无法确认边界时会 fail closed。已确认发送、远端已送达、已有本地发送账本或另一进程占有锁时，都不产生第二条飞书消息。
 
 ## Desktop 控件、状态和恢复
 
@@ -128,7 +128,7 @@ OLLAMA_MODEL=qwen3:8b \
 .venv/bin/python scripts/uninstall_local_fallback.py
 ```
 
-脚本总会先用 `launchctl print` 检查标签（即使 plist 已缺失）；仅标签已加载时才 `bootout`，随后再次用 `launchctl print` 确认标签不再加载。只有检查与卸载成功时才删除以下项目；标签未加载时视为幂等成功。若失败或标签仍加载，脚本以非零退出、报告明确原因并保留 plist 和 Desktop 控件供排障：
+脚本总会先用 `launchctl print` 检查标签（即使 plist 已缺失）；仅明确的 service-not-found 结果才视为未加载。仅标签已加载时才 `bootout`，随后再次用 `launchctl print` 确认标签不再加载。任何其他非零状态都视为不明确的失败。只有检查与卸载成功时才删除以下项目；标签未加载时视为幂等成功。若失败或标签仍加载，脚本以非零退出、报告明确原因并保留 plist 和 Desktop 控件供排障：
 
 - `~/Library/LaunchAgents/com.baic.ai-news-bot.local-fallback.plist`
 - `~/Desktop/立即运行 Plan 2.command`

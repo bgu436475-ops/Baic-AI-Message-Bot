@@ -18,6 +18,7 @@ INSTALLER_LABEL = "com.baic.ai-news-bot.local-fallback"
 DEFAULT_REPOSITORY = "bgu436475-ops/Baic-AI-Message-Bot"
 DEFAULT_MODEL = "qwen3:8b"
 MINIMUM_FREE_BYTES = 8 * 1024**3
+LAUNCHCTL_SERVICE_NOT_FOUND = 3
 
 CommandRunner = Callable[[Sequence[str]], int]
 VenvBuilder = Callable[[Path], None]
@@ -71,6 +72,10 @@ class InstallerContext:
     @property
     def launch_agent_path(self) -> Path:
         return self.home / "Library/LaunchAgents" / f"{INSTALLER_LABEL}.plist"
+
+    @property
+    def staged_launch_agent_path(self) -> Path:
+        return self.runtime_root / "staging" / f"{INSTALLER_LABEL}.plist"
 
     @property
     def desktop_root(self) -> Path:
@@ -263,7 +268,7 @@ def _install_runtime(
         runtime_root / "state",
         runtime_root / "runs",
         context.logs_root,
-        context.launch_agent_path.parent,
+        context.staged_launch_agent_path.parent,
         context.desktop_root,
     ):
         directory.mkdir(parents=True, exist_ok=True)
@@ -286,7 +291,7 @@ def _install_runtime(
         "project_install_failed",
     )
 
-    _write_file(context.launch_agent_path, render_launch_agent(context), 0o644)
+    _write_file(context.staged_launch_agent_path, render_launch_agent(context), 0o644)
     if smoke_validated:
         _write_file(context.run_now_path, _render_run_now(context), 0o700)
     else:
@@ -296,15 +301,37 @@ def _install_runtime(
 
 def _launch_agent_is_loaded(context: InstallerContext) -> bool:
     try:
-        return context.runner(
+        returncode = context.runner(
             [
                 "/bin/launchctl",
                 "print",
                 f"gui/{context.uid}/{INSTALLER_LABEL}",
             ]
-        ) == 0
-    except OSError:
+        )
+    except OSError as error:
+        raise InstallerError("launch_agent_status_failed") from error
+    if returncode == 0:
+        return True
+    if returncode == LAUNCHCTL_SERVICE_NOT_FOUND:
         return False
+    raise InstallerError("launch_agent_status_failed")
+
+
+def _activate_staged_launch_agent(context: InstallerContext) -> None:
+    if _launch_agent_is_loaded(context):
+        raise InstallerError("launch_agent_already_loaded")
+    if context.launch_agent_path.exists():
+        raise InstallerError("launch_agent_path_conflict")
+    try:
+        context.launch_agent_path.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(context.staged_launch_agent_path, context.launch_agent_path)
+    except OSError as error:
+        raise InstallerError("launch_agent_staging_failed") from error
+    _run_or_raise(
+        context,
+        ["/bin/launchctl", "bootstrap", f"gui/{context.uid}", str(context.launch_agent_path)],
+        "launch_agent_bootstrap_failed",
+    )
 
 
 def install_local_fallback(
@@ -316,17 +343,15 @@ def install_local_fallback(
     """Install local assets; only bootstrap after an explicit no-send validation."""
     if activate_schedule and not smoke_validated:
         raise InstallerError("smoke_validation_required")
+    if _launch_agent_is_loaded(context):
+        raise InstallerError("launch_agent_already_loaded")
     _validate_prerequisites(
         context,
         require_recorder_workflow=activate_schedule,
     )
     _install_runtime(context, smoke_validated=smoke_validated)
-    if activate_schedule and not _launch_agent_is_loaded(context):
-        _run_or_raise(
-            context,
-            ["/bin/launchctl", "bootstrap", f"gui/{context.uid}", str(context.launch_agent_path)],
-            "launch_agent_bootstrap_failed",
-        )
+    if activate_schedule:
+        _activate_staged_launch_agent(context)
     return LocalFallbackInstallResult(
         runtime_root=context.runtime_root,
         env_path=context.env_path,

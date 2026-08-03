@@ -12,6 +12,7 @@ from install_local_fallback import INSTALLER_LABEL
 
 
 CommandRunner = Callable[[Sequence[str]], int]
+LAUNCHCTL_SERVICE_NOT_FOUND = 3
 
 
 class UninstallError(RuntimeError):
@@ -43,9 +44,9 @@ def _launch_agent_is_loaded(context: "UninstallContext") -> bool:
         raise UninstallError("launch_agent_status_failed") from error
     if returncode == 0:
         return True
-    if returncode == 127:
-        raise UninstallError("launch_agent_status_failed")
-    return False
+    if returncode == LAUNCHCTL_SERVICE_NOT_FOUND:
+        return False
+    raise UninstallError("launch_agent_status_failed")
 
 
 @dataclass(frozen=True)

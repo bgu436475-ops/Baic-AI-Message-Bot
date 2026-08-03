@@ -218,6 +218,29 @@ def test_local_send_waits_until_the_cloud_window_is_closed(
     assert deps.notify.calls == [("cloud_schedule_window_open",)]  # type: ignore[attr-defined]
 
 
+def test_local_send_refreshes_the_beijing_clock_after_a_cloud_gate_wait(
+    deps: LocalFallbackDependencies,
+    config: LocalFallbackConfig,
+) -> None:
+    """The 09:50 decision must use time observed after cloud polling completes."""
+    deps.now = lambda: datetime(2026, 8, 3, 1, 35, tzinfo=UTC)
+    gate_calls = 0
+
+    def gate(_: date) -> CloudGateResult:
+        nonlocal gate_calls
+        gate_calls += 1
+        if gate_calls == 1:
+            deps.now = lambda: datetime(2026, 8, 3, 1, 50, tzinfo=UTC)
+        return CloudGateResult("run_local", "cloud_failed")
+
+    deps.cloud_gate = gate
+
+    assert run_local_fallback(config, deps) == 0
+
+    assert gate_calls == 3
+    assert len(deps.send.calls) == 1  # type: ignore[attr-defined]
+
+
 def test_corrupt_send_ledger_blocks_new_send_and_pending_sync(
     deps: LocalFallbackDependencies,
     config: LocalFallbackConfig,
