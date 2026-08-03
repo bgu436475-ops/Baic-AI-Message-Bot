@@ -105,6 +105,34 @@ def test_malformed_remote_digest_blocks_automatic_send() -> None:
     assert result.decision == "blocked"
 
 
+def test_naive_remote_digest_is_blocked_as_malformed() -> None:
+    naive_digest = valid_empty_digest().model_copy(
+        update={"generated_at": datetime(2026, 8, 3, 1, 0)}
+    )
+
+    result = evaluate_cloud_snapshot(
+        DAY,
+        snapshot((run_with(),), digest_status="valid", digest=naive_digest),
+    )
+
+    assert result.decision == "blocked"
+    assert result.reason_code == "remote_digest_invalid"
+
+
+def test_unknown_remote_digest_status_blocks_automatic_send() -> None:
+    result = evaluate_cloud_snapshot(
+        DAY,
+        CloudSnapshot(
+            runs=(run_with(),),
+            remote_digest=RemoteDigestProbe("unknown"),  # type: ignore[arg-type]
+            server_time=datetime(2026, 8, 3, 2, 0, tzinfo=UTC),
+        ),
+    )
+
+    assert result.decision == "blocked"
+    assert result.reason_code == "remote_digest_unknown"
+
+
 @pytest.mark.parametrize(
     ("runs", "digest_status", "digest", "expected"),
     [
@@ -209,15 +237,19 @@ def test_github_cli_snapshot_inspects_send_step_and_uses_server_date() -> None:
     )
 
 
-def test_github_cli_dispatches_only_nonsecret_json_over_stdin() -> None:
+def test_github_cli_dispatches_task_five_payload_only_over_stdin() -> None:
     fake = FakeCommandRunner()
     client = GitHubCLIClient(Path("/usr/local/bin/gh"), command_runner=fake)
 
-    client.dispatch_local_delivery(DAY, "delivery-id")
+    client.dispatch_local_delivery(DAY, "a" * 32, "published")
 
     assert json.loads(fake.stdin[-1] or "") == {
         "event_type": "local-ai-news-delivered",
-        "client_payload": {"date": "2026-08-03", "delivery_id": "delivery-id"},
+        "client_payload": {
+            "delivery_date": "2026-08-03",
+            "delivery_id": "a" * 32,
+            "run_status": "published",
+        },
     }
     assert all(
         "token" not in argument.casefold()

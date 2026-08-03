@@ -87,9 +87,15 @@ def _validated_digest(digest: EditorialDigest | None) -> EditorialDigest | None:
     if digest is None:
         return None
     try:
-        return EditorialDigest.model_validate_json(digest.model_dump_json())
+        validated = EditorialDigest.model_validate_json(digest.model_dump_json())
     except (TypeError, ValueError):
         return None
+    if (
+        validated.generated_at.tzinfo is None
+        or validated.generated_at.utcoffset() is None
+    ):
+        return None
+    return validated
 
 
 def evaluate_cloud_snapshot(day: date, snapshot: CloudSnapshot) -> CloudGateResult:
@@ -113,6 +119,13 @@ def evaluate_cloud_snapshot(day: date, snapshot: CloudSnapshot) -> CloudGateResu
         return CloudGateResult("blocked", "remote_digest_malformed", run_urls)
     if snapshot.remote_digest.status == "unavailable":
         return CloudGateResult("blocked", "cloud_snapshot_unavailable", run_urls)
+    if snapshot.remote_digest.status not in {
+        "missing",
+        "valid",
+        "malformed",
+        "unavailable",
+    }:
+        return CloudGateResult("blocked", "remote_digest_unknown", run_urls)
     return CloudGateResult("run_local", "no_cloud_delivery", run_urls)
 
 
@@ -298,13 +311,19 @@ class GitHubCLIClient:
                 fallback_time,
             )
 
-    def dispatch_local_delivery(self, day: date, delivery_id: str) -> None:
+    def dispatch_local_delivery(
+        self,
+        day: date,
+        delivery_id: str,
+        run_status: Literal["published", "no_qualifying_items"],
+    ) -> None:
         payload = json.dumps(
             {
                 "event_type": "local-ai-news-delivered",
                 "client_payload": {
-                    "date": day.isoformat(),
+                    "delivery_date": day.isoformat(),
                     "delivery_id": delivery_id,
+                    "run_status": run_status,
                 },
             }
         )
