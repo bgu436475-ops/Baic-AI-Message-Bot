@@ -712,7 +712,10 @@ test("digest API serves a fallback and protects updates", async () => {
   const digest = await getResponse.json();
   assert.equal(digest.schema_version, 4);
   assert.ok(["published", "no_qualifying_items"].includes(digest.run_status));
-  assert.equal(digest.run_status === "published", digest.items.length > 0);
+  assert.equal(
+    digest.run_status === "published",
+    digest.global_events.length + digest.items.length > 0,
+  );
   assert.ok(digest.items.every((item) => item.evidence_url.startsWith("https://")));
 
   const postResponse = await request("/api/digest", "application/json", {
