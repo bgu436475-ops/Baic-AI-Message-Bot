@@ -850,7 +850,7 @@ def test_ollama_installer_verifies_download_and_never_replaces_existing_app(
         str(installed.app_path),
     ) in runner.commands
     assert (
-        str(installed.app_path / "Contents/MacOS/ollama"),
+        str(installed.app_path / "Contents/Resources/ollama"),
         "pull",
         "qwen3:8b",
     ) in runner.commands

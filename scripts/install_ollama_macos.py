@@ -15,6 +15,7 @@ from pathlib import Path, PurePosixPath
 
 OLLAMA_DOWNLOAD_URL = "https://ollama.com/download/Ollama-darwin.zip"
 DEFAULT_MODEL = "qwen3:8b"
+OLLAMA_CLI_RELATIVE_PATH = Path("Contents/Resources/ollama")
 
 CommandRunner = Callable[[Sequence[str]], int]
 Downloader = Callable[[str, Path], None]
@@ -168,7 +169,7 @@ def _start_and_prepare_ollama(
     _wait_for_health(context)
     _require_success(
         context.runner,
-        [str(app_path / "Contents/MacOS/ollama"), "pull", context.model],
+        [str(app_path / OLLAMA_CLI_RELATIVE_PATH), "pull", context.model],
         "ollama_model_pull_failed",
     )
 
