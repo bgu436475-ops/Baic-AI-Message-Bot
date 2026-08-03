@@ -909,6 +909,25 @@ def test_send_existing_sends_empty_card_and_records_daily_success(
     assert histories == []
 
 
+def test_send_existing_daily_result_returns_the_persisted_digest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    digest = _published_digest()
+    output = tmp_path / "latest.json"
+    output.write_text(digest.model_dump_json(), encoding="utf-8")
+    monkeypatch.setattr(cli, "send_to_feishu", lambda *args: None)
+    monkeypatch.setattr(cli.SendLedger, "record_success", lambda *args: None)
+    monkeypatch.setattr(cli.HistoryStore, "record_digest", lambda *args: None)
+    monkeypatch.setattr(
+        cli.EventHistoryStore,
+        "record_digest",
+        lambda *args: None,
+    )
+
+    assert cli.send_existing_daily_result(output, _settings(tmp_path)) == digest
+
+
 def test_feishu_failure_does_not_record_any_success_state(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

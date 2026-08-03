@@ -274,10 +274,13 @@ def _write_digest(
     export_digest_for_web(digest, web_output)
 
 
-def _send_existing_daily_result(args: argparse.Namespace, settings: Settings) -> int:
+def send_existing_daily_result(
+    web_output: Path,
+    settings: Settings,
+) -> EditorialDigest:
     try:
         digest = EditorialDigest.model_validate_json(
-            args.web_output.read_text(encoding="utf-8")
+            web_output.read_text(encoding="utf-8")
         )
     except (OSError, ValueError) as error:
         raise ValueError("Could not load a valid persisted daily result") from error
@@ -313,13 +316,14 @@ def _send_existing_daily_result(args: argparse.Namespace, settings: Settings) ->
         "Sent %d persisted item(s) to Feishu",
         len(digest.global_events) + len(digest.items),
     )
-    return 0
+    return digest
 
 
 def run(args: argparse.Namespace) -> int:
     settings = Settings.from_env()
     if args.send_existing:
-        return _send_existing_daily_result(args, settings)
+        send_existing_daily_result(args.web_output, settings)
+        return 0
     if args.lookback_hours is not None:
         settings.lookback_hours = args.lookback_hours
     if args.skip_ai:

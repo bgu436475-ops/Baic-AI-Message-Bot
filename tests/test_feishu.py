@@ -2,10 +2,13 @@ import json
 from datetime import UTC, datetime
 
 import pytest
+import requests
 
 from ai_news_bot.feishu import (
     EVIDENCE_URL_LIMIT_BYTES,
     FEISHU_BODY_LIMIT_BYTES,
+    FeishuDeliveryRejected,
+    FeishuDeliveryUncertain,
     build_card,
     digest_markdown,
     make_signature,
@@ -609,3 +612,94 @@ def test_webhook_validation_rejects_non_official_urls_before_http(
         send_to_feishu(sample_digest(), webhook_url)
 
     assert not called
+
+
+def test_timeout_is_uncertain_without_exposing_request_details(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    webhook = "https://open.feishu.cn/open-apis/bot/v2/hook/secret-webhook"
+    secret = "secret-signing-key"
+    monkeypatch.setattr(
+        requests,
+        "post",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            requests.Timeout("underlying network secret")
+        ),
+    )
+
+    with pytest.raises(FeishuDeliveryUncertain, match="indeterminate") as error:
+        send_to_feishu(legal_empty_digest(), webhook, secret)
+
+    message = str(error.value)
+    assert "underlying network secret" not in message
+    assert webhook not in message
+    assert secret not in message
+
+
+def test_connection_loss_is_uncertain_without_exposing_request_details(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        requests,
+        "post",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            requests.ConnectionError("connection detail")
+        ),
+    )
+
+    with pytest.raises(FeishuDeliveryUncertain, match="indeterminate") as error:
+        send_to_feishu(
+            legal_empty_digest(),
+            "https://open.feishu.cn/open-apis/bot/v2/hook/secret-webhook",
+            "secret-signing-key",
+        )
+
+    assert "connection detail" not in str(error.value)
+
+
+def test_nonzero_feishu_code_is_definite_rejection_without_response_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {"code": 19001, "msg": "response secret"}
+
+    monkeypatch.setattr(requests, "post", lambda *args, **kwargs: Response())
+
+    with pytest.raises(FeishuDeliveryRejected) as error:
+        send_to_feishu(
+            legal_empty_digest(),
+            "https://open.feishu.cn/open-apis/bot/v2/hook/secret-webhook",
+            "secret-signing-key",
+        )
+
+    message = str(error.value)
+    assert "response secret" not in message
+    assert "19001" not in message
+    assert "secret-webhook" not in message
+    assert "secret-signing-key" not in message
+
+
+def test_invalid_success_response_json_is_uncertain_without_parser_details(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> object:
+            raise ValueError("malformed response secret")
+
+    monkeypatch.setattr(requests, "post", lambda *args, **kwargs: Response())
+
+    with pytest.raises(FeishuDeliveryUncertain, match="indeterminate") as error:
+        send_to_feishu(
+            legal_empty_digest(),
+            "https://open.feishu.cn/open-apis/bot/v2/hook/secret-webhook",
+            "secret-signing-key",
+        )
+
+    assert "malformed response secret" not in str(error.value)

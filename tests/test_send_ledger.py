@@ -82,6 +82,27 @@ def test_targets_are_recorded_independently(tmp_path: Path) -> None:
     assert not ledger.was_sent(date(2026, 7, 23))
 
 
+def test_record_day_success_creates_cloud_compatible_entry(
+    tmp_path: Path,
+) -> None:
+    ledger = SendLedger(tmp_path / "daily_sends.json")
+
+    ledger.record_day_success(
+        date(2026, 8, 3),
+        run_status="published",
+        now=datetime(2026, 8, 3, 2, 0, tzinfo=UTC),
+    )
+
+    assert ledger.was_sent(date(2026, 8, 3))
+
+
+def test_record_day_success_rejects_non_success_status(tmp_path: Path) -> None:
+    ledger = SendLedger(tmp_path / "daily_sends.json")
+
+    with pytest.raises(ValueError, match="unsupported successful run status"):
+        ledger.record_day_success(date(2026, 8, 3), run_status="failed")
+
+
 @pytest.mark.parametrize(
     "payload",
     [

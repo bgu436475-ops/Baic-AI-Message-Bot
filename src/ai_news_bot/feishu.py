@@ -71,6 +71,18 @@ REJECTION_LABELS = {
 }
 
 
+class FeishuDeliveryError(RuntimeError):
+    pass
+
+
+class FeishuDeliveryRejected(FeishuDeliveryError):
+    pass
+
+
+class FeishuDeliveryUncertain(FeishuDeliveryError):
+    pass
+
+
 def _escape_markdown(value: str) -> str:
     escaped = value.replace("\\", "\\\\")
     for character in ("[", "]", "*", "_", "`"):
@@ -453,14 +465,32 @@ def send_to_feishu(
     ).encode("utf-8")
     if len(body) >= FEISHU_BODY_LIMIT_BYTES:
         raise ValueError("飞书请求体超过 20 KB，拒绝发送不完整简报")
-    response = requests.post(
-        webhook_url,
-        data=body,
-        headers={"Content-Type": "application/json; charset=utf-8"},
-        timeout=timeout,
-    )
-    response.raise_for_status()
-    data = response.json()
+    try:
+        response = requests.post(
+            webhook_url,
+            data=body,
+            headers={"Content-Type": "application/json; charset=utf-8"},
+            timeout=timeout,
+        )
+        response.raise_for_status()
+    except requests.HTTPError:
+        raise FeishuDeliveryRejected(
+            "Feishu delivery was rejected"
+        ) from None
+    except requests.RequestException:
+        raise FeishuDeliveryUncertain(
+            "Feishu delivery status is indeterminate"
+        ) from None
+    try:
+        data = response.json()
+    except ValueError:
+        raise FeishuDeliveryUncertain(
+            "Feishu delivery status is indeterminate"
+        ) from None
+    if not isinstance(data, dict):
+        raise FeishuDeliveryUncertain(
+            "Feishu delivery status is indeterminate"
+        )
     if data.get("code", data.get("StatusCode", 0)) != 0:
-        raise RuntimeError(f"飞书发送失败：{data}")
+        raise FeishuDeliveryRejected("Feishu delivery was rejected")
     return data

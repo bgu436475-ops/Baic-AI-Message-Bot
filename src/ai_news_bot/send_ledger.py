@@ -5,7 +5,7 @@ import os
 import tempfile
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from .models import EditorialDigest
@@ -76,12 +76,29 @@ class SendLedger:
         target: str = "feishu-daily",
         now: datetime | None = None,
     ) -> None:
-        timestamp = now or datetime.now(UTC)
         day = digest.generated_at.astimezone(self.zone).date()
+        self.record_day_success(
+            day,
+            run_status=digest.run_status,
+            target=target,
+            now=now,
+        )
+
+    def record_day_success(
+        self,
+        day: date,
+        *,
+        run_status: Literal["published", "no_qualifying_items"],
+        target: str = "feishu-daily",
+        now: datetime | None = None,
+    ) -> None:
+        if run_status not in {"published", "no_qualifying_items"}:
+            raise ValueError("unsupported successful run status")
+        timestamp = now or datetime.now(UTC)
         data = self._load()
         data[f"{day.isoformat()}|{target}"] = {
             "sent_at": timestamp.isoformat(),
-            "run_status": digest.run_status,
+            "run_status": run_status,
         }
         self._write(data)
 
