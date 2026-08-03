@@ -126,20 +126,26 @@ ai-news-bot --dry-run --web-output web/public/data/latest.json
 
 1. 在该群的设置中添加“自定义机器人”，推荐使用 V2 webhook。
 2. 开启关键词或签名安全校验；若使用签名校验，复制签名密钥。
-3. 不要把 webhook 或密钥提交到仓库。将它们写入 GitHub 仓库的 `Settings → Secrets and variables → Actions`：
+3. 在 Cloudflare Dashboard 的 **Workers AI** 页面选择 **Use REST API**，创建 Workers AI API Token 并复制 Account ID。使用预置的 Workers AI API Token 模板，不要使用 Global API Key；若手动创建 Token，只为该 Account 授予 Workers AI 所需的 `Read` 和 `Edit` 权限。Token 与 Account ID 都应只用于此仓库。
+4. 不要把 webhook 或密钥提交到仓库。将它们写入 GitHub 仓库的 `Settings → Secrets and variables → Actions → Secrets`：
+   - `CLOUDFLARE_ACCOUNT_ID`
+   - `CLOUDFLARE_AI_API_TOKEN`
    - `FEISHU_WEBHOOK_URL`
    - `FEISHU_SIGNING_SECRET`（未启用签名时可不创建）
    - `SITE_DIGEST_ENDPOINT`：网页的数据更新接口地址
    - `SITE_BYPASS_TOKEN`：私有网页访问令牌
    - `SITE_DIGEST_UPDATE_SECRET`：网页数据写入密钥
-   - `OPENAI_API_KEY`（可选；未配置时自动使用 GitHub Models）
-4. 可在 Actions 页面手动运行 `Daily AI News` 做首次验证。
+   - `OPENAI_API_KEY`（可选付费备用；只有在 Cloudflare 两项凭证均未配置时才会使用）
+5. 可在 `Settings → Secrets and variables → Actions → Variables` 创建可选的 Repository Variable `CLOUDFLARE_AI_MODEL`；不创建时默认使用 `@cf/meta/llama-3.1-8b-instruct-fp8`。
+6. 先在功能分支的 Actions 页面手动运行一次 `Daily AI News`，确认 `Validate AI backend without sending` 成功后再合并。该验证不会发送日报。
+
+Cloudflare Workers AI 是默认后端：只有 `CLOUDFLARE_ACCOUNT_ID` 和 `CLOUDFLARE_AI_API_TOKEN` 两项都存在时才会使用。两项都未配置时，才会使用显式配置的 `OPENAI_API_KEY`；只配置其中一项 Cloudflare 值会使任务失败，避免意外切换后端。ChatGPT 或 GitHub Copilot 订阅不包含 OpenAI API 额度；任何供应商都不能承诺永久免费配额，请在上线前核对当前价格、额度和账户限制。
 
 飞书 webhook 会把消息固定发到创建该机器人的群，因此无需在代码中保存群 ID 或群名。消息使用飞书 V2 卡片，先展示一分钟叙事和全球重大事件，再展示最多 5 条技术与工具信息；标题使用纯文本，原始来源使用单独的明确链接。
 
 ### 功能分支无发送验证
 
-在非 `main` 分支上手动运行 `Daily AI News` 时，工作流只运行 Python 测试、网页测试并生成离线预览，不会执行日报采集、飞书发送或网页写入。对应的本地验证命令为：
+在非 `main` 分支上手动运行 `Daily AI News` 时，工作流依次运行 Python 测试、`Validate AI backend without sending`、网页测试并生成离线预览，不会执行日报采集、飞书发送或网页写入。无发送 AI 验证读取 `CLOUDFLARE_ACCOUNT_ID` 和 `CLOUDFLARE_AI_API_TOKEN`，但不会输出它们或调用飞书。对应的本地验证命令为：
 
 ```bash
 python -m pytest -q
@@ -179,8 +185,9 @@ Cloudflare 只保存仓库专用的 `GITHUB_DISPATCH_TOKEN`，不保存飞书、
 - RSS 回看窗口：`LOOKBACK_HOURS`，默认 36 小时。
 - 新闻不足时的补充窗口：`FALLBACK_LOOKBACK_HOURS`，默认 168 小时（7 天）。
 - 送入模型的最大候选数：`MAX_CANDIDATES`，默认 80。
-- 模型：`OPENAI_MODEL`，默认 `gpt-5.6-luna`，适合高频筛选和摘要。
-- GitHub Actions 在未配置 `OPENAI_API_KEY` 时，会使用工作流自带的 `GITHUB_TOKEN` 调用 GitHub Models；默认模型为 `openai/gpt-4o-mini`，无需额外 API Key。
+- 默认模型：`CLOUDFLARE_AI_MODEL`，默认 `@cf/meta/llama-3.1-8b-instruct-fp8`；在 GitHub Actions 中可通过同名 Repository Variable 覆盖。
+- 可选付费备用模型：`OPENAI_MODEL`，默认 `gpt-5.6-luna`；仅在 Cloudflare 两项凭证都未配置且显式提供 `OPENAI_API_KEY` 时使用。
+- `GITHUB_TOKEN` 仅用于 GitHub 采集和工作流操作，不用于模型推理。
 - 信息源、层级、权重、类别提示、GitHub 查询：`config/sources.yaml`。
 
 ## 测试
