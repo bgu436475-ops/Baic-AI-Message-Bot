@@ -138,7 +138,7 @@ class FakeStructuredClient:
 class FakeRawChatCompletions:
     def __init__(
         self,
-        owner: "FakeRawGitHubClient",
+        owner: "FakeRawChatClient",
         responses: list[SimpleNamespace | Exception],
     ) -> None:
         self.owner = owner
@@ -152,14 +152,14 @@ class FakeRawChatCompletions:
         return result
 
 
-class FakeRawGitHubClient:
+class FakeRawChatClient:
     def __init__(self, responses: list[SimpleNamespace | Exception]) -> None:
         self.calls = 0
         completions = FakeRawChatCompletions(self, responses)
         self.chat = SimpleNamespace(completions=completions)
 
 
-def github_response(record: EvidenceRecord) -> SimpleNamespace:
+def chat_response(record: EvidenceRecord) -> SimpleNamespace:
     message = SimpleNamespace(parsed=record)
     return SimpleNamespace(choices=[SimpleNamespace(message=message)])
 
@@ -200,7 +200,7 @@ def test_extractor_stops_after_second_parse_failure() -> None:
 def test_extractor_retries_controlled_parser_and_adapter_failures(
     first_response: SimpleNamespace | Exception,
 ) -> None:
-    client = FakeRawGitHubClient([first_response, github_response(valid_record())])
+    client = FakeRawChatClient([first_response, chat_response(valid_record())])
 
     result = extract_evidence(
         candidate(),
@@ -230,7 +230,7 @@ def test_extractor_wraps_second_controlled_failure_as_extraction_error(
     second_response: SimpleNamespace | Exception,
     expected_cause: type[Exception],
 ) -> None:
-    client = FakeRawGitHubClient(
+    client = FakeRawChatClient(
         [OpenAIError("first OpenAI parse failure"), second_response]
     )
 
@@ -367,7 +367,7 @@ def test_extractor_rejects_original_source_mismatch_before_model_call() -> None:
     assert client.calls == 0
 
 
-def test_extractor_uses_github_models_structured_chat_parse() -> None:
+def test_extractor_uses_openai_compatible_structured_chat_parse() -> None:
     client = FakeStructuredClient([valid_record()])
 
     result = extract_evidence(

@@ -22,17 +22,76 @@ def test_every_source_declares_a_lane_and_github_is_technical_only() -> None:
     assert any("global" in source.lanes for source in config.rss)
 
 
-def test_ai_backend_prefers_openai_then_github_models() -> None:
-    openai = Settings(openai_api_key="openai-key", github_token="github-token")
-    assert openai.ai_backend() == ("openai-key", "gpt-5.6-luna", None, "OpenAI")
-
-    github = Settings(github_token="github-token")
-    assert github.ai_backend() == (
-        "github-token",
-        "openai/gpt-4o-mini",
-        "https://models.github.ai/inference",
-        "GitHub Models",
+def test_ai_backend_prefers_complete_cloudflare_configuration() -> None:
+    settings = Settings(
+        cloudflare_account_id="account-123",
+        cloudflare_ai_api_token="cf-token",
+        openai_api_key="openai-key",
+        github_token="github-token",
     )
+
+    assert settings.ai_backend() == (
+        "cf-token",
+        "@cf/meta/llama-3.1-8b-instruct-fp8",
+        "https://api.cloudflare.com/client/v4/accounts/account-123/ai/v1",
+        "Cloudflare Workers AI",
+    )
+
+
+def test_ai_backend_uses_openai_when_cloudflare_is_unconfigured() -> None:
+    assert Settings(openai_api_key="openai-key").ai_backend() == (
+        "openai-key",
+        "gpt-5.6-luna",
+        None,
+        "OpenAI",
+    )
+
+
+@pytest.mark.parametrize(
+    ("account_id", "token"),
+    [("account-123", ""), ("", "cf-token")],
+)
+def test_ai_backend_rejects_partial_cloudflare_configuration(
+    account_id: str,
+    token: str,
+) -> None:
+    settings = Settings(
+        cloudflare_account_id=account_id,
+        cloudflare_ai_api_token=token,
+        openai_api_key="openai-key",
+    )
+
+    with pytest.raises(ValueError, match="Cloudflare"):
+        settings.ai_backend()
+
+
+def test_github_token_alone_is_not_an_ai_backend() -> None:
+    with pytest.raises(ValueError, match="(?i)cloudflare|openai"):
+        Settings(github_token="github-token").ai_backend()
+
+
+@pytest.mark.parametrize(
+    ("model", "expected_model"),
+    [
+        (None, "@cf/meta/llama-3.1-8b-instruct-fp8"),
+        ("@cf/custom/model", "@cf/custom/model"),
+    ],
+)
+def test_environment_loads_stripped_cloudflare_settings_and_model(
+    monkeypatch: pytest.MonkeyPatch,
+    model: str | None,
+    expected_model: str,
+) -> None:
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", " account-123 ")
+    monkeypatch.setenv("CLOUDFLARE_AI_API_TOKEN", " cf-token ")
+    if model is not None:
+        monkeypatch.setenv("CLOUDFLARE_AI_MODEL", f" {model} ")
+
+    settings = Settings.from_env()
+
+    assert settings.cloudflare_account_id == "account-123"
+    assert settings.cloudflare_ai_api_token == "cf-token"
+    assert settings.cloudflare_ai_model == expected_model
 
 
 def test_editorial_state_paths_default_to_private_state_directory() -> None:

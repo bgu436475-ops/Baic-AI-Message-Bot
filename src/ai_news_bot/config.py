@@ -61,8 +61,9 @@ class SourcesConfig(BaseModel):
 class Settings(BaseModel):
     openai_api_key: str = ""
     openai_model: str = "gpt-5.6-luna"
-    github_models_model: str = "openai/gpt-4o-mini"
-    github_models_base_url: str = "https://models.github.ai/inference"
+    cloudflare_account_id: str = ""
+    cloudflare_ai_api_token: str = ""
+    cloudflare_ai_model: str = "@cf/meta/llama-3.1-8b-instruct-fp8"
     feishu_webhook_url: str = ""
     feishu_signing_secret: str = ""
     github_token: str = ""
@@ -80,11 +81,14 @@ class Settings(BaseModel):
         return cls(
             openai_api_key=os.getenv("OPENAI_API_KEY", "").strip(),
             openai_model=os.getenv("OPENAI_MODEL", "gpt-5.6-luna").strip(),
-            github_models_model=os.getenv(
-                "GITHUB_MODELS_MODEL", "openai/gpt-4o-mini"
+            cloudflare_account_id=os.getenv(
+                "CLOUDFLARE_ACCOUNT_ID", ""
             ).strip(),
-            github_models_base_url=os.getenv(
-                "GITHUB_MODELS_BASE_URL", "https://models.github.ai/inference"
+            cloudflare_ai_api_token=os.getenv(
+                "CLOUDFLARE_AI_API_TOKEN", ""
+            ).strip(),
+            cloudflare_ai_model=os.getenv(
+                "CLOUDFLARE_AI_MODEL", "@cf/meta/llama-3.1-8b-instruct-fp8"
             ).strip(),
             feishu_webhook_url=os.getenv("FEISHU_WEBHOOK_URL", "").strip(),
             feishu_signing_secret=os.getenv("FEISHU_SIGNING_SECRET", "").strip(),
@@ -106,17 +110,28 @@ class Settings(BaseModel):
         )
 
     def ai_backend(self) -> tuple[str, str, str | None, str]:
+        cloudflare_configured = bool(self.cloudflare_account_id)
+        cloudflare_token_configured = bool(self.cloudflare_ai_api_token)
+        if cloudflare_configured != cloudflare_token_configured:
+            raise ValueError(
+                "Cloudflare Workers AI 配置不完整；必须同时设置 "
+                "CLOUDFLARE_ACCOUNT_ID 和 CLOUDFLARE_AI_API_TOKEN"
+            )
+        if cloudflare_configured:
+            base_url = (
+                "https://api.cloudflare.com/client/v4/accounts/"
+                f"{self.cloudflare_account_id}/ai/v1"
+            )
+            return (
+                self.cloudflare_ai_api_token,
+                self.cloudflare_ai_model,
+                base_url,
+                "Cloudflare Workers AI",
+            )
         if self.openai_api_key:
             return self.openai_api_key, self.openai_model, None, "OpenAI"
-        if self.github_token:
-            return (
-                self.github_token,
-                self.github_models_model,
-                self.github_models_base_url,
-                "GitHub Models",
-            )
         raise ValueError(
-            "缺少 OPENAI_API_KEY 或 GITHUB_TOKEN；无法执行中文摘要和语义筛选"
+            "缺少 Cloudflare Workers AI 或 OpenAI 凭证；无法执行结构化证据提取"
         )
 
 

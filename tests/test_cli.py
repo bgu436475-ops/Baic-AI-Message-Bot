@@ -643,10 +643,10 @@ def _model_record() -> EvidenceRecord:
             "gpt-5.6-luna",
         ),
         (
-            "github",
-            "https://models.github.ai/inference",
+            "cloudflare",
+            "https://api.cloudflare.com/client/v4/accounts/account-123/ai/v1",
             "chat",
-            "openai/gpt-4o-mini",
+            "@cf/meta/llama-3.1-8b-instruct-fp8",
         ),
     ],
 )
@@ -665,6 +665,12 @@ def test_production_pipeline_wiring_uses_backend_adapter_and_real_stages(
             ),
             "github_token": (
                 "github-key" if backend == "github" else ""
+            ),
+            "cloudflare_account_id": (
+                "account-123" if backend == "cloudflare" else ""
+            ),
+            "cloudflare_ai_api_token": (
+                "cf-token" if backend == "cloudflare" else ""
             ),
         }
     )
@@ -714,7 +720,7 @@ def test_production_pipeline_wiring_uses_backend_adapter_and_real_stages(
             "api_key": (
                 "openai-key"
                 if backend == "openai"
-                else "github-key"
+                else "cf-token"
             ),
             "base_url": expected_base_url,
         }
