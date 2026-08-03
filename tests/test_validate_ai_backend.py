@@ -84,6 +84,7 @@ def test_validate_backend_uses_cloudflare_client_and_verified_anchor() -> None:
         "base_url": (
             "https://api.cloudflare.com/client/v4/accounts/account-123/ai/v1"
         ),
+        "max_retries": 0,
     }
     assert calls == 1
 

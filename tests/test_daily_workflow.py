@@ -32,6 +32,10 @@ def test_non_main_manual_validation_smokes_cloudflare_without_send_secrets() -> 
     )
     assert generate_env["CLOUDFLARE_AI_MODEL"] == expected_model
     assert smoke_env["CLOUDFLARE_AI_MODEL"] == expected_model
+    assert generate_env["OPENAI_API_KEY"] == "${{ secrets.OPENAI_API_KEY }}"
+    assert generate_env["OPENAI_MODEL"] == "${{ vars.OPENAI_MODEL }}"
+    assert smoke_env["OPENAI_API_KEY"] == "${{ secrets.OPENAI_API_KEY }}"
+    assert smoke_env["OPENAI_MODEL"] == "${{ vars.OPENAI_MODEL }}"
     assert "GITHUB_MODELS_MODEL" not in generate_env
     assert smoke_step["run"] == "python scripts/validate_ai_backend.py"
     assert smoke_step["if"] == (
@@ -41,5 +45,7 @@ def test_non_main_manual_validation_smokes_cloudflare_without_send_secrets() -> 
         "CLOUDFLARE_ACCOUNT_ID",
         "CLOUDFLARE_AI_API_TOKEN",
         "CLOUDFLARE_AI_MODEL",
+        "OPENAI_API_KEY",
+        "OPENAI_MODEL",
     }
     assert not any("FEISHU" in name or "SITE_" in name for name in smoke_env)

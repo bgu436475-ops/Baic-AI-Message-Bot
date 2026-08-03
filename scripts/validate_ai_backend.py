@@ -20,7 +20,7 @@ def validate_backend(
     client_factory: Callable[..., Any] = OpenAI,
 ) -> EvidenceRecord:
     api_key, model, base_url, _provider = settings.ai_backend()
-    client = client_factory(api_key=api_key, base_url=base_url)
+    client = client_factory(api_key=api_key, base_url=base_url, max_retries=0)
     now = datetime.now(UTC)
     candidate = Candidate(
         id=SMOKE_CANDIDATE_ID,
