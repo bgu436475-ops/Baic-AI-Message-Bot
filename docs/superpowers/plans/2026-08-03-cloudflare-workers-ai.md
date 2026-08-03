@@ -12,7 +12,7 @@
 
 - Production baseline is the current `origin/main`; all work stays on `codex/cloudflare-workers-ai` until reviewed.
 - Cloudflare Workers AI is selected only when both `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_AI_API_TOKEN` exist.
-- Default Cloudflare model is `@cf/meta/llama-3.1-8b-instruct-fp8`.
+- Default Cloudflare model is `@cf/meta/llama-3.1-8b-instruct-fast`.
 - OpenAI is selected only when Cloudflare is wholly unconfigured and `OPENAI_API_KEY` exists.
 - A partial Cloudflare credential pair is a configuration error and must never silently fall back.
 - `GITHUB_TOKEN` remains available for GitHub collection and repository writes but never selects an inference backend.
@@ -47,7 +47,7 @@ def test_ai_backend_prefers_complete_cloudflare_configuration() -> None:
     )
     assert settings.ai_backend() == (
         "cf-token",
-        "@cf/meta/llama-3.1-8b-instruct-fp8",
+        "@cf/meta/llama-3.1-8b-instruct-fast",
         "https://api.cloudflare.com/client/v4/accounts/account-123/ai/v1",
         "Cloudflare Workers AI",
     )
@@ -133,7 +133,7 @@ Update the backend parameterization in `tests/test_cli.py` so the Cloudflare cas
     "cloudflare",
     "https://api.cloudflare.com/client/v4/accounts/account-123/ai/v1",
     "chat",
-    "@cf/meta/llama-3.1-8b-instruct-fp8",
+    "@cf/meta/llama-3.1-8b-instruct-fast",
 )
 ```
 
@@ -223,7 +223,7 @@ assert generate_env["CLOUDFLARE_AI_API_TOKEN"] == (
 )
 assert generate_env["CLOUDFLARE_AI_MODEL"] == (
     "${{ vars.CLOUDFLARE_AI_MODEL || "
-    "'@cf/meta/llama-3.1-8b-instruct-fp8' }}"
+    "'@cf/meta/llama-3.1-8b-instruct-fast' }}"
 )
 assert "GITHUB_MODELS_MODEL" not in generate_env
 assert smoke_step["run"] == "python scripts/validate_ai_backend.py"
@@ -279,7 +279,7 @@ Place Cloudflare first and include:
 ```dotenv
 CLOUDFLARE_ACCOUNT_ID=
 CLOUDFLARE_AI_API_TOKEN=
-CLOUDFLARE_AI_MODEL=@cf/meta/llama-3.1-8b-instruct-fp8
+CLOUDFLARE_AI_MODEL=@cf/meta/llama-3.1-8b-instruct-fast
 ```
 
 Keep `OPENAI_API_KEY`/`OPENAI_MODEL` under an optional paid-alternative comment. Remove `GITHUB_MODELS_MODEL` and `GITHUB_MODELS_BASE_URL`; retain `GITHUB_TOKEN` as a GitHub collection credential.

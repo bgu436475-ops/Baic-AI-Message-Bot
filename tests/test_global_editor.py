@@ -222,6 +222,7 @@ def test_global_editor_uses_constrained_prompt_and_expected_schema() -> None:
 
     interface, request = client.requests[0]
     assert interface == "responses"
+    assert "max_tokens" not in request
     assert request["text_format"] is GlobalEventEvidence
     assert request["input"][0]["content"] == GLOBAL_EVENT_SYSTEM_PROMPT
     prompt = GLOBAL_EVENT_SYSTEM_PROMPT.casefold()
@@ -238,7 +239,7 @@ def test_global_editor_uses_chat_completions_for_cloudflare() -> None:
         candidate(),
         fetched(),
         client,
-        "@cf/meta/llama-3.1-8b-instruct-fp8",
+        "@cf/meta/llama-3.1-8b-instruct-fast",
         base_url=(
             "https://api.cloudflare.com/client/v4/accounts/account-123/ai/v1"
         ),
@@ -247,6 +248,7 @@ def test_global_editor_uses_chat_completions_for_cloudflare() -> None:
     assert result.candidate_id == "global-model-x"
     interface, request = client.requests[0]
     assert interface == "chat"
-    assert request["model"] == "@cf/meta/llama-3.1-8b-instruct-fp8"
+    assert request["model"] == "@cf/meta/llama-3.1-8b-instruct-fast"
+    assert request["max_tokens"] == 2_048
     assert request["response_format"] is GlobalEventEvidence
     assert request["messages"][0]["content"] == GLOBAL_EVENT_SYSTEM_PROMPT

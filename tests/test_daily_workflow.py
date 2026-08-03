@@ -26,10 +26,12 @@ def test_non_main_manual_validation_smokes_cloudflare_without_send_secrets() -> 
     assert generate_env["CLOUDFLARE_AI_API_TOKEN"] == (
         "${{ secrets.CLOUDFLARE_AI_API_TOKEN }}"
     )
-    assert generate_env["CLOUDFLARE_AI_MODEL"] == (
+    expected_model = (
         "${{ vars.CLOUDFLARE_AI_MODEL || "
-        "'@cf/meta/llama-3.1-8b-instruct-fp8' }}"
+        "'@cf/meta/llama-3.1-8b-instruct-fast' }}"
     )
+    assert generate_env["CLOUDFLARE_AI_MODEL"] == expected_model
+    assert smoke_env["CLOUDFLARE_AI_MODEL"] == expected_model
     assert "GITHUB_MODELS_MODEL" not in generate_env
     assert smoke_step["run"] == "python scripts/validate_ai_backend.py"
     assert smoke_step["if"] == (

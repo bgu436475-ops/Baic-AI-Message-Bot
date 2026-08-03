@@ -33,7 +33,7 @@
 
 - `CLOUDFLARE_ACCOUNT_ID`：Cloudflare Account ID。
 - `CLOUDFLARE_AI_API_TOKEN`：只授予 Workers AI 所需权限的 API Token。
-- `CLOUDFLARE_AI_MODEL`：默认 `@cf/meta/llama-3.1-8b-instruct-fp8`。
+- `CLOUDFLARE_AI_MODEL`：默认 `@cf/meta/llama-3.1-8b-instruct-fast`，该模型支持 JSON Mode。
 
 Cloudflare 基础地址由程序构造为：
 
@@ -52,7 +52,7 @@ Cloudflare 基础地址由程序构造为：
 
 候选采集、原文抓取、技术证据提取、全球事件证据提取和所有确定性门槛保持不变。Cloudflare 使用 Chat Completions 结构化解析路径；OpenAI 保持 Responses 结构化解析路径。
 
-默认 Cloudflare 模型选择 8B FP8，是为了让技术榜与全球事件榜最坏情况下约 40 次证据提取仍有机会落在每日免费额度内。现有单条请求 4,500 token 上限和超限后 2,200 token 重试上限继续生效。程序不为了凑榜绕过证据验证；模型能力不足时记录提取失败并少发或输出正常空榜。
+默认 Cloudflare 模型选择支持 JSON Mode 的 8B Instruct Fast，是为了让技术榜与全球事件榜最坏情况下约 40 次证据提取仍有机会落在每日免费额度内。输入提示继续使用单条 4,500 token 预算和超限后 2,200 token 重试预算；Cloudflare 的结构化 Chat Completions 显式允许最多 2,048 个输出 token，避免供应商默认 256 token 截断完整证据对象。OpenAI Responses 路径保持不变。程序不为了凑榜绕过证据验证；模型能力不足时记录提取失败并少发或输出正常空榜。
 
 本次不增加自动付费、自动切换付费模型或自动重试整轮任务。后续可根据 Cloudflare 仪表盘的真实用量再调低 shortlist 或更换模型。
 

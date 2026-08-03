@@ -42,6 +42,7 @@ source, so you must not infer or claim its value.
 
 DEFAULT_PROMPT_TOKEN_BUDGET = 4_500
 RETRY_PROMPT_TOKEN_BUDGET = 2_200
+CHAT_COMPLETIONS_MAX_TOKENS = 2_048
 _CJK_CHARACTER = re.compile(r"[\u3400-\u9fff]")
 
 
@@ -489,6 +490,7 @@ def _parse_response(
         response = client.chat.completions.parse(
             model=model,
             messages=messages,
+            max_tokens=CHAT_COMPLETIONS_MAX_TOKENS,
             response_format=EvidenceRecord,
         )
         return response.choices[0].message.parsed

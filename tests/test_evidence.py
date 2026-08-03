@@ -397,22 +397,25 @@ def test_extractor_rejects_original_source_mismatch_before_model_call() -> None:
     assert client.calls == 0
 
 
-def test_extractor_uses_openai_compatible_structured_chat_parse() -> None:
+def test_extractor_uses_cloudflare_structured_chat_parse() -> None:
     client = FakeStructuredClient([valid_record()])
 
     result = extract_evidence(
         candidate(),
         fetched(),
         client,
-        "github-model",
-        base_url="https://models.github.ai/inference",
+        "@cf/meta/llama-3.1-8b-instruct-fast",
+        base_url=(
+            "https://api.cloudflare.com/client/v4/accounts/account-123/ai/v1"
+        ),
     )
 
     assert result.candidate_id == "one"
     assert client.calls == 1
     interface, request = client.requests[0]
     assert interface == "chat"
-    assert request["model"] == "github-model"
+    assert request["model"] == "@cf/meta/llama-3.1-8b-instruct-fast"
+    assert request["max_tokens"] == 2_048
     assert request["response_format"] is EvidenceRecord
     assert request["messages"][0]["content"] == EVIDENCE_SYSTEM_PROMPT
 
@@ -425,6 +428,7 @@ def test_extractor_uses_responses_structured_parse_and_constrained_payload() -> 
     interface, request = client.requests[0]
     assert interface == "responses"
     assert request["model"] == "openai-model"
+    assert "max_tokens" not in request
     assert request["text_format"] is EvidenceRecord
     messages = request["input"]
     assert messages[0]["content"] == EVIDENCE_SYSTEM_PROMPT

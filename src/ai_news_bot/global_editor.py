@@ -8,6 +8,7 @@ from openai import OpenAIError
 from pydantic import BaseModel
 
 from .evidence import (
+    CHAT_COMPLETIONS_MAX_TOKENS,
     DEFAULT_PROMPT_TOKEN_BUDGET,
     RETRY_PROMPT_TOKEN_BUDGET,
     _estimated_tokens,
@@ -90,6 +91,7 @@ def _parse_global_response(
         response = client.chat.completions.parse(
             model=model,
             messages=messages,
+            max_tokens=CHAT_COMPLETIONS_MAX_TOKENS,
             response_format=GlobalEventEvidence,
         )
         return response.choices[0].message.parsed

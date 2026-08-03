@@ -9,6 +9,9 @@ from pydantic import BaseModel, Field
 from .models import Category, EditorialLane
 
 
+DEFAULT_CLOUDFLARE_AI_MODEL = "@cf/meta/llama-3.1-8b-instruct-fast"
+
+
 class RSSSource(BaseModel):
     name: str
     url: str
@@ -63,7 +66,7 @@ class Settings(BaseModel):
     openai_model: str = "gpt-5.6-luna"
     cloudflare_account_id: str = ""
     cloudflare_ai_api_token: str = ""
-    cloudflare_ai_model: str = "@cf/meta/llama-3.1-8b-instruct-fp8"
+    cloudflare_ai_model: str = DEFAULT_CLOUDFLARE_AI_MODEL
     feishu_webhook_url: str = ""
     feishu_signing_secret: str = ""
     github_token: str = ""
@@ -88,7 +91,7 @@ class Settings(BaseModel):
                 "CLOUDFLARE_AI_API_TOKEN", ""
             ).strip(),
             cloudflare_ai_model=os.getenv(
-                "CLOUDFLARE_AI_MODEL", "@cf/meta/llama-3.1-8b-instruct-fp8"
+                "CLOUDFLARE_AI_MODEL", DEFAULT_CLOUDFLARE_AI_MODEL
             ).strip(),
             feishu_webhook_url=os.getenv("FEISHU_WEBHOOK_URL", "").strip(),
             feishu_signing_secret=os.getenv("FEISHU_SIGNING_SECRET", "").strip(),

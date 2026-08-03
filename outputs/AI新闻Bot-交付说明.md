@@ -28,7 +28,7 @@
    - `FEISHU_SIGNING_SECRET`：仅在机器人启用签名校验时需要
    - `OPENAI_API_KEY`：可选付费备用；仅在 Cloudflare 两项凭证都未配置时使用
 
-3. 如需换模型，可在同一页面的 `Variables` 中创建可选的 Repository Variable `CLOUDFLARE_AI_MODEL`；未创建时使用 `@cf/meta/llama-3.1-8b-instruct-fp8`。
+3. 如需换模型，可在同一页面的 `Variables` 中创建可选的 Repository Variable `CLOUDFLARE_AI_MODEL`；未创建时使用支持 JSON Mode 的 `@cf/meta/llama-3.1-8b-instruct-fast`。
 4. 先在功能分支手动运行一次 `Daily AI News`，确认 `Validate AI backend without sending` 成功。该分支路径会运行验证与预览，但不会采集日报、发送飞书或写入网页；合并到 `main` 后才会按北京时间 09:05 触发，并在 09:20 进行后备触发。
 
 Cloudflare Workers AI 是默认后端，只有两个 Cloudflare Repository Secrets 同时存在时才会使用；两项都未设置时才回退到显式配置的 OpenAI API Key。ChatGPT 或 GitHub Copilot 订阅不提供 OpenAI API 额度，且没有供应商可以承诺永久免费配额。请勿把 webhook、签名密钥或 API Token 提交到代码仓库，也不要粘贴到聊天中。
