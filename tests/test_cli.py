@@ -663,9 +663,6 @@ def test_production_pipeline_wiring_uses_backend_adapter_and_real_stages(
             "openai_api_key": (
                 "openai-key" if backend == "openai" else ""
             ),
-            "github_token": (
-                "github-key" if backend == "github" else ""
-            ),
             "cloudflare_account_id": (
                 "account-123" if backend == "cloudflare" else ""
             ),

@@ -147,8 +147,11 @@ Cloudflare Workers AI 是默认后端：只有 `CLOUDFLARE_ACCOUNT_ID` 和 `CLOU
 
 在非 `main` 分支上手动运行 `Daily AI News` 时，工作流依次运行 Python 测试、`Validate AI backend without sending`、网页测试并生成离线预览，不会执行日报采集、飞书发送或网页写入。无发送 AI 验证读取 `CLOUDFLARE_ACCOUNT_ID` 和 `CLOUDFLARE_AI_API_TOKEN`，但不会输出它们或调用飞书。对应的本地验证命令为：
 
+先在环境中配置完整的 Cloudflare 凭证（或显式配置 OpenAI 备用凭证）。`validate_ai_backend.py` 会向所选模型后端发出一次真实请求，可能产生配额消耗，但不会调用飞书：
+
 ```bash
 python -m pytest -q
+python scripts/validate_ai_backend.py
 python scripts/build_global_events_preview.py --output-dir validation-output
 cd web
 npm run lint

@@ -100,6 +100,7 @@ def test_environment_loads_stripped_cloudflare_settings_and_model(
 ) -> None:
     monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", " account-123 ")
     monkeypatch.setenv("CLOUDFLARE_AI_API_TOKEN", " cf-token ")
+    monkeypatch.delenv("CLOUDFLARE_AI_MODEL", raising=False)
     if model is not None:
         monkeypatch.setenv("CLOUDFLARE_AI_MODEL", f" {model} ")
 

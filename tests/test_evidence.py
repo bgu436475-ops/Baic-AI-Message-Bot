@@ -236,8 +236,8 @@ def test_extractor_retries_controlled_parser_and_adapter_failures(
         candidate(),
         fetched(),
         client,
-        "github-model",
-        base_url="https://models.github.ai/inference",
+        "compatible-model",
+        base_url="https://compatible.example/v1",
     )
 
     assert result.candidate_id == "one"
@@ -271,8 +271,8 @@ def test_extractor_wraps_second_controlled_failure_as_extraction_error(
             candidate(),
             fetched(),
             client,
-            "github-model",
-            base_url="https://models.github.ai/inference",
+            "compatible-model",
+            base_url="https://compatible.example/v1",
         )
 
     assert client.calls == 2
@@ -493,8 +493,8 @@ def test_extractor_retries_payload_limit_with_smaller_source_excerpt() -> None:
         candidate(),
         source,
         client,
-        "github-model",
-        base_url="https://models.github.ai/inference",
+        "compatible-model",
+        base_url="https://compatible.example/v1",
     )
 
     first = json.loads(client.requests[0][1]["messages"][1]["content"])
@@ -519,8 +519,8 @@ def test_extractor_bounds_the_serialized_prompt_including_json_escaping() -> Non
         oversized_candidate,
         source,
         client,
-        "github-model",
-        base_url="https://models.github.ai/inference",
+        "compatible-model",
+        base_url="https://compatible.example/v1",
     )
 
     messages = client.requests[0][1]["messages"]

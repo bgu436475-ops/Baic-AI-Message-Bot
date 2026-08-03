@@ -10,6 +10,8 @@ WORKFLOW_PATH = (
 
 def test_non_main_manual_validation_smokes_cloudflare_without_send_secrets() -> None:
     workflow = yaml.load(WORKFLOW_PATH.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+    assert "models" not in workflow["permissions"]
+
     steps = workflow["jobs"]["send-digest"]["steps"]
     generate_step = next(step for step in steps if step.get("name") == "Generate daily result")
     smoke_step = next(
