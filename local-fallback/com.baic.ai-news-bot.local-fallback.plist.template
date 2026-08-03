@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.baic.ai-news-bot.local-fallback</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__PYTHON__</string>
+    <string>-m</string>
+    <string>ai_news_bot.local_fallback</string>
+    <string>--runtime-root</string>
+    <string>__RUNTIME_ROOT__</string>
+    <string>--env-path</string>
+    <string>__ENV_PATH__</string>
+    <string>--gh-path</string>
+    <string>__GH_PATH__</string>
+    <string>--ollama-app-path</string>
+    <string>__OLLAMA_APP_PATH__</string>
+    <string>--repository</string>
+    <string>__REPOSITORY__</string>
+    <string>--scheduled</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>9</integer>
+    <key>Minute</key>
+    <integer>35</integer>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>__STDOUT_LOG__</string>
+  <key>StandardErrorPath</key>
+  <string>__STDERR_LOG__</string>
+</dict>
+</plist>
