@@ -102,6 +102,14 @@ def evaluate_cloud_snapshot(day: date, snapshot: CloudSnapshot) -> CloudGateResu
     runs = _same_day_runs(day, snapshot.runs)
     run_urls = tuple(run.url for run in runs)
 
+    if snapshot.remote_digest.status not in {
+        "missing",
+        "valid",
+        "malformed",
+        "unavailable",
+    }:
+        return CloudGateResult("blocked", "remote_digest_unknown", run_urls)
+
     if any(run.send_step_conclusion == "success" for run in runs):
         return CloudGateResult("skip_delivered", "cloud_send_step_succeeded", run_urls)
 
@@ -119,13 +127,6 @@ def evaluate_cloud_snapshot(day: date, snapshot: CloudSnapshot) -> CloudGateResu
         return CloudGateResult("blocked", "remote_digest_malformed", run_urls)
     if snapshot.remote_digest.status == "unavailable":
         return CloudGateResult("blocked", "cloud_snapshot_unavailable", run_urls)
-    if snapshot.remote_digest.status not in {
-        "missing",
-        "valid",
-        "malformed",
-        "unavailable",
-    }:
-        return CloudGateResult("blocked", "remote_digest_unknown", run_urls)
     return CloudGateResult("run_local", "no_cloud_delivery", run_urls)
 
 

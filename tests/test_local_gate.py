@@ -133,6 +133,20 @@ def test_unknown_remote_digest_status_blocks_automatic_send() -> None:
     assert result.reason_code == "remote_digest_unknown"
 
 
+def test_unknown_remote_digest_status_blocks_even_when_cloud_run_is_active() -> None:
+    result = evaluate_cloud_snapshot(
+        DAY,
+        CloudSnapshot(
+            runs=(run_with(status="in_progress", conclusion=None, send_step=None),),
+            remote_digest=RemoteDigestProbe("unknown"),  # type: ignore[arg-type]
+            server_time=datetime(2026, 8, 3, 2, 0, tzinfo=UTC),
+        ),
+    )
+
+    assert result.decision == "blocked"
+    assert result.reason_code == "remote_digest_unknown"
+
+
 @pytest.mark.parametrize(
     ("runs", "digest_status", "digest", "expected"),
     [
