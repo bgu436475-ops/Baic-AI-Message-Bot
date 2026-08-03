@@ -17,6 +17,20 @@ SMOKE_CANDIDATE_ID = "cloudflare-smoke-test"
 SMOKE_STATEMENT = "Cloudflare smoke model v1 is available now."
 
 
+def _safe_error_diagnostics(error: Exception) -> dict[str, str | int]:
+    diagnostics: dict[str, str | int] = {
+        "error_class": type(error).__name__,
+    }
+    cause = error.__cause__ or error.__context__
+    if cause is None:
+        return diagnostics
+    diagnostics["cause_class"] = type(cause).__name__
+    status_code = getattr(cause, "status_code", None)
+    if isinstance(status_code, int) and 100 <= status_code <= 599:
+        diagnostics["http_status"] = status_code
+    return diagnostics
+
+
 def validate_backend(
     settings: Settings,
     client_factory: Callable[..., Any] = OpenAI,
@@ -70,13 +84,14 @@ def main() -> int:
         _api_key, model, _base_url, provider = settings.ai_backend()
         validate_backend(settings)
     except Exception as error:
+        diagnostics = _safe_error_diagnostics(error)
         print(
             json.dumps(
                 {
                     "provider": provider,
                     "model": model,
                     "success": False,
-                    "error_class": type(error).__name__,
+                    **diagnostics,
                 }
             ),
             file=sys.stderr,

@@ -168,6 +168,57 @@ def test_main_sanitizes_backend_validation_failures(
         assert forbidden not in combined_output
 
 
+def test_main_reports_safe_underlying_http_diagnostics(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from scripts import validate_ai_backend
+
+    settings = Settings(
+        cloudflare_account_id="sensitive-account-id",
+        cloudflare_ai_api_token="sensitive-api-token",
+        cloudflare_ai_model="@cf/meta/llama-3.1-8b-instruct-fast",
+    )
+
+    monkeypatch.setattr(
+        validate_ai_backend.Settings,
+        "from_env",
+        classmethod(lambda cls: settings),
+    )
+
+    class PermissionDeniedError(RuntimeError):
+        status_code = 403
+
+    def fail_validation(_settings: Settings) -> EvidenceRecord:
+        underlying = PermissionDeniedError(
+            "sensitive-api-token response_body=secret-response"
+        )
+        raise EvidenceExtractionError("model evidence parsing failed") from underlying
+
+    monkeypatch.setattr(validate_ai_backend, "validate_backend", fail_validation)
+
+    assert validate_ai_backend.main() != 0
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert json.loads(captured.err) == {
+        "provider": "Cloudflare Workers AI",
+        "model": "@cf/meta/llama-3.1-8b-instruct-fast",
+        "success": False,
+        "error_class": "EvidenceExtractionError",
+        "cause_class": "PermissionDeniedError",
+        "http_status": 403,
+    }
+    for forbidden in (
+        "sensitive-api-token",
+        "sensitive-account-id",
+        "secret-response",
+        "response_body",
+        "Traceback",
+    ):
+        assert forbidden not in captured.err
+
+
 def test_cli_sanitizes_incomplete_backend_configuration() -> None:
     repository_root = Path(__file__).resolve().parents[1]
     sensitive_account_id = "sensitive-account-id"
