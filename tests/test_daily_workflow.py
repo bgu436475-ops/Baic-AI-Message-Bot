@@ -6,6 +6,10 @@ import yaml
 WORKFLOW_PATH = (
     Path(__file__).resolve().parents[1] / ".github/workflows/daily-ai-news.yml"
 )
+LOCAL_DELIVERY_WORKFLOW_PATH = (
+    Path(__file__).resolve().parents[1]
+    / ".github/workflows/record-local-delivery.yml"
+)
 
 
 def test_non_main_manual_validation_smokes_cloudflare_without_send_secrets() -> None:
@@ -52,3 +56,20 @@ def test_non_main_manual_validation_smokes_cloudflare_without_send_secrets() -> 
         "OPENAI_MODEL",
     }
     assert not any("FEISHU" in name or "SITE_" in name for name in smoke_env)
+
+
+def test_local_delivery_workflow_records_only_a_dispatched_delivery() -> None:
+    """Adding delivery side effects here could turn a sync retry into a second send."""
+    workflow_text = LOCAL_DELIVERY_WORKFLOW_PATH.read_text(encoding="utf-8")
+    workflow = yaml.load(workflow_text, Loader=yaml.BaseLoader)
+
+    assert workflow["on"]["repository_dispatch"]["types"] == [
+        "local-ai-news-delivered"
+    ]
+    assert workflow["concurrency"]["group"] == "daily-ai-news"
+    assert workflow["concurrency"]["cancel-in-progress"] == "false"
+    assert "ai-news-history-" in workflow_text
+    assert "FEISHU" not in workflow_text
+    assert "CLOUDFLARE" not in workflow_text
+    assert "ai-news-bot --dry-run" not in workflow_text
+    assert "ai-news-bot --send-existing" not in workflow_text

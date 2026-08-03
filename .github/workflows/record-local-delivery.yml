@@ -1,0 +1,59 @@
+name: Record local AI news delivery
+
+on:
+  repository_dispatch:
+    types: [local-ai-news-delivered]
+
+concurrency:
+  group: daily-ai-news
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  record-delivery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Restore delivery state
+        uses: actions/cache/restore@v5
+        with:
+          path: .state/
+          key: ai-news-history-${{ github.run_id }}
+          restore-keys: |
+            ai-news-history-
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: python -m pip install .
+
+      - name: Write dispatched payload
+        id: payload
+        env:
+          DELIVERY_PAYLOAD: ${{ toJson(github.event.client_payload) }}
+        run: |
+          payload_path="$(mktemp)"
+          chmod 600 "$payload_path"
+          printf '%s' "$DELIVERY_PAYLOAD" > "$payload_path"
+          echo "payload_path=$payload_path" >> "$GITHUB_OUTPUT"
+
+      - name: Record local delivery
+        run: >-
+          python -m ai_news_bot.record_local_delivery
+          --payload "${{ steps.payload.outputs.payload_path }}"
+          --ledger .state/daily_sends.json
+
+      - name: Save delivery state
+        uses: actions/cache/save@v5
+        with:
+          path: .state/
+          key: ai-news-history-${{ github.run_id }}
