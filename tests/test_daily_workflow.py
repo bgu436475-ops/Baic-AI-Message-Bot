@@ -10,6 +10,10 @@ LOCAL_DELIVERY_WORKFLOW_PATH = (
     Path(__file__).resolve().parents[1]
     / ".github/workflows/record-local-delivery.yml"
 )
+README_PATH = Path(__file__).resolve().parents[1] / "README.md"
+OPERATIONS_PATH = (
+    Path(__file__).resolve().parents[1] / "docs/local-ollama-fallback-operations.md"
+)
 
 
 def test_non_main_manual_validation_smokes_cloudflare_without_send_secrets() -> None:
@@ -73,3 +77,14 @@ def test_local_delivery_workflow_records_only_a_dispatched_delivery() -> None:
     assert "CLOUDFLARE" not in workflow_text
     assert "ai-news-bot --dry-run" not in workflow_text
     assert "ai-news-bot --send-existing" not in workflow_text
+
+
+def test_local_ollama_operator_documentation_covers_safe_fallback_contract() -> None:
+    readme = README_PATH.read_text(encoding="utf-8")
+    operations = OPERATIONS_PATH.read_text(encoding="utf-8")
+
+    assert "09:35" in readme
+    assert "qwen3:8b" in readme
+    assert "uncertain_delivery" in operations
+    assert "不会自动重试发送" in operations
+    assert "~/Library/Application Support/Baic-AI-Message-Bot/.env" in operations

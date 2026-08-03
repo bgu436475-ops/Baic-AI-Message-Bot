@@ -141,6 +141,10 @@ ai-news-bot --dry-run --web-output web/public/data/latest.json
 
 Cloudflare Workers AI 是默认后端：只有 `CLOUDFLARE_ACCOUNT_ID` 和 `CLOUDFLARE_AI_API_TOKEN` 两项都存在时才会使用。两项都未配置时，才会使用显式配置的 `OPENAI_API_KEY`；只配置其中一项 Cloudflare 值会使任务失败，避免意外切换后端。ChatGPT 或 GitHub Copilot 订阅不包含 OpenAI API 额度；任何供应商都不能承诺永久免费配额，请在上线前核对当前价格、额度和账户限制。
 
+### macOS 本地 Ollama 后备（Plan 2）
+
+当云端日报没有已确认送达时，可由用户本机的 Ollama 后备执行；默认模型是 `qwen3:8b`，仅允许回环地址 `http://127.0.0.1:11434/v1`。经无发送验证并显式激活后，LaunchAgent 在北京时间 09:35 检查云端状态，最晚只等待到 09:50；它不承诺在该时间送达，也不会因状态不确定而重复发送。完整的安装前提、受保护环境文件、Desktop 控件、状态恢复和回滚步骤见 [本地 Ollama 后备运维手册](docs/local-ollama-fallback-operations.md)。本仓库仅提供安装与验证脚本；不代表已经在任何机器上安装、激活或实际发送。
+
 飞书 webhook 会把消息固定发到创建该机器人的群，因此无需在代码中保存群 ID 或群名。消息使用飞书 V2 卡片，先展示一分钟叙事和全球重大事件，再展示最多 5 条技术与工具信息；标题使用纯文本，原始来源使用单独的明确链接。
 
 ### 功能分支无发送验证

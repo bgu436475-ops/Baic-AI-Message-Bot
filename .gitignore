@@ -10,3 +10,13 @@ build/
 !web/build/
 !web/build/sites-vite-plugin.ts
 *.egg-info/
+
+# Local Ollama fallback operator data. Keep the versioned local-fallback/
+# templates tracked; only locally generated runtime, run output, logs, and
+# temporary installer downloads are ignored.
+local-fallback/runtime/
+local-fallback/runs/
+local-fallback/logs/
+local-fallback/downloads/
+Ollama-darwin.zip
+baic-ollama-*/
