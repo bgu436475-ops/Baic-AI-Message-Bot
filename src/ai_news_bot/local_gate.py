@@ -17,6 +17,9 @@ from .models import EditorialDigest
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 _RUN_HISTORY_LIMIT = 1000
+_SEND_CAPABLE_EVENTS = frozenset(
+    {"repository_dispatch", "schedule", "workflow_dispatch"}
+)
 GateDecision = Literal["skip_delivered", "wait", "run_local", "blocked"]
 DigestStatus = Literal["missing", "valid", "malformed", "unavailable"]
 
@@ -426,7 +429,7 @@ class GitHubCLIClient:
                 run
                 for run in runs
                 if _shanghai_day(run.created_at) == day
-                and run.event in {"repository_dispatch", "schedule"}
+                and run.event in _SEND_CAPABLE_EVENTS
             )
             inspected_runs = tuple(
                 CloudRun(

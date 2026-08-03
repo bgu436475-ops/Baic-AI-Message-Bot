@@ -97,7 +97,7 @@ OLLAMA_MODEL=qwen3:8b \
 | 当天云端任务均完成但无发送证据，且远端状态清楚 | 09:50 前继续观察；09:50 后才 `run_local` 并生成候选。 |
 | GitHub 认证/API/时钟、远端 JSON 或状态无法验证 | fail closed：停止自动发送，先修复原因。 |
 
-本地也会检查当天的发送账本和本地 `state/fallback.json`。云端运行历史通过 `gh` 的分页 `--limit` 查询到北京时间日期边界；只有当天的 `schedule` 与 `repository_dispatch` 运行会再以 `gh run view` 检查发送步骤，历史或其他触发事件不会造成逐条检查。正常超过 30 条历史不会阻断当天成功证据，但在高限额内仍无法确认边界时会 fail closed。已确认发送、远端已送达、已有本地发送账本或另一进程占有锁时，都不产生第二条飞书消息。
+本地也会检查当天的发送账本和本地 `state/fallback.json`。云端运行历史通过 `gh` 的分页 `--limit` 查询到北京时间日期边界；只有当天可发送的 `schedule`、`repository_dispatch` 与 `workflow_dispatch` 运行会再以 `gh run view` 检查发送步骤，历史或其他触发事件不会造成逐条检查。正常超过 30 条历史不会阻断当天成功证据，但在高限额内仍无法确认边界时会 fail closed。已确认发送、远端已送达、已有本地发送账本或另一进程占有锁时，都不产生第二条飞书消息。
 
 ## Desktop 控件、状态和恢复
 
