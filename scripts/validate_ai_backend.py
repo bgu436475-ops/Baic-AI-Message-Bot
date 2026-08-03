@@ -63,9 +63,11 @@ def validate_backend(
 
 
 def main() -> int:
-    settings = Settings.from_env()
-    _api_key, model, _base_url, provider = settings.ai_backend()
+    provider = "unavailable"
+    model = "unavailable"
     try:
+        settings = Settings.from_env()
+        _api_key, model, _base_url, provider = settings.ai_backend()
         validate_backend(settings)
     except Exception as error:
         print(

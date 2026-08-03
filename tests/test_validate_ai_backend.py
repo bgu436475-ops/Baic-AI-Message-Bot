@@ -1,4 +1,8 @@
 import json
+import os
+import subprocess
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -162,3 +166,42 @@ def test_main_sanitizes_backend_validation_failures(
         "Traceback",
     ):
         assert forbidden not in combined_output
+
+
+def test_cli_sanitizes_incomplete_backend_configuration() -> None:
+    repository_root = Path(__file__).resolve().parents[1]
+    sensitive_account_id = "sensitive-account-id"
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "CLOUDFLARE_ACCOUNT_ID": sensitive_account_id,
+            "CLOUDFLARE_AI_API_TOKEN": "",
+            "OPENAI_API_KEY": "",
+        }
+    )
+
+    result = subprocess.run(
+        [sys.executable, "scripts/validate_ai_backend.py"],
+        cwd=repository_root,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert result.stdout == ""
+    assert json.loads(result.stderr) == {
+        "provider": "unavailable",
+        "model": "unavailable",
+        "success": False,
+        "error_class": "ValueError",
+    }
+    for forbidden in (
+        sensitive_account_id,
+        "配置不完整",
+        "CLOUDFLARE_ACCOUNT_ID",
+        "CLOUDFLARE_AI_API_TOKEN",
+        "Traceback",
+    ):
+        assert forbidden not in result.stderr
