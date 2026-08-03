@@ -11,6 +11,7 @@ from ai_news_bot.local_gate import (
     CloudRun,
     CloudSnapshot,
     CommandResult,
+    GitHubStateSyncError,
     GitHubCLIClient,
     RemoteDigestProbe,
     evaluate_cloud_snapshot,
@@ -185,6 +186,22 @@ class FakeCommandRunner:
                 "HTTP/2 200 OK\r\nDate: Mon, 03 Aug 2026 02:00:00 GMT\r\n\r\n{}",
             )
         if arguments[1:3] == ("run", "list"):
+            if "record-local-delivery.yml" in arguments:
+                return CommandResult(
+                    0,
+                    json.dumps(
+                        [
+                            {
+                                "databaseId": 99,
+                                "displayTitle": (
+                                    "Record local delivery " + "a" * 32
+                                ),
+                                "status": "completed",
+                                "conclusion": "success",
+                            }
+                        ]
+                    ),
+                )
             return CommandResult(
                 0,
                 json.dumps(
@@ -201,6 +218,25 @@ class FakeCommandRunner:
                 ),
             )
         if arguments[1:3] == ("run", "view"):
+            if arguments[3] == "99":
+                return CommandResult(
+                    0,
+                    json.dumps(
+                        {
+                            "jobs": [
+                                {
+                                    "name": "record-delivery",
+                                    "steps": [
+                                        {
+                                            "name": "Save delivery state",
+                                            "conclusion": "success",
+                                        }
+                                    ],
+                                }
+                            ]
+                        }
+                    ),
+                )
             return CommandResult(
                 0,
                 json.dumps(
@@ -257,7 +293,13 @@ def test_github_cli_dispatches_task_five_payload_only_over_stdin() -> None:
 
     client.dispatch_local_delivery(DAY, "a" * 32, "published")
 
-    assert json.loads(fake.stdin[-1] or "") == {
+    dispatch_index = next(
+        index
+        for index, call in enumerate(fake.calls)
+        if call[1:3]
+        == ("api", "repos/bgu436475-ops/Baic-AI-Message-Bot/dispatches")
+    )
+    assert json.loads(fake.stdin[dispatch_index] or "") == {
         "event_type": "local-ai-news-delivered",
         "client_payload": {
             "delivery_date": "2026-08-03",
@@ -270,6 +312,217 @@ def test_github_cli_dispatches_task_five_payload_only_over_stdin() -> None:
         for call in fake.calls
         for argument in call
     )
+
+
+def test_github_cli_confirms_the_associated_recorder_cache_before_syncing() -> None:
+    """Dispatch acceptance alone does not prove that GitHub persisted the local send."""
+    delivery_id = "a" * 32
+
+    class RecorderRunner:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, ...]] = []
+            self.polls = 0
+
+        def __call__(
+            self,
+            arguments: tuple[str, ...],
+            stdin: str | None = None,
+        ) -> CommandResult:
+            del stdin
+            self.calls.append(arguments)
+            if arguments[1:3] == (
+                "api",
+                "repos/bgu436475-ops/Baic-AI-Message-Bot/dispatches",
+            ):
+                return CommandResult(0, "")
+            if arguments[1:3] == ("run", "list"):
+                self.polls += 1
+                return CommandResult(
+                    0,
+                    json.dumps(
+                        [
+                            {
+                                "databaseId": 99,
+                                "displayTitle": (
+                                    f"Record local delivery {delivery_id}"
+                                ),
+                                "status": (
+                                    "completed"
+                                    if self.polls == 2
+                                    else "in_progress"
+                                ),
+                                "conclusion": (
+                                    "success" if self.polls == 2 else None
+                                ),
+                            }
+                        ]
+                    ),
+                )
+            if arguments[1:3] == ("run", "view"):
+                return CommandResult(
+                    0,
+                    json.dumps(
+                        {
+                            "jobs": [
+                                {
+                                    "name": "record-delivery",
+                                    "steps": [
+                                        {
+                                            "name": "Save delivery state",
+                                            "conclusion": "success",
+                                        }
+                                    ],
+                                }
+                            ]
+                        }
+                    ),
+                )
+            raise AssertionError(f"unexpected command: {arguments}")
+
+    runner = RecorderRunner()
+    sleeps: list[float] = []
+    client = GitHubCLIClient(
+        Path("/usr/local/bin/gh"),
+        command_runner=runner,
+        sync_sleep=sleeps.append,
+        sync_monotonic=lambda: 0,
+    )
+
+    client.dispatch_local_delivery(DAY, delivery_id, "published")
+
+    assert runner.polls == 2
+    assert sleeps == [2]
+    assert any(
+        "record-local-delivery.yml" in command
+        and "repository_dispatch" in command
+        for command in runner.calls
+    )
+    assert any(command[1:3] == ("run", "view") for command in runner.calls)
+
+
+def test_github_cli_keeps_sync_unconfirmed_when_recorder_fails() -> None:
+    """A failed recorder workflow must not clear the local cloud-sync pending bit."""
+    delivery_id = "a" * 32
+
+    def failed_recorder(
+        arguments: tuple[str, ...], stdin: str | None = None
+    ) -> CommandResult:
+        del stdin
+        if arguments[1:3] == (
+            "api",
+            "repos/bgu436475-ops/Baic-AI-Message-Bot/dispatches",
+        ):
+            return CommandResult(0, "")
+        if arguments[1:3] == ("run", "list"):
+            return CommandResult(
+                0,
+                json.dumps(
+                    [
+                        {
+                            "databaseId": 99,
+                            "displayTitle": f"Record local delivery {delivery_id}",
+                            "status": "completed",
+                            "conclusion": "failure",
+                        }
+                    ]
+                ),
+            )
+        raise AssertionError(f"unexpected command: {arguments}")
+
+    client = GitHubCLIClient(
+        Path("/usr/local/bin/gh"), command_runner=failed_recorder
+    )
+
+    with pytest.raises(GitHubStateSyncError, match="cloud_sync_failed"):
+        client.dispatch_local_delivery(DAY, delivery_id, "published")
+
+
+def test_github_cli_keeps_sync_unconfirmed_when_recorder_workflow_is_missing() -> None:
+    """A missing remote recorder must block sync completion rather than accept dispatch."""
+    def missing_workflow(
+        arguments: tuple[str, ...], stdin: str | None = None
+    ) -> CommandResult:
+        del stdin
+        if arguments[1:3] == (
+            "api",
+            "repos/bgu436475-ops/Baic-AI-Message-Bot/dispatches",
+        ):
+            return CommandResult(0, "")
+        if arguments[1:3] == ("run", "list"):
+            return CommandResult(1, "", "workflow not found")
+        raise AssertionError(f"unexpected command: {arguments}")
+
+    client = GitHubCLIClient(
+        Path("/usr/local/bin/gh"), command_runner=missing_workflow
+    )
+
+    with pytest.raises(GitHubStateSyncError, match="cloud_sync_unavailable"):
+        client.dispatch_local_delivery(DAY, "a" * 32, "published")
+
+
+def test_github_cli_keeps_sync_unconfirmed_when_recorder_times_out() -> None:
+    """An accepted dispatch with no associated recorder run is still indeterminate."""
+    def no_recorder(
+        arguments: tuple[str, ...], stdin: str | None = None
+    ) -> CommandResult:
+        del stdin
+        if arguments[1:3] == (
+            "api",
+            "repos/bgu436475-ops/Baic-AI-Message-Bot/dispatches",
+        ):
+            return CommandResult(0, "")
+        if arguments[1:3] == ("run", "list"):
+            return CommandResult(0, "[]")
+        raise AssertionError(f"unexpected command: {arguments}")
+
+    monotonic_ticks = iter((0.0, 0.0, 3.0))
+    client = GitHubCLIClient(
+        Path("/usr/local/bin/gh"),
+        command_runner=no_recorder,
+        sync_monotonic=lambda: next(monotonic_ticks),
+        sync_timeout_seconds=3,
+        sync_sleep=lambda _: None,
+    )
+
+    with pytest.raises(GitHubStateSyncError, match="cloud_sync_timeout"):
+        client.dispatch_local_delivery(DAY, "a" * 32, "published")
+
+
+def test_github_cli_blocks_when_the_daily_run_list_reaches_its_limit() -> None:
+    """A capped run list can hide a same-day cloud send, so the local gate must fail closed."""
+    runs = [
+        {
+            "databaseId": index,
+            "event": "repository_dispatch",
+            "status": "completed",
+            "conclusion": "failure",
+            "createdAt": "2026-08-03T01:05:00Z",
+            "url": f"https://github.com/o/r/actions/runs/{index}",
+        }
+        for index in range(30)
+    ]
+
+    def capped_runs(
+        arguments: tuple[str, ...], stdin: str | None = None
+    ) -> CommandResult:
+        del stdin
+        if arguments[1:4] == ("api", "-i", "rate_limit"):
+            return CommandResult(
+                0,
+                "HTTP/2 200 OK\r\nDate: Mon, 03 Aug 2026 02:00:00 GMT\r\n\r\n{}",
+            )
+        if arguments[1:3] == ("run", "list"):
+            return CommandResult(0, json.dumps(runs))
+        raise AssertionError(f"unexpected command: {arguments}")
+
+    client = GitHubCLIClient(
+        Path("/usr/local/bin/gh"), command_runner=capped_runs
+    )
+
+    result = evaluate_cloud_snapshot(DAY, client.snapshot(DAY))
+
+    assert result.decision == "blocked"
+    assert result.reason_code == "cloud_snapshot_unavailable"
 
 
 def test_github_authentication_failure_blocks_automatic_local_send() -> None:

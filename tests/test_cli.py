@@ -728,16 +728,19 @@ def test_production_pipeline_wiring_uses_backend_adapter_and_real_stages(
     payload = json.loads(web_output.read_text(encoding="utf-8"))
     assert payload["run_status"] == "published"
     assert payload["items"][0]["candidate_id"] == "one"
-    assert constructor_calls == [
-        {
-            "api_key": (
-                "openai-key"
-                if backend == "openai"
-                else ("cf-token" if backend == "cloudflare" else "ollama")
-            ),
-            "base_url": expected_base_url,
-        }
-    ]
+    assert len(constructor_calls) == 1
+    constructor = constructor_calls[0]
+    assert constructor["api_key"] == (
+        "openai-key"
+        if backend == "openai"
+        else ("cf-token" if backend == "cloudflare" else "ollama")
+    )
+    assert constructor["base_url"] == expected_base_url
+    if backend == "ollama":
+        assert constructor["http_client"]._trust_env is False
+        constructor["http_client"].close()
+    else:
+        assert "http_client" not in constructor
     assert model_client.interfaces == [expected_interface]
     assert model_client.requests[0]["model"] == expected_model
     for key, value in expected_chat_options.items():

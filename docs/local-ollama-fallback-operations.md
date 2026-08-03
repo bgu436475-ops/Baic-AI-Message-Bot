@@ -9,14 +9,14 @@
 - 仅支持 Apple Silicon macOS。Ollama 应用安装位置为 `~/Applications/Ollama.app`，模型数据由 Ollama 管理在 `~/.ollama/models/`。
 - 后备运行时目录为 `~/Library/Application Support/Baic-AI-Message-Bot/`；其中包括 `venv/`、`bin/gh`、`config/sources.yaml`、`state/`、`runs/` 和受保护的环境文件。
 - 环境文件的唯一位置是 `~/Library/Application Support/Baic-AI-Message-Bot/.env`。安装器会以 `0600` 创建或收紧该文件权限；不要将它加入 shell profile、复制到仓库根目录 `.env`，或提交到 Git。
-- 本地模型后端固定为 `AI_BACKEND=ollama`，默认 `OLLAMA_BASE_URL=http://127.0.0.1:11434/v1` 和 `OLLAMA_MODEL=qwen3:8b`。地址必须是无凭据、无查询参数的 loopback HTTP `/v1` 地址；不能把它指向局域网或公网服务。
+- 本地模型后端固定为 `AI_BACKEND=ollama`，默认 `OLLAMA_BASE_URL=http://127.0.0.1:11434/v1` 和 `OLLAMA_MODEL=qwen3:8b`。地址必须是无凭据、无查询参数的 loopback HTTP `/v1` 地址；不能把它指向局域网或公网服务。所有 Ollama 模型和健康检查请求都会忽略 `HTTP_PROXY`/`HTTPS_PROXY` 等环境代理。
 - 运行器不提供 force-send、自动重发或绕过云端门槛的参数。所有日期和截止时间按 `Asia/Shanghai` 判断。
 
 ## 安装前检查与安装
 
 安装工作需要操作员在本机显式执行，且会下载软件、创建用户目录并在随后按命令模型拉取；不要在未审核分支或未获得本机管理员/所有者授权时执行。
 
-1. 在本地克隆的、已经通过测试的仓库根目录准备一个已登录且能读取目标私有仓库的 GitHub CLI。安装器会验证 `gh auth status`、仓库访问、现有 Ollama App 和至少 8 GiB 可用磁盘。
+1. 在本地克隆的、已经通过测试的仓库根目录准备一个已登录且能读取目标私有仓库的 GitHub CLI。安装器会验证 `gh auth status`、仓库访问、现有 Ollama App 和至少 8 GiB 可用磁盘；每次安装都会刷新运行时的项目包，即使该运行时 virtualenv 已存在。
 2. 安装或验证 Ollama，并拉取模型。脚本仅从官方 Ollama macOS 下载地址获取压缩包；若 `~/Applications/Ollama.app` 已存在，绝不覆盖它，但仍会运行签名/系统评估、启动健康检查并确认模型：
 
    ```bash
@@ -83,7 +83,7 @@ OLLAMA_MODEL=qwen3:8b \
   --activate-schedule
 ```
 
-激活后，`~/Library/LaunchAgents/com.baic.ai-news-bot.local-fallback.plist` 每天北京时间 09:35 运行 `--scheduled`。它不会在 09:35 直接发送：先执行预检和云端门槛，若云端运行仍活跃则每 60 秒重查，使用本机上海时钟在 09:50 截止。09:50 是停止等待的安全截止点，不是送达承诺。
+激活还会经已登录的 GitHub CLI 检查远端 `main` 分支存在 `record-local-delivery.yml`；缺少该工作流时安装器拒绝激活。激活后，`~/Library/LaunchAgents/com.baic.ai-news-bot.local-fallback.plist` 每天北京时间 09:35 运行 `--scheduled`。它不会在 09:35 直接发送：先执行预检和云端门槛，若云端运行仍活跃则每 60 秒重查，使用本机上海时钟在 09:50 截止。09:50 是停止等待的安全截止点，不是送达承诺。
 
 ## 云端门槛与本地发送决策
 
@@ -109,7 +109,7 @@ OLLAMA_MODEL=qwen3:8b \
 关键诊断位置如下：
 
 - 标准输出：`~/Library/Logs/Baic-AI-Message-Bot/local-fallback.stdout.log`
-- 标准错误：`~/Library/Logs/Baic-AI-Message-Bot/local-fallback.stderr.log`
+- 标准错误：`~/Library/Logs/Baic-AI-Message-Bot/local-fallback.stderr.log`（运行器的结构化诊断日志写入这里）
 - 每次本地预览：`~/Library/Application Support/Baic-AI-Message-Bot/runs/<UTC 时间戳>/latest.json`
 - 本地发送/同步状态：`~/Library/Application Support/Baic-AI-Message-Bot/state/fallback.json`
 - 本地日报账本、历史和审计：同一 `state/` 目录中的 `daily_sends.json`、`history.json`、`events.json` 和 `latest_audit.json`
@@ -118,7 +118,7 @@ OLLAMA_MODEL=qwen3:8b \
 
 `uncertain_delivery` 表示飞书请求已经可能到达、但本地无法确认响应，或请求后本地持久化出现异常。此状态下**不会自动重试发送**。操作员必须先在飞书群确认当天是否已收到消息，并核对当天云端运行和 `state/fallback.json`；在送达情况仍不明确时，保持停止状态并人工升级处理，绝不能重跑以“试一次”。
 
-确认送达后，本地会先记录不可重复的 delivery ID，再通过 GitHub `repository_dispatch` 触发 `Record local AI news delivery`。该工作流只记录当天已确认的 `published` 或 `no_qualifying_items` 状态，绝不调用飞书或模型。如果 dispatch 或网页发布暂时失败，状态会标记为 pending；下一次本地运行只重试状态同步/网页发布，**不会自动重试发送**。若有前一天 pending 状态，先人工解决该状态，系统会用 `stale_pending_delivery` 阻止新一天发送。
+确认送达后，本地会先记录不可重复的 delivery ID，再通过 GitHub `repository_dispatch` 触发 `Record local AI news delivery`。dispatch 的 HTTP 接受本身**不会**清除 `cloud_sync_pending`：运行器会按 delivery ID 关联工作流运行，等待该运行成功并确认 `Save delivery state` 步骤成功后才清除 pending。该工作流只记录当天已确认的 `published` 或 `no_qualifying_items` 状态，绝不调用飞书或模型。工作流缺失、失败、状态缓存失败或确认超时，以及网页发布暂时失败，都会保留 pending；下一次本地运行只重试状态同步/网页发布，**不会自动重试发送**。若有前一天 pending 状态，先人工解决该状态，系统会用 `stale_pending_delivery` 阻止新一天发送。
 
 ## 回滚
 
@@ -128,7 +128,7 @@ OLLAMA_MODEL=qwen3:8b \
 .venv/bin/python scripts/uninstall_local_fallback.py
 ```
 
-脚本只会 `bootout` 并删除以下项目：
+脚本会先检查 `bootout` 的返回值，再用 `launchctl print` 确认标签不再加载；只有这两项都成功时才删除以下项目。若失败或标签仍加载，脚本以非零退出、报告明确原因并保留 plist 供排障：
 
 - `~/Library/LaunchAgents/com.baic.ai-news-bot.local-fallback.plist`
 - `~/Desktop/立即运行 Plan 2.command`

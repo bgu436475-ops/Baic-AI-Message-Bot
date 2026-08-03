@@ -4,8 +4,7 @@ import json
 import math
 from datetime import UTC, datetime
 
-from openai import OpenAI
-
+from .model_backend import create_openai_client, is_ollama_loopback_url
 from .models import AISelection, Candidate, DailyDigest, NewsItem
 from .text import truncate
 
@@ -67,7 +66,11 @@ def select_with_openai(
             ensure_ascii=False,
         )
     )
-    client = OpenAI(api_key=api_key, base_url=base_url)
+    client = create_openai_client(
+        api_key=api_key,
+        base_url=base_url,
+        disable_environment_proxy=is_ollama_loopback_url(base_url),
+    )
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": prompt},

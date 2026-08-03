@@ -703,3 +703,78 @@ def test_invalid_success_response_json_is_uncertain_without_parser_details(
         )
 
     assert "malformed response secret" not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"code": "0", "message": "response secret"},
+        {"StatusCode": True, "message": "response secret"},
+    ],
+)
+def test_2xx_response_without_unambiguous_numeric_success_is_uncertain(
+    monkeypatch: pytest.MonkeyPatch,
+    payload: dict[str, object],
+) -> None:
+    """Defaulting a malformed 2xx payload to success could permit a duplicate card."""
+
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return payload
+
+    webhook = "https://open.feishu.cn/open-apis/bot/v2/hook/secret-webhook"
+    secret = "secret-signing-key"
+    monkeypatch.setattr(requests, "post", lambda *args, **kwargs: Response())
+
+    with pytest.raises(FeishuDeliveryUncertain, match="indeterminate") as error:
+        send_to_feishu(legal_empty_digest(), webhook, secret)
+
+    message = str(error.value)
+    assert "response secret" not in message
+    assert webhook not in message
+    assert secret not in message
+
+
+def test_conflicting_numeric_statuses_are_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ignoring a present nonzero status would falsely confirm delivery."""
+
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, int]:
+            return {"code": 0, "StatusCode": 19001}
+
+    monkeypatch.setattr(requests, "post", lambda *args, **kwargs: Response())
+
+    with pytest.raises(FeishuDeliveryRejected, match="rejected"):
+        send_to_feishu(
+            legal_empty_digest(),
+            "https://open.feishu.cn/open-apis/bot/v2/hook/test",
+        )
+
+
+def test_status_code_zero_explicitly_confirms_feishu_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Accepting only the modern field would reject an explicitly successful legacy response."""
+
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, int]:
+            return {"StatusCode": 0}
+
+    monkeypatch.setattr(requests, "post", lambda *args, **kwargs: Response())
+
+    assert send_to_feishu(
+        legal_empty_digest(),
+        "https://open.feishu.cn/open-apis/bot/v2/hook/test",
+    ) == {"StatusCode": 0}

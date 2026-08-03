@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from datetime import UTC, date, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -411,6 +412,42 @@ def test_ollama_preflight_rejects_a_missing_model_without_starting_download(
     assert ollama_preflight_reason(config, lambda _: None) == "ollama_model_missing"
 
 
+def test_ollama_tags_check_uses_the_proxy_disabled_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A loopback tags health check must not honor HTTP proxy environment variables."""
+    session_calls: list[str] = []
+
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {"models": [{"name": "qwen3:8b"}]}
+
+    class Session:
+        def get(self, url: str, *, timeout: int) -> Response:
+            session_calls.append(url)
+            assert timeout == 2
+            return Response()
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setenv("HTTP_PROXY", "http://proxy.example.test:8080")
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.example.test:8443")
+    monkeypatch.setattr(
+        local_fallback,
+        "create_ollama_session",
+        lambda: Session(),
+    )
+
+    assert local_fallback._ollama_models("http://127.0.0.1:11434/v1") == {
+        "qwen3:8b"
+    }
+    assert session_calls == ["http://127.0.0.1:11434/api/tags"]
+
+
 def test_github_clock_drift_blocks_the_local_gate(
     config: LocalFallbackConfig,
 ) -> None:
@@ -583,6 +620,30 @@ def test_console_modes_keep_the_cloud_gate_and_reject_force_send() -> None:
 
     with pytest.raises(SystemExit):
         parse_args(["--force-send"])
+
+
+def test_runner_configures_diagnostic_logging_for_launchd_stderr(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Without a logging handler, documented launchd diagnostic files stay empty."""
+    configured: dict[str, object] = {}
+    monkeypatch.setattr(
+        local_fallback.logging,
+        "basicConfig",
+        lambda **kwargs: configured.update(kwargs),
+    )
+    monkeypatch.setattr(
+        local_fallback,
+        "load_local_environment",
+        lambda _: (_ for _ in ()).throw(ValueError("invalid")),
+    )
+
+    assert local_fallback.main(["--runtime-root", str(tmp_path / "runtime")]) == 2
+
+    assert configured["level"] == local_fallback.logging.INFO
+    assert configured["stream"] is sys.stderr
+    assert "%(levelname)s" in str(configured["format"])
 
 
 def test_runner_sets_the_process_timezone_before_native_work(

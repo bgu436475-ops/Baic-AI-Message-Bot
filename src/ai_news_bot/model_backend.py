@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
+import httpx
+import requests
+from openai import OpenAI
 from pydantic import BaseModel
 
 
@@ -32,6 +36,59 @@ def normalize_ollama_base_url(value: str) -> str:
     if parsed.path.rstrip("/") != "/v1":
         raise ValueError("Ollama loopback URL must end with /v1")
     return value.rstrip("/")
+
+
+def is_ollama_loopback_url(value: str | None) -> bool:
+    if value is None:
+        return False
+    try:
+        normalize_ollama_base_url(value)
+    except ValueError:
+        return False
+    return True
+
+
+def create_openai_client(
+    *,
+    api_key: str,
+    base_url: str | None,
+    client_factory: Callable[..., Any] = OpenAI,
+    max_retries: int | None = None,
+    disable_environment_proxy: bool = False,
+) -> Any:
+    """Construct an OpenAI-compatible client without proxying Ollama loopback."""
+    arguments: dict[str, object] = {
+        "api_key": api_key,
+        "base_url": base_url,
+    }
+    if max_retries is not None:
+        arguments["max_retries"] = max_retries
+    if disable_environment_proxy:
+        arguments["http_client"] = httpx.Client(trust_env=False)
+    return client_factory(**arguments)
+
+
+def create_model_client(
+    backend: BackendSpec,
+    *,
+    client_factory: Callable[..., Any] = OpenAI,
+    max_retries: int | None = None,
+) -> Any:
+    """Construct the configured model client with provider-specific transport rules."""
+    return create_openai_client(
+        api_key=backend.api_key,
+        base_url=backend.base_url,
+        client_factory=client_factory,
+        max_retries=max_retries,
+        disable_environment_proxy=backend.provider_id == "ollama",
+    )
+
+
+def create_ollama_session() -> requests.Session:
+    """Create a loopback-only requests transport that ignores inherited proxies."""
+    session = requests.Session()
+    session.trust_env = False
+    return session
 
 
 def structured_chat_parse(

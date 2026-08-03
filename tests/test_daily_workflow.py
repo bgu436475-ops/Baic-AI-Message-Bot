@@ -70,8 +70,24 @@ def test_local_delivery_workflow_records_only_a_dispatched_delivery() -> None:
     assert workflow["on"]["repository_dispatch"]["types"] == [
         "local-ai-news-delivered"
     ]
+    assert workflow["run-name"] == (
+        "Record local delivery ${{ github.event.client_payload.delivery_id }}"
+    )
     assert workflow["concurrency"]["group"] == "daily-ai-news"
     assert workflow["concurrency"]["cancel-in-progress"] == "false"
+    steps = workflow["jobs"]["record-delivery"]["steps"]
+    record_index = next(
+        index
+        for index, step in enumerate(steps)
+        if step.get("name") == "Record local delivery"
+    )
+    cache_index = next(
+        index
+        for index, step in enumerate(steps)
+        if step.get("name") == "Save delivery state"
+    )
+    assert cache_index > record_index
+    assert steps[cache_index]["uses"] == "actions/cache/save@v5"
     assert "ai-news-history-" in workflow_text
     assert "FEISHU" not in workflow_text
     assert "CLOUDFLARE" not in workflow_text

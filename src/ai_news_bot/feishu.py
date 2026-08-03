@@ -491,6 +491,18 @@ def send_to_feishu(
         raise FeishuDeliveryUncertain(
             "Feishu delivery status is indeterminate"
         )
-    if data.get("code", data.get("StatusCode", 0)) != 0:
+    status_codes = [
+        data[name]
+        for name in ("code", "StatusCode")
+        if name in data
+    ]
+    if not status_codes or any(
+        isinstance(code, bool) or not isinstance(code, (int, float))
+        for code in status_codes
+    ):
+        raise FeishuDeliveryUncertain(
+            "Feishu delivery status is indeterminate"
+        )
+    if any(code != 0 for code in status_codes):
         raise FeishuDeliveryRejected("Feishu delivery was rejected")
     return data

@@ -14,6 +14,10 @@ from install_local_fallback import INSTALLER_LABEL
 CommandRunner = Callable[[Sequence[str]], int]
 
 
+class UninstallError(RuntimeError):
+    """The launch agent could not be safely confirmed as unloaded."""
+
+
 def _run_silently(command: Sequence[str]) -> int:
     try:
         return subprocess.run(
@@ -63,17 +67,34 @@ def uninstall_local_fallback(
 ) -> str:
     """Unload only the agent and exact Desktop controls; preserve all diagnostics."""
     if context.launch_agent_path.exists():
+        bootout_command = [
+            "/bin/launchctl",
+            "bootout",
+            f"gui/{context.uid}",
+            str(context.launch_agent_path),
+        ]
         try:
-            context.runner(
+            bootout_returncode = context.runner(bootout_command)
+        except OSError:
+            bootout_returncode = 127
+        if bootout_returncode != 0:
+            reason = "launch_agent_bootout_failed"
+            output(reason)
+            raise UninstallError(reason)
+        try:
+            loaded = context.runner(
                 [
                     "/bin/launchctl",
-                    "bootout",
-                    f"gui/{context.uid}",
-                    str(context.launch_agent_path),
+                    "print",
+                    f"gui/{context.uid}/{INSTALLER_LABEL}",
                 ]
-            )
+            ) == 0
         except OSError:
-            pass
+            loaded = True
+        if loaded:
+            reason = "launch_agent_still_loaded"
+            output(reason)
+            raise UninstallError(reason)
         context.launch_agent_path.unlink()
     for path in (context.run_now_path, context.view_logs_path):
         if path.exists():
@@ -95,7 +116,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    uninstall_local_fallback(UninstallContext(home=args.home, uid=os.getuid()))
+    try:
+        uninstall_local_fallback(
+            UninstallContext(home=args.home, uid=os.getuid()),
+            output=lambda _: None,
+        )
+    except UninstallError as error:
+        print(str(error), file=sys.stderr)
+        return 2
     return 0
 
 

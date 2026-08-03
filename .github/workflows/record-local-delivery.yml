@@ -1,5 +1,7 @@
 name: Record local AI news delivery
 
+run-name: Record local delivery ${{ github.event.client_payload.delivery_id }}
+
 on:
   repository_dispatch:
     types: [local-ai-news-delivered]

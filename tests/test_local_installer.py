@@ -28,6 +28,8 @@ from install_ollama_macos import (  # noqa: E402
 )
 from uninstall_local_fallback import (  # noqa: E402
     UninstallContext,
+    UninstallError,
+    main as uninstall_main,
     parse_args as parse_uninstall_args,
     uninstall_local_fallback,
 )
@@ -117,6 +119,26 @@ def test_installer_reuses_runtime_and_protects_environment(tmp_path: Path) -> No
         encoding="utf-8"
     ) == "rss: []\n"
     assert os.access(second.runtime_root / "bin" / "gh", os.X_OK)
+
+
+def test_installer_reinstalls_the_project_when_a_runtime_venv_already_exists(
+    tmp_path: Path,
+) -> None:
+    """Skipping pip after an interrupted or old install can run stale fallback code."""
+    runner = RecordingRunner()
+    context = _context(tmp_path, runner=runner)
+    pip_install = (
+        str(context.venv_python),
+        "-m",
+        "pip",
+        "install",
+        str(context.repo_root),
+    )
+
+    install_local_fallback(context)
+    install_local_fallback(context)
+
+    assert runner.commands.count(pip_install) == 2
 
 
 def test_rendered_controls_schedule_0935_without_secret_values(tmp_path: Path) -> None:
@@ -270,6 +292,36 @@ def test_schedule_bootstrap_requires_explicit_smoke_validation(tmp_path: Path) -
     )
 
 
+def test_schedule_activation_refuses_a_remote_without_the_recorder_workflow(
+    tmp_path: Path,
+) -> None:
+    """An active local sender without its remote recorder cannot safely clear sync state."""
+    runner = RecordingRunner()
+    context = _context(tmp_path, runner=runner)
+    workflow_query = (
+        str(context.gh_path),
+        "api",
+        (
+            "repos/bgu436475-ops/Baic-AI-Message-Bot/contents/"
+            ".github/workflows/record-local-delivery.yml?ref=main"
+        ),
+    )
+    runner.results[workflow_query] = 1
+
+    with pytest.raises(InstallerError, match="record_local_delivery_workflow"):
+        install_local_fallback(
+            context,
+            activate_schedule=True,
+            smoke_validated=True,
+        )
+
+    assert not context.launch_agent_path.exists()
+    assert not any(
+        command[:2] == ("/bin/launchctl", "bootstrap")
+        for command in runner.commands
+    )
+
+
 def test_uninstall_removes_controls_and_preserves_operator_data(tmp_path: Path) -> None:
     """Rollback must not erase credentials, delivery state, models, or diagnostics."""
     install_context = _context(tmp_path)
@@ -285,6 +337,13 @@ def test_uninstall_removes_controls_and_preserves_operator_data(tmp_path: Path) 
     log.parent.mkdir(parents=True, exist_ok=True)
     log.write_text("diagnostic", encoding="utf-8")
     runner = RecordingRunner()
+    runner.results[
+        (
+            "/bin/launchctl",
+            "print",
+            "gui/501/com.baic.ai-news-bot.local-fallback",
+        )
+    ] = 1
 
     summary = uninstall_local_fallback(
         UninstallContext(
@@ -312,6 +371,66 @@ def test_uninstall_removes_controls_and_preserves_operator_data(tmp_path: Path) 
     ) in runner.commands
     with pytest.raises(SystemExit):
         parse_uninstall_args(["--remove-data"])
+
+
+@pytest.mark.parametrize(
+    ("bootout_result", "print_result", "reason"),
+    [
+        (1, 1, "launch_agent_bootout_failed"),
+        (0, 0, "launch_agent_still_loaded"),
+    ],
+)
+def test_uninstall_retains_plist_when_launch_agent_cannot_be_confirmed_unloaded(
+    tmp_path: Path,
+    bootout_result: int,
+    print_result: int,
+    reason: str,
+) -> None:
+    """Deleting a live plist can leave an unmanageable scheduled process behind."""
+    install_context = _context(tmp_path)
+    result = install_local_fallback(install_context)
+    runner = RecordingRunner()
+    bootout = (
+        "/bin/launchctl",
+        "bootout",
+        "gui/501",
+        str(result.launch_agent),
+    )
+    status = (
+        "/bin/launchctl",
+        "print",
+        "gui/501/com.baic.ai-news-bot.local-fallback",
+    )
+    runner.results[bootout] = bootout_result
+    runner.results[status] = print_result
+    messages: list[str] = []
+
+    with pytest.raises(UninstallError, match=reason):
+        uninstall_local_fallback(
+            UninstallContext(home=install_context.home, runner=runner, uid=501),
+            output=messages.append,
+        )
+
+    assert result.launch_agent.exists()
+    assert messages == [reason]
+
+
+def test_uninstall_cli_returns_nonzero_when_unload_verification_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A successful CLI exit would hide a still-running launch agent from operators."""
+    import uninstall_local_fallback as uninstall_script
+
+    monkeypatch.setattr(
+        uninstall_script,
+        "uninstall_local_fallback",
+        lambda _context, **_kwargs: (_ for _ in ()).throw(
+            UninstallError("launch_agent_still_loaded")
+        ),
+    )
+
+    assert uninstall_main(["--home", str(tmp_path / "home")]) == 2
 
 
 def test_ollama_installer_verifies_download_and_never_replaces_existing_app(

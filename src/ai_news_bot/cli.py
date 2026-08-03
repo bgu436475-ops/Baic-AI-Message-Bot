@@ -25,7 +25,7 @@ from .evidence import extract_evidence
 from .feishu import send_to_feishu
 from .gatekeeper import evaluate_gates
 from .global_editor import extract_global_event
-from .model_backend import BackendSpec
+from .model_backend import BackendSpec, create_model_client
 from .global_pipeline import (
     GlobalPipelineDependencies,
     run_global_pipeline,
@@ -201,7 +201,7 @@ def _build_model_client_provider(
                 backend.provider_label,
                 backend.model,
             )
-            client = OpenAI(api_key=backend.api_key, base_url=backend.base_url)
+            client = create_model_client(backend, client_factory=OpenAI)
         assert backend is not None
         return client, backend
 

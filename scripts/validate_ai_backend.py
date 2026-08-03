@@ -10,6 +10,7 @@ from openai import OpenAI
 
 from ai_news_bot.config import Settings
 from ai_news_bot.evidence import extract_evidence
+from ai_news_bot.model_backend import create_model_client
 from ai_news_bot.models import Candidate, EvidenceRecord
 from ai_news_bot.source_fetcher import FetchedSource
 
@@ -44,9 +45,9 @@ def validate_backend(
     client_factory: Callable[..., Any] = OpenAI,
 ) -> EvidenceRecord:
     backend = settings.ai_backend()
-    client = client_factory(
-        api_key=backend.api_key,
-        base_url=backend.base_url,
+    client = create_model_client(
+        backend,
+        client_factory=client_factory,
         max_retries=0,
     )
     now = datetime.now(UTC)

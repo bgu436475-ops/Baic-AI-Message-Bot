@@ -203,7 +203,11 @@ def _run_or_raise(context: InstallerContext, command: Sequence[str], reason: str
         raise InstallerError(reason)
 
 
-def _validate_prerequisites(context: InstallerContext) -> None:
+def _validate_prerequisites(
+    context: InstallerContext,
+    *,
+    require_recorder_workflow: bool = False,
+) -> None:
     if not context.gh_path.is_file() or not os.access(context.gh_path, os.X_OK):
         raise InstallerError("github_cli")
     _run_or_raise(
@@ -223,6 +227,19 @@ def _validate_prerequisites(context: InstallerContext) -> None:
         ],
         "github_repository_access",
     )
+    if require_recorder_workflow:
+        _run_or_raise(
+            context,
+            [
+                str(context.gh_path),
+                "api",
+                (
+                    f"repos/{context.repository}/contents/.github/workflows/"
+                    "record-local-delivery.yml?ref=main"
+                ),
+            ],
+            "record_local_delivery_workflow",
+        )
     if not context.ollama_app_path.is_dir():
         raise InstallerError("ollama_missing")
     try:
@@ -259,11 +276,11 @@ def _install_runtime(context: InstallerContext) -> None:
         context.venv_builder(runtime_root / "venv")
         if not context.venv_python.is_file():
             raise InstallerError("venv_creation_failed")
-        _run_or_raise(
-            context,
-            [str(context.venv_python), "-m", "pip", "install", str(context.repo_root)],
-            "project_install_failed",
-        )
+    _run_or_raise(
+        context,
+        [str(context.venv_python), "-m", "pip", "install", str(context.repo_root)],
+        "project_install_failed",
+    )
 
     _write_file(context.launch_agent_path, render_launch_agent(context), 0o644)
     _write_file(context.run_now_path, _render_run_now(context), 0o700)
@@ -292,7 +309,10 @@ def install_local_fallback(
     """Install local assets; only bootstrap after an explicit no-send validation."""
     if activate_schedule and not smoke_validated:
         raise InstallerError("smoke_validation_required")
-    _validate_prerequisites(context)
+    _validate_prerequisites(
+        context,
+        require_recorder_workflow=activate_schedule,
+    )
     _install_runtime(context)
     if activate_schedule and not _launch_agent_is_loaded(context):
         _run_or_raise(

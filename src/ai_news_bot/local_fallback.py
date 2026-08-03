@@ -9,6 +9,7 @@ import secrets
 import shutil
 import stat
 import subprocess
+import sys
 import time as monotonic_time
 import unicodedata
 from collections.abc import Callable, Iterator
@@ -25,7 +26,12 @@ from .cli import run as run_editorial_cli
 from .cli import send_existing_daily_result
 from .config import Settings
 from .feishu import FeishuDeliveryRejected, FeishuDeliveryUncertain
-from .local_gate import CloudGateResult, GitHubCLIClient, evaluate_cloud_snapshot
+from .local_gate import (
+    CloudGateResult,
+    GitHubCLIClient,
+    GitHubStateSyncError,
+    evaluate_cloud_snapshot,
+)
 from .local_state import (
     FallbackLedger,
     FallbackStateError,
@@ -33,7 +39,7 @@ from .local_state import (
     LocalRunAlreadyActive,
     exclusive_run_lock,
 )
-from .model_backend import normalize_ollama_base_url
+from .model_backend import create_ollama_session, normalize_ollama_base_url
 from .models import EditorialDigest
 from .send_ledger import SendLedger
 
@@ -91,10 +97,6 @@ _ENVIRONMENT_ALLOWLIST = frozenset(
     }
 )
 _SUCCESSFUL_RUN_STATUS = frozenset({"published", "no_qualifying_items"})
-
-
-class GitHubStateSyncError(RuntimeError):
-    """The confirmed local delivery could not be synchronized to GitHub."""
 
 
 @dataclass(frozen=True)
@@ -199,12 +201,15 @@ def _ollama_tags_url(base_url: str) -> str:
 
 
 def _ollama_models(base_url: str) -> set[str] | None:
+    session = create_ollama_session()
     try:
-        response = requests.get(_ollama_tags_url(base_url), timeout=2)
+        response = session.get(_ollama_tags_url(base_url), timeout=2)
         response.raise_for_status()
         payload = response.json()
     except (OSError, ValueError, requests.RequestException):
         return None
+    finally:
+        session.close()
     if not isinstance(payload, dict) or not isinstance(payload.get("models"), list):
         return None
     names = {
@@ -774,6 +779,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        stream=sys.stderr,
+    )
     args = parse_args(argv)
     set_process_timezone("Asia/Shanghai")
     runtime_root: Path = args.runtime_root

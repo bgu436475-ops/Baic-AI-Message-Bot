@@ -4,6 +4,7 @@ import base64
 import binascii
 import json
 import subprocess
+import time as monotonic_time
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time
 from email.utils import parsedate_to_datetime
@@ -134,6 +135,18 @@ class _GitHubUnavailable(RuntimeError):
     pass
 
 
+class GitHubStateSyncError(RuntimeError):
+    """GitHub has not confirmed persistence of a local Feishu delivery."""
+
+
+@dataclass(frozen=True)
+class _RecorderRun:
+    run_id: int
+    display_title: str
+    status: str
+    conclusion: str | None
+
+
 class GitHubCLIClient:
     def __init__(
         self,
@@ -141,11 +154,19 @@ class GitHubCLIClient:
         repository: str = "bgu436475-ops/Baic-AI-Message-Bot",
         branch: str = "main",
         command_runner: CommandRunner = run_command,
+        sync_sleep: Callable[[float], None] = monotonic_time.sleep,
+        sync_monotonic: Callable[[], float] = monotonic_time.monotonic,
+        sync_timeout_seconds: float = 120,
+        sync_poll_seconds: float = 2,
     ) -> None:
         self.gh_path = gh_path
         self.repository = repository
         self.branch = branch
         self.command_runner = command_runner
+        self.sync_sleep = sync_sleep
+        self.sync_monotonic = sync_monotonic
+        self.sync_timeout_seconds = sync_timeout_seconds
+        self.sync_poll_seconds = sync_poll_seconds
 
     def _run(self, *arguments: str, stdin: str | None = None) -> CommandResult:
         try:
@@ -194,6 +215,10 @@ class GitHubCLIClient:
         )
         if not isinstance(value, list):
             raise _GitHubUnavailable
+        if len(value) >= 30:
+            # `gh run list --limit 30` may have omitted an older same-day run.
+            # Missing that run could turn a cloud delivery into a duplicate send.
+            raise _GitHubUnavailable
         runs: list[CloudRun] = []
         for entry in value:
             if not isinstance(entry, dict):
@@ -231,6 +256,112 @@ class GitHubCLIClient:
                 raise _GitHubUnavailable from error
             runs.append(run)
         return tuple(runs)
+
+    def _recorder_runs(self) -> tuple[_RecorderRun, ...]:
+        value = self._json(
+            self._run(
+                "run",
+                "list",
+                "--repo",
+                self.repository,
+                "--branch",
+                self.branch,
+                "--workflow",
+                "record-local-delivery.yml",
+                "--event",
+                "repository_dispatch",
+                "--limit",
+                "30",
+                "--json",
+                "databaseId,displayTitle,status,conclusion",
+            )
+        )
+        if not isinstance(value, list) or len(value) >= 30:
+            raise _GitHubUnavailable
+        runs: list[_RecorderRun] = []
+        for entry in value:
+            if not isinstance(entry, dict):
+                raise _GitHubUnavailable
+            try:
+                display_title = entry["displayTitle"]
+                status = entry["status"]
+                conclusion = entry.get("conclusion")
+                if (
+                    not isinstance(display_title, str)
+                    or not isinstance(status, str)
+                    or (conclusion is not None and not isinstance(conclusion, str))
+                ):
+                    raise ValueError
+                runs.append(
+                    _RecorderRun(
+                        run_id=int(entry["databaseId"]),
+                        display_title=display_title,
+                        status=status,
+                        conclusion=conclusion,
+                    )
+                )
+            except (KeyError, TypeError, ValueError) as error:
+                raise _GitHubUnavailable from error
+        return tuple(runs)
+
+    def _recorder_cache_saved(self, run_id: int) -> bool:
+        value = self._json(
+            self._run(
+                "run",
+                "view",
+                str(run_id),
+                "--repo",
+                self.repository,
+                "--json",
+                "jobs",
+            )
+        )
+        if not isinstance(value, dict) or not isinstance(value.get("jobs"), list):
+            raise _GitHubUnavailable
+        for job in value["jobs"]:
+            if not isinstance(job, dict) or job.get("name") != "record-delivery":
+                continue
+            steps = job.get("steps")
+            if not isinstance(steps, list):
+                raise _GitHubUnavailable
+            for step in steps:
+                if isinstance(step, dict) and step.get("name") == "Save delivery state":
+                    return step.get("conclusion") == "success"
+            return False
+        return False
+
+    def _wait_for_recorder(
+        self,
+        delivery_id: str,
+    ) -> None:
+        expected_title = f"Record local delivery {delivery_id}"
+        deadline = self.sync_monotonic() + self.sync_timeout_seconds
+        while True:
+            try:
+                matching_runs = tuple(
+                    run
+                    for run in self._recorder_runs()
+                    if run.display_title == expected_title
+                )
+                successful_runs = tuple(
+                    run
+                    for run in matching_runs
+                    if run.status == "completed" and run.conclusion == "success"
+                )
+                for run in successful_runs:
+                    if self._recorder_cache_saved(run.run_id):
+                        return
+                    raise GitHubStateSyncError("cloud_sync_cache_failed")
+            except _GitHubUnavailable:
+                raise GitHubStateSyncError("cloud_sync_unavailable") from None
+
+            if matching_runs and all(
+                run.status == "completed" for run in matching_runs
+            ):
+                raise GitHubStateSyncError("cloud_sync_failed")
+            if self.sync_monotonic() >= deadline:
+                raise GitHubStateSyncError("cloud_sync_timeout")
+            self.sync_sleep(self.sync_poll_seconds)
 
     def _send_step_conclusion(self, run_id: int) -> str | None:
         value = self._json(
@@ -338,7 +469,8 @@ class GitHubCLIClient:
             stdin=payload,
         )
         if result.returncode != 0:
-            raise _GitHubUnavailable("repository dispatch failed")
+            raise GitHubStateSyncError("cloud_sync_dispatch_failed")
+        self._wait_for_recorder(delivery_id)
 
 
 def _deadline_at(day: date, deadline: time | datetime) -> datetime:

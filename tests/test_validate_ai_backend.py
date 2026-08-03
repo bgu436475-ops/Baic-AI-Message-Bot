@@ -155,6 +155,8 @@ def test_validate_backend_uses_explicit_ollama_settings() -> None:
     assert captured["request"]["model"] == "qwen3:8b"
     assert captured["request"]["temperature"] == 0
     assert captured["request"]["extra_body"] == {"think": False}
+    assert captured["http_client"]._trust_env is False
+    captured["http_client"].close()
 
 
 def test_main_sanitizes_backend_validation_failures(
