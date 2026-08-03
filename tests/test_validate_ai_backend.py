@@ -219,6 +219,40 @@ def test_main_reports_safe_underlying_http_diagnostics(
         assert forbidden not in captured.err
 
 
+def test_main_reports_safe_symbolic_api_error_code(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from scripts import validate_ai_backend
+
+    settings = Settings(
+        cloudflare_account_id="sensitive-account-id",
+        cloudflare_ai_api_token="sensitive-api-token",
+    )
+    monkeypatch.setattr(
+        validate_ai_backend.Settings,
+        "from_env",
+        classmethod(lambda cls: settings),
+    )
+
+    class NotFoundError(RuntimeError):
+        status_code = 404
+        code = "model_not_found"
+
+    def fail_validation(_settings: Settings) -> EvidenceRecord:
+        raise EvidenceExtractionError("hidden wrapper") from NotFoundError(
+            "sensitive response body"
+        )
+
+    monkeypatch.setattr(validate_ai_backend, "validate_backend", fail_validation)
+
+    assert validate_ai_backend.main() != 0
+
+    captured = capsys.readouterr()
+    assert json.loads(captured.err)["api_error_code"] == "model_not_found"
+    assert "sensitive response body" not in captured.err
+
+
 def test_cli_sanitizes_incomplete_backend_configuration() -> None:
     repository_root = Path(__file__).resolve().parents[1]
     sensitive_account_id = "sensitive-account-id"

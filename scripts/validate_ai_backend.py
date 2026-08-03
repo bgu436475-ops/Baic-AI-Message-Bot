@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from datetime import UTC, datetime
 from typing import Any, Callable
@@ -28,6 +29,13 @@ def _safe_error_diagnostics(error: Exception) -> dict[str, str | int]:
     status_code = getattr(cause, "status_code", None)
     if isinstance(status_code, int) and 100 <= status_code <= 599:
         diagnostics["http_status"] = status_code
+    api_error_code = getattr(cause, "code", None)
+    if isinstance(api_error_code, int):
+        diagnostics["api_error_code"] = api_error_code
+    elif isinstance(api_error_code, str) and re.fullmatch(
+        r"[A-Za-z0-9_.-]{1,64}", api_error_code
+    ):
+        diagnostics["api_error_code"] = api_error_code
     return diagnostics
 
 
