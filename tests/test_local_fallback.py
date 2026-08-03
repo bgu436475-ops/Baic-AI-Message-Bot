@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from ai_news_bot.feishu import FeishuDeliveryUncertain
+from ai_news_bot.feishu import FeishuDeliveryRejected, FeishuDeliveryUncertain
 from ai_news_bot.local_fallback import (
     GitHubStateSyncError,
     LocalFallbackConfig,
@@ -24,6 +24,7 @@ from ai_news_bot.local_fallback import (
 from ai_news_bot import local_fallback
 from ai_news_bot.local_gate import (
     CloudGateResult,
+    CloudRun,
     CloudSnapshot,
     RemoteDigestProbe,
 )
@@ -223,6 +224,37 @@ def test_feishu_timeout_records_uncertain_and_never_dispatches(
     assert all("webhook-secret" not in str(call) for call in deps.notify.calls)  # type: ignore[attr-defined]
 
 
+def test_interrupted_send_is_durably_uncertain_before_feishu(
+    deps: LocalFallbackDependencies,
+    config: LocalFallbackConfig,
+) -> None:
+    """An interrupt after request dispatch must not permit a same-day retry."""
+    deps.send = Calls([KeyboardInterrupt()])
+
+    with pytest.raises(KeyboardInterrupt):
+        run_local_fallback(config, deps)
+
+    assert deps.fallback_ledger.blocks_send(DAY) is True
+    assert deps.send_ledger.was_sent(DAY) is False
+    assert run_local_fallback(config, deps) == 2
+    assert len(deps.send.calls) == 1  # type: ignore[attr-defined]
+
+
+def test_definite_feishu_rejection_transitions_pre_send_state_to_failed(
+    deps: LocalFallbackDependencies,
+    config: LocalFallbackConfig,
+) -> None:
+    """A rejected request is retryable state, unlike an indeterminate request."""
+    deps.send = Calls([FeishuDeliveryRejected("ignored")])
+
+    assert run_local_fallback(config, deps) == 2
+
+    state = deps.fallback_ledger.day_state(DAY)
+    assert state is not None
+    assert state.delivery_status == "failed"
+    assert deps.send_ledger.was_sent(DAY) is False
+
+
 def test_sync_failure_never_resends_and_retries_only_sync(
     deps: LocalFallbackDependencies,
     config: LocalFallbackConfig,
@@ -289,6 +321,21 @@ def test_strict_environment_rejects_blank_lines(tmp_path: Path) -> None:
     env_path = tmp_path / ".env"
     env_path.write_text(
         "FEISHU_WEBHOOK_URL=https://open.feishu.cn/hook/first\n\n",
+        encoding="utf-8",
+    )
+    env_path.chmod(0o600)
+
+    with pytest.raises(ValueError, match="invalid_local_environment"):
+        load_local_environment(env_path)
+
+
+def test_strict_environment_rejects_unicode_control_characters(
+    tmp_path: Path,
+) -> None:
+    """C1 controls must not be accepted merely because they are not ASCII."""
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "FEISHU_WEBHOOK_URL=https://open.feishu.cn/hook/token\u009bvalue\n",
         encoding="utf-8",
     )
     env_path.chmod(0o600)
@@ -385,6 +432,64 @@ def test_github_clock_drift_blocks_the_local_gate(
     )
 
     assert gate(DAY) == CloudGateResult("blocked", "github_clock_drift")
+
+
+def test_active_cloud_uses_local_deadline_when_server_time_is_stale(
+    config: LocalFallbackConfig,
+) -> None:
+    """A stale GitHub Date header must not make local polling pass 09:50."""
+    class StaleServerClient:
+        def snapshot(self, day: date) -> CloudSnapshot:
+            return CloudSnapshot(
+                runs=(
+                    CloudRun(
+                        run_id=1,
+                        event="schedule",
+                        status="in_progress",
+                        conclusion=None,
+                        created_at=datetime(day.year, day.month, day.day, 1, tzinfo=UTC),
+                        url="https://github.com/owner/repository/actions/runs/1",
+                        send_step_conclusion=None,
+                    ),
+                ),
+                remote_digest=RemoteDigestProbe("missing"),
+                server_time=datetime(day.year, day.month, day.day, 1, 49, tzinfo=UTC),
+            )
+
+    def no_sleep(seconds: float) -> None:
+        raise AssertionError(f"unexpected polling sleep: {seconds}")
+
+    gate = _clock_checked_cloud_gate(
+        StaleServerClient(),  # type: ignore[arg-type]
+        config,
+        lambda: datetime(2026, 8, 3, 1, 50, tzinfo=UTC),
+        no_sleep,
+    )
+
+    result = gate(DAY)
+    assert result.decision == "blocked"
+    assert result.reason_code == "cloud_wait_timeout"
+
+
+def test_stale_pending_delivery_blocks_a_new_day_send(
+    deps: LocalFallbackDependencies,
+    config: LocalFallbackConfig,
+) -> None:
+    """Dispatching a prior date is forbidden, so a stale pending state blocks rollover."""
+    previous_day = date(2026, 8, 2)
+    deps.fallback_ledger.mark_sent(
+        previous_day,
+        "a" * 32,
+        "published",
+        at=NOW,
+        cloud_sync_pending=True,
+    )
+
+    assert run_local_fallback(config, deps) == 2
+
+    assert deps.send.calls == []  # type: ignore[attr-defined]
+    assert deps.dispatch_delivery.calls == []  # type: ignore[attr-defined]
+    assert deps.notify.calls == [("stale_pending_delivery",)]  # type: ignore[attr-defined]
 
 
 def test_retention_keeps_recent_runs_and_removes_old_logs(tmp_path: Path) -> None:

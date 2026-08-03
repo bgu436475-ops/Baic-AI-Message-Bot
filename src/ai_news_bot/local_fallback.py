@@ -10,6 +10,7 @@ import shutil
 import stat
 import subprocess
 import time as monotonic_time
+import unicodedata
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
@@ -70,6 +71,7 @@ _SAFE_REASON_CODES = frozenset(
         "remote_digest_invalid",
         "remote_digest_malformed",
         "remote_digest_unknown",
+        "stale_pending_delivery",
         "timezone_mismatch",
         "uncertain_delivery",
     }
@@ -168,7 +170,12 @@ def load_local_environment(path: Path) -> dict[str, str]:
     for line in text.splitlines():
         if not line:
             raise ValueError("invalid_local_environment")
-        if any(ord(character) < 32 or ord(character) == 127 for character in line):
+        if any(
+            ord(character) < 32
+            or ord(character) == 127
+            or unicodedata.category(character).startswith("C")
+            for character in line
+        ):
             raise ValueError("invalid_local_environment")
         key, separator, value = line.partition("=")
         if (
@@ -398,6 +405,16 @@ def _run_locked(
         _report(dependencies, "local_fallback_clock_invalid")
         return 2
 
+    if any(
+        pending_day < day
+        for pending_day in dependencies.fallback_ledger.pending_days()
+    ):
+        # Task 5 accepts only the current Beijing date.  Dispatching an older
+        # delivery would be rejected there, so do not risk a new date until an
+        # operator reconciles the older pending state.
+        _report(dependencies, "stale_pending_delivery")
+        return 2
+
     state = dependencies.fallback_ledger.day_state(day)
     if state is not None:
         if state.delivery_status == "uncertain_delivery":
@@ -447,6 +464,11 @@ def _run_locked(
     if config.dry_run:
         return 0
 
+    try:
+        dependencies.fallback_ledger.mark_uncertain(day, at=dependencies.now())
+    except Exception:
+        _report(dependencies, "local_state_write_failed")
+        return 2
     try:
         sent_digest = dependencies.send(digest_path)
         if sent_digest.run_status not in _SUCCESSFUL_RUN_STATUS:
@@ -561,7 +583,10 @@ def _clock_checked_cloud_gate(
         while True:
             snapshot = client.snapshot(day)
             try:
-                local_now = now().astimezone(UTC)
+                current = now()
+                if current.tzinfo is None or current.utcoffset() is None:
+                    raise ValueError
+                local_now = current.astimezone(UTC)
                 drift = abs(
                     (snapshot.server_time.astimezone(UTC) - local_now).total_seconds()
                 )
@@ -572,7 +597,10 @@ def _clock_checked_cloud_gate(
             result = evaluate_cloud_snapshot(day, snapshot)
             if result.decision != "wait":
                 return result
-            if snapshot.server_time.astimezone(ZoneInfo(config.timezone)) >= deadline:
+            if (
+                local_now.astimezone(ZoneInfo(config.timezone)) >= deadline
+                or snapshot.server_time.astimezone(ZoneInfo(config.timezone)) >= deadline
+            ):
                 return CloudGateResult(
                     "blocked",
                     "cloud_wait_timeout",

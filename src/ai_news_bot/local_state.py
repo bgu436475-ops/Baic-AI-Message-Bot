@@ -185,6 +185,16 @@ class FallbackLedger:
             "uncertain_delivery",
         }
 
+    def pending_days(self) -> tuple[date, ...]:
+        """Return confirmed-delivery dates with unfinished non-send work."""
+        states = self._load()
+        return tuple(
+            date.fromisoformat(day_text)
+            for day_text, state in sorted(states.items())
+            if state.delivery_status == "sent"
+            and (state.cloud_sync_pending or state.dashboard_pending)
+        )
+
     def mark_uncertain(self, day: date, *, at: datetime | None = None) -> None:
         states = self._load()
         states[day.isoformat()] = LocalDayState(
