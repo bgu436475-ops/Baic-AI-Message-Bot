@@ -1,2 +1,2 @@
 #!/bin/zsh
-exec __PYTHON__ -m ai_news_bot.local_fallback --runtime-root __RUNTIME_ROOT__ --env-path __ENV_PATH__ --gh-path __GH_PATH__ --ollama-app-path __OLLAMA_APP_PATH__ --repository __REPOSITORY__ --run-now
+exec __PYTHON__ -m ai_news_bot.local_fallback --runtime-root __RUNTIME_ROOT__ --env-path __ENV_PATH__ --gh-path __GH_PATH__ --ollama-app-path __OLLAMA_APP_PATH__ --repository __REPOSITORY__ --run-now --primary-scheduled

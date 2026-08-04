@@ -1,6 +1,6 @@
 # macOS 本地 Ollama 后备运维手册
 
-本手册说明 Plan 2 本地后备的安装、无发送验证、日常观察、异常恢复和回滚。它是云端 GitHub Actions 日报的故障后备，而不是第二个独立发送器：任何云端送达证据、未知云端状态或本地送达不确定状态都会阻止自动发送。
+本手册说明 Plan 2 本地主任务的安装、无发送验证、日常观察、异常恢复和回滚。本机 Ollama 在北京时间 09:05 生成并发送日报；GitHub Actions 仅保留手动诊断和本地送达状态记录，不会自动发送飞书。
 
 本文档只描述可执行的运维步骤。它不表示 Ollama、LaunchAgent、GitHub CLI 或飞书 webhook 已在任何机器上安装、配置、激活或发送过消息。
 
@@ -83,19 +83,18 @@ OLLAMA_MODEL=qwen3:8b \
   --activate-schedule
 ```
 
-激活还会经已登录的 GitHub CLI 检查远端 `main` 分支存在 `record-local-delivery.yml`；缺少该工作流时安装器拒绝激活。激活后，`~/Library/LaunchAgents/com.baic.ai-news-bot.local-fallback.plist` 每天北京时间 09:35 运行 `--scheduled`。它不会在 09:35 直接发送：在 09:50 前，即使云端已明确失败，也会每 60 秒重查；使用本机上海时钟确认窗口关闭后才允许本地候选发送。09:50 是送达结论观察窗口的下限，不是送达承诺。
+激活还会经已登录的 GitHub CLI 检查远端 `main` 分支存在 `record-local-delivery.yml`；缺少该工作流时安装器拒绝激活。激活后，`~/Library/LaunchAgents/com.baic.ai-news-bot.local-fallback.plist` 每天北京时间 09:05 运行 `--primary-scheduled`。它不依赖 Cloudflare 或 GitHub 的送达状态；仍会在发送前执行本机时区、磁盘、Ollama、模型、证据、日报结构和本地账本检查。任何不确定的飞书送达状态都会停止当天重试。
 
-## 云端门槛与本地发送决策
+## 本地主任务发送决策
 
-每次本地候选发送会在生成前、生成后和持久化预发送状态前各检查一次云端；每次云端门槛返回后都会重新读取北京时间，避免用轮询开始前的旧时间作 09:50 决策。任何后续检查发现云端已经送达时，都会丢弃本地预览而不发送。该流程使用本地互斥锁，但不能把 GitHub 与飞书变成同一把全局原子锁；时间或云端状态不确定时一律停止。
+本地主任务在生成前、生成后和持久化预发送状态前都检查本地账本与状态。它不查询云端日报是否已送达；GitHub 的自动发送器已关闭。该流程使用本地互斥锁，飞书请求结果不确定时一律停止，不自动重试。
 
-| 云端观察结果 | 本地行为 |
+| 本地状态 | 本地行为 |
 | --- | --- |
-| 已找到当天成功的 `Send persisted daily result` 步骤 | `skip_delivered`，不生成、不发送。 |
-| 当前北京日期的远端 `latest.json` 能通过 schema 验证 | `skip_delivered`，不发送。有效的空榜（`no_qualifying_items`）也属于送达证据，不能因“没有新闻”而补发。 |
-| 当天云端任务仍在执行 | 等待，最多到 09:50；之后以 `cloud_wait_timeout` 停止。 |
-| 当天云端任务均完成但无发送证据，且远端状态清楚 | 09:50 前继续观察；09:50 后才 `run_local` 并生成候选。 |
-| GitHub 认证/API/时钟、远端 JSON 或状态无法验证 | fail closed：停止自动发送，先修复原因。 |
+| 当天本地账本已送达 | 不生成、不发送。 |
+| 当天状态为 `uncertain_delivery` | 停止并人工确认，绝不重试。 |
+| Ollama、模型、时区、磁盘、环境或日报校验失败 | fail closed：不发送并写入脱敏 reason code。 |
+| 通过全部本机检查 | 生成候选、复核日报、写入预发送状态后发送一次。 |
 
 本地也会检查当天的发送账本和本地 `state/fallback.json`。云端运行历史通过 `gh` 的分页 `--limit` 查询到北京时间日期边界；只有当天可发送的 `schedule`、`repository_dispatch` 与 `workflow_dispatch` 运行会再以 `gh run view` 检查发送步骤，历史或其他触发事件不会造成逐条检查。正常超过 30 条历史不会阻断当天成功证据，但在高限额内仍无法确认边界时会 fail closed。已确认发送、远端已送达、已有本地发送账本或另一进程占有锁时，都不产生第二条飞书消息。
 
@@ -103,7 +102,7 @@ OLLAMA_MODEL=qwen3:8b \
 
 完成无发送 smoke validation 后，以 `--smoke-validated` 重新运行安装器才会创建“立即运行 Plan 2”控件；在此之前只创建日志控件。该步骤不激活定时任务，也不会自行发送；只在操作员明确批准后，才按上文使用 `--activate-schedule` 激活排程。两个精确名称的 Desktop 文件为：
 
-- `~/Desktop/立即运行 Plan 2.command`：运行 `--run-now`，仅在北京时间 09:50 后并通过三次云端门槛时才可发送；它不是强制发送按钮。
+- `~/Desktop/立即运行 Plan 2.command`：运行本地主任务模式的 `--run-now`；它复用当天账本与不确定送达保护，不是强制发送按钮。
 - `~/Desktop/查看 Plan 2 日志.command`：打开 `~/Library/Logs/Baic-AI-Message-Bot/`。
 
 关键诊断位置如下：

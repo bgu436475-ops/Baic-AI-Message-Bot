@@ -19,14 +19,14 @@
     <string>__OLLAMA_APP_PATH__</string>
     <string>--repository</string>
     <string>__REPOSITORY__</string>
-    <string>--scheduled</string>
+    <string>--primary-scheduled</string>
   </array>
   <key>StartCalendarInterval</key>
   <dict>
     <key>Hour</key>
     <integer>9</integer>
     <key>Minute</key>
-    <integer>35</integer>
+    <integer>5</integer>
   </dict>
   <key>StandardOutPath</key>
   <string>__STDOUT_LOG__</string>

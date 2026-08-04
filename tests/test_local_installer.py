@@ -193,7 +193,9 @@ def test_installer_reinstalls_the_project_when_a_runtime_venv_already_exists(
     assert runner.commands.count(pip_install) == 2
 
 
-def test_rendered_controls_schedule_0935_without_secret_values(tmp_path: Path) -> None:
+def test_rendered_controls_schedule_primary_delivery_at_0905_without_secret_values(
+    tmp_path: Path,
+) -> None:
     """A schedule or Desktop command carrying credentials exposes them to users."""
     context = _context(tmp_path)
     env_path = context.runtime_root / ".env"
@@ -215,12 +217,13 @@ def test_rendered_controls_schedule_0935_without_secret_values(tmp_path: Path) -
     )
 
     assert plist["Label"] == INSTALLER_LABEL
-    assert plist["StartCalendarInterval"] == {"Hour": 9, "Minute": 35}
-    assert plist["ProgramArguments"][-1] == "--scheduled"
+    assert plist["StartCalendarInterval"] == {"Hour": 9, "Minute": 5}
+    assert plist["ProgramArguments"][-1] == "--primary-scheduled"
     assert "EnvironmentVariables" not in plist
     assert "super-secret" not in rendered
     assert "source " not in installed.run_now.read_text(encoding="utf-8")
     assert "--run-now" in installed.run_now.read_text(encoding="utf-8")
+    assert "--primary-scheduled" in installed.run_now.read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize(
