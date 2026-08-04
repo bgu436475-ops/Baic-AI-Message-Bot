@@ -416,10 +416,10 @@ def test_schedule_activation_promotes_the_smoke_validated_staged_plist(
     ) in runner.commands
 
 
-def test_inactive_install_refuses_to_touch_an_existing_loaded_label(
+def test_active_schedule_allows_runtime_refresh_without_replacing_launch_agent(
     tmp_path: Path,
 ) -> None:
-    """An unexpected active service must be retained for explicit operator recovery."""
+    """An active service may keep running while its next launch uses refreshed code."""
     runner = RecordingRunner()
     context = _context(tmp_path, runner=runner)
     context.launch_agent_path.parent.mkdir(parents=True)
@@ -431,11 +431,11 @@ def test_inactive_install_refuses_to_touch_an_existing_loaded_label(
     )
     runner.results[status] = 0
 
-    with pytest.raises(InstallerError, match="launch_agent_already_loaded"):
-        install_local_fallback(context)
+    result = install_local_fallback(context)
 
     assert context.launch_agent_path.read_text(encoding="utf-8") == "existing plist"
-    assert not (context.runtime_root / "staging").exists()
+    assert (context.runtime_root / "staging").exists()
+    assert result.runtime_root == context.runtime_root
 
 
 def test_inactive_install_accepts_macos_service_not_found_output(

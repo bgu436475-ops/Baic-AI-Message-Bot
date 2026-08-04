@@ -366,7 +366,8 @@ def install_local_fallback(
     """Install local assets; only bootstrap after an explicit no-send validation."""
     if activate_schedule and not smoke_validated:
         raise InstallerError("smoke_validation_required")
-    if _launch_agent_is_loaded(context):
+    launch_agent_loaded = _launch_agent_is_loaded(context)
+    if activate_schedule and launch_agent_loaded:
         raise InstallerError("launch_agent_already_loaded")
     _validate_prerequisites(
         context,
