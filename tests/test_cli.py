@@ -648,7 +648,7 @@ def _model_record() -> EvidenceRecord:
             "cloudflare",
             "https://api.cloudflare.com/client/v4/accounts/account-123/ai/v1",
             "chat",
-            "@cf/meta/llama-3.1-8b-instruct-fast",
+                "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
             {},
         ),
         (

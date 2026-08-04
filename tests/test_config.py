@@ -35,7 +35,7 @@ def test_ai_backend_prefers_complete_cloudflare_configuration() -> None:
     assert backend.provider_id == "cloudflare"
     assert backend.provider_label == "Cloudflare Workers AI"
     assert backend.api_key == "cf-token"
-    assert backend.model == "@cf/meta/llama-3.1-8b-instruct-fast"
+    assert backend.model == "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
     assert backend.base_url == (
         "https://api.cloudflare.com/client/v4/accounts/account-123/ai/v1"
     )
@@ -126,7 +126,7 @@ def test_github_token_alone_is_not_an_ai_backend() -> None:
 @pytest.mark.parametrize(
     ("model", "expected_model"),
     [
-        (None, "@cf/meta/llama-3.1-8b-instruct-fast"),
+        (None, "@cf/meta/llama-3.3-70b-instruct-fp8-fast"),
         ("@cf/custom/model", "@cf/custom/model"),
     ],
 )

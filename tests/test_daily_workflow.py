@@ -38,7 +38,7 @@ def test_non_main_manual_validation_smokes_cloudflare_without_send_secrets() -> 
     )
     expected_model = (
         "${{ vars.CLOUDFLARE_AI_MODEL || "
-        "'@cf/meta/llama-3.1-8b-instruct-fast' }}"
+        "'@cf/meta/llama-3.3-70b-instruct-fp8-fast' }}"
     )
     assert generate_env["CLOUDFLARE_AI_MODEL"] == expected_model
     assert smoke_env["CLOUDFLARE_AI_MODEL"] == expected_model

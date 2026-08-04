@@ -10,7 +10,7 @@ from .model_backend import BackendSpec, normalize_ollama_base_url
 from .models import Category, EditorialLane
 
 
-DEFAULT_CLOUDFLARE_AI_MODEL = "@cf/meta/llama-3.1-8b-instruct-fast"
+DEFAULT_CLOUDFLARE_AI_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
 
 
 class RSSSource(BaseModel):
