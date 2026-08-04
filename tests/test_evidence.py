@@ -476,7 +476,9 @@ def test_extractor_uses_cloudflare_json_mode() -> None:
     assert interface == "chat_create"
     assert request["model"] == "@cf/meta/llama-3.1-8b-instruct-fast"
     assert request["max_tokens"] == 2_048
-    assert request["response_format"] == {"type": "json_object"}
+    assert request["response_format"]["type"] == "json_schema"
+    assert request["response_format"]["json_schema"]["type"] == "object"
+    assert "candidate_id" in request["response_format"]["json_schema"]["properties"]
     assert request["messages"][0]["content"] == EVIDENCE_SYSTEM_PROMPT
 
 
@@ -487,7 +489,9 @@ def test_extractor_accepts_cloudflare_json_object_content() -> None:
 
     assert result.candidate_id == "one"
     assert client.calls == 1
-    assert client.requests[0]["response_format"] == {"type": "json_object"}
+    response_format = client.requests[0]["response_format"]
+    assert response_format["type"] == "json_schema"
+    assert response_format["json_schema"]["type"] == "object"
 
 
 def test_ollama_structured_parse_disables_thinking() -> None:

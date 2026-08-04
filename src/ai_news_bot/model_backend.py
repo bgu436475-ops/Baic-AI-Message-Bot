@@ -107,7 +107,10 @@ def structured_chat_parse(
             model=backend.model,
             messages=messages,
             max_tokens=max_tokens,
-            response_format={"type": "json_object"},
+            response_format={
+                "type": "json_schema",
+                "json_schema": response_format.model_json_schema(),
+            },
             **backend.chat_options,
         )
         content = response.choices[0].message.content

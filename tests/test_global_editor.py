@@ -281,5 +281,7 @@ def test_global_editor_uses_json_mode_for_cloudflare() -> None:
     assert interface == "chat_create"
     assert request["model"] == "@cf/meta/llama-3.1-8b-instruct-fast"
     assert request["max_tokens"] == 2_048
-    assert request["response_format"] == {"type": "json_object"}
+    assert request["response_format"]["type"] == "json_schema"
+    assert request["response_format"]["json_schema"]["type"] == "object"
+    assert "candidate_id" in request["response_format"]["json_schema"]["properties"]
     assert request["messages"][0]["content"] == GLOBAL_EVENT_SYSTEM_PROMPT
