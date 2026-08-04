@@ -218,6 +218,26 @@ def test_local_send_waits_until_the_cloud_window_is_closed(
     assert deps.notify.calls == [("cloud_schedule_window_open",)]  # type: ignore[attr-defined]
 
 
+def test_primary_mode_sends_before_cloud_window_without_cloud_gate(
+    deps: LocalFallbackDependencies,
+    config: LocalFallbackConfig,
+) -> None:
+    """Primary mode must not retain fallback-only cloud waiting behavior."""
+    config = LocalFallbackConfig(
+        **{
+            **config.__dict__,
+            "primary_mode": True,
+            "scheduled": True,
+        }
+    )
+    deps.now = lambda: datetime(2026, 8, 3, 1, 5, tzinfo=UTC)
+
+    assert run_local_fallback(config, deps) == 0
+
+    assert deps.cloud_gate.calls == []  # type: ignore[attr-defined]
+    assert len(deps.send.calls) == 1  # type: ignore[attr-defined]
+
+
 def test_local_send_refreshes_the_beijing_clock_after_a_cloud_gate_wait(
     deps: LocalFallbackDependencies,
     config: LocalFallbackConfig,
@@ -741,6 +761,7 @@ def test_console_modes_keep_the_cloud_gate_and_reject_force_send() -> None:
     assert parse_args(["--run-now"]).run_now is True
     assert parse_args(["--check-only"]).check_only is True
     assert parse_args(["--dry-run"]).dry_run is True
+    assert parse_args(["--primary-scheduled"]).primary_scheduled is True
 
     with pytest.raises(SystemExit):
         parse_args(["--force-send"])

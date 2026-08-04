@@ -114,6 +114,7 @@ class LocalFallbackConfig:
     minimum_free_bytes: int = 8 * 1024**3
     ollama_base_url: str = "http://127.0.0.1:11434/v1"
     scheduled: bool = False
+    primary_mode: bool = False
     check_only: bool = False
     dry_run: bool = False
     dashboard_enabled: bool = False
@@ -423,6 +424,17 @@ def _cloud_allows_local(
     return False, 2
 
 
+def _local_delivery_allowed(
+    config: LocalFallbackConfig,
+    dependencies: LocalFallbackDependencies,
+    day: date,
+) -> tuple[bool, int]:
+    """Primary mode owns delivery; fallback mode remains cloud-gated."""
+    if config.primary_mode:
+        return True, 0
+    return _cloud_allows_local(dependencies, day)
+
+
 def _run_locked(
     config: LocalFallbackConfig,
     dependencies: LocalFallbackDependencies,
@@ -476,14 +488,14 @@ def _run_locked(
         _report(dependencies, reason)
         return 2
 
-    allowed, exit_code = _cloud_allows_local(dependencies, day)
+    allowed, exit_code = _local_delivery_allowed(config, dependencies, day)
     if not allowed:
         return exit_code
     if config.check_only:
         return 0
 
     generation_now = dependencies.now()
-    if not config.dry_run:
+    if not config.dry_run and not config.primary_mode:
         reason = _cloud_schedule_window_reason(generation_now, day, config)
         if reason is not None:
             _report(dependencies, reason)
@@ -500,18 +512,19 @@ def _run_locked(
         _report(dependencies, "invalid_local_digest")
         return 2
 
-    allowed, exit_code = _cloud_allows_local(dependencies, day)
+    allowed, exit_code = _local_delivery_allowed(config, dependencies, day)
     if not allowed:
         return exit_code
     if config.dry_run:
         return 0
 
     final_now = dependencies.now()
-    reason = _cloud_schedule_window_reason(final_now, day, config)
-    if reason is not None:
-        _report(dependencies, reason)
-        return 2
-    allowed, exit_code = _cloud_allows_local(dependencies, day)
+    if not config.primary_mode:
+        reason = _cloud_schedule_window_reason(final_now, day, config)
+        if reason is not None:
+            _report(dependencies, reason)
+            return 2
+    allowed, exit_code = _local_delivery_allowed(config, dependencies, day)
     if not allowed:
         return exit_code
 
@@ -815,6 +828,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     mode.add_argument("--run-now", action="store_true")
     mode.add_argument("--check-only", action="store_true")
     mode.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--primary-scheduled", action="store_true")
     parser.add_argument(
         "--runtime-root",
         type=Path,
@@ -856,7 +870,8 @@ def main(argv: list[str] | None = None) -> int:
                 "OLLAMA_BASE_URL", "http://127.0.0.1:11434/v1"
             ),
             model=values.get("OLLAMA_MODEL", "qwen3:8b"),
-            scheduled=args.scheduled,
+            scheduled=args.scheduled or args.primary_scheduled,
+            primary_mode=args.primary_scheduled,
             check_only=args.check_only,
             dry_run=args.dry_run,
             logs_root=Path.home() / "Library/Logs/Baic-AI-Message-Bot",
