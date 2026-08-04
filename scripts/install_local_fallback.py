@@ -291,7 +291,12 @@ def _install_runtime(
     ):
         directory.mkdir(parents=True, exist_ok=True)
 
-    shutil.copy2(context.gh_path, context.installed_gh_path)
+    # A refresh may deliberately use the authenticated ``gh`` already held in
+    # the runtime.  Copying a file onto itself raises ``SameFileError``.
+    if not context.installed_gh_path.exists() or not context.gh_path.samefile(
+        context.installed_gh_path
+    ):
+        shutil.copy2(context.gh_path, context.installed_gh_path)
     context.installed_gh_path.chmod(0o700)
     source_config = context.repo_root / "config/sources.yaml"
     if not source_config.is_file():

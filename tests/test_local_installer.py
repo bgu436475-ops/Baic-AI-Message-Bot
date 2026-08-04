@@ -193,6 +193,25 @@ def test_installer_reinstalls_the_project_when_a_runtime_venv_already_exists(
     assert runner.commands.count(pip_install) == 2
 
 
+def test_installer_accepts_the_existing_runtime_github_cli_as_its_source(
+    tmp_path: Path,
+) -> None:
+    """Refreshing a runtime must not copy its gh executable onto itself."""
+    context = _context(tmp_path)
+    install_local_fallback(context)
+    runtime_context = InstallerContext(
+        **{
+            **context.__dict__,
+            "gh_path": context.installed_gh_path,
+        }
+    )
+
+    result = install_local_fallback(runtime_context)
+
+    assert result.runtime_root == context.runtime_root
+    assert context.installed_gh_path.is_file()
+
+
 def test_rendered_controls_schedule_primary_delivery_at_0905_without_secret_values(
     tmp_path: Path,
 ) -> None:
