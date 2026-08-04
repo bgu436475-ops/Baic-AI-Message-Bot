@@ -695,6 +695,46 @@ def _model_record() -> EvidenceRecord:
     )
 
 
+def test_ollama_pipeline_bounds_technical_and_global_shortlists(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path).model_copy(
+        update={
+            "ai_backend_name": "ollama",
+            "ollama_base_url": "http://127.0.0.1:11434/v1",
+            "ollama_model": "qwen3:4b-instruct",
+        }
+    )
+    event_history = SimpleNamespace(
+        classify=lambda record, now: DuplicateAssessment(status="unique"),
+        classify_global=lambda record, now: DuplicateAssessment(status="unique"),
+    )
+    technical = [
+        _candidate().model_copy(update={"id": f"technical-{index:02d}"})
+        for index in range(20)
+    ]
+    global_candidates = [
+        _candidate().model_copy(
+            update={"id": f"global-{index:02d}", "lane_hints": ["global"]}
+        )
+        for index in range(20)
+    ]
+
+    technical_dependencies = cli._build_pipeline_dependencies(
+        settings,
+        event_history,
+        lookback_hours=36,
+        fallback_used=False,
+    )
+    global_dependencies = cli._build_global_pipeline_dependencies(
+        settings,
+        event_history,
+    )
+
+    assert len(technical_dependencies.shortlist(technical, NOW)) == 8
+    assert len(global_dependencies.shortlist(global_candidates, NOW)) == 5
+
+
 @pytest.mark.parametrize(
     (
         "backend",

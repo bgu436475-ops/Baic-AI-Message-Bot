@@ -52,6 +52,21 @@ from .web_export import export_digest_for_web
 
 LOGGER = logging.getLogger(__name__)
 ModelClientProvider = Callable[[], tuple[Any, BackendSpec]]
+OLLAMA_TECHNICAL_SHORTLIST_LIMIT = 8
+OLLAMA_GLOBAL_SHORTLIST_LIMIT = 5
+
+
+def _shortlist_for_backend(settings: Settings, *, global_lane: bool):
+    """Keep the local scheduled run bounded on a single Mac."""
+    if settings.ai_backend_name != "ollama":
+        return shortlist_global_candidates if global_lane else shortlist_candidates
+    limit = (
+        OLLAMA_GLOBAL_SHORTLIST_LIMIT
+        if global_lane
+        else OLLAMA_TECHNICAL_SHORTLIST_LIMIT
+    )
+    base = shortlist_global_candidates if global_lane else shortlist_candidates
+    return lambda candidates, now: base(candidates, now, limit=limit)
 
 
 def _collect_candidates(
@@ -174,7 +189,7 @@ def _build_pipeline_dependencies(
         )
 
     return PipelineDependencies(
-        shortlist=shortlist_candidates,
+        shortlist=_shortlist_for_backend(settings, global_lane=False),
         source_fetcher=SourceFetcher(timeout=settings.request_timeout),
         extract=extract,
         gates=evaluate_gates,
@@ -226,7 +241,7 @@ def _build_global_pipeline_dependencies(
         )
 
     return GlobalPipelineDependencies(
-        shortlist=shortlist_global_candidates,
+        shortlist=_shortlist_for_backend(settings, global_lane=True),
         source_fetcher=SourceFetcher(timeout=settings.request_timeout),
         extract=extract,
         classify=event_history.classify_global,
