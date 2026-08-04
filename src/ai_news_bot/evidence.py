@@ -44,6 +44,12 @@ source, so you must not infer or claim its value.
 DEFAULT_PROMPT_TOKEN_BUDGET = 4_500
 RETRY_PROMPT_TOKEN_BUDGET = 2_200
 CHAT_COMPLETIONS_MAX_TOKENS = 2_048
+# The deployed local Ollama model has a 4k context window. Reserve enough room
+# for its response schema and completion rather than sending an oversized prompt
+# that can wait indefinitely in the local server.
+OLLAMA_PROMPT_TOKEN_BUDGET = 1_200
+OLLAMA_RETRY_PROMPT_TOKEN_BUDGET = 800
+OLLAMA_CHAT_COMPLETIONS_MAX_TOKENS = 768
 _CJK_CHARACTER = re.compile(r"[\u3400-\u9fff]")
 
 
@@ -53,6 +59,24 @@ class EvidenceBatch(BaseModel):
 
 class EvidenceExtractionError(RuntimeError):
     pass
+
+
+def prompt_token_budget_for_backend(backend: BackendSpec, *, retry: bool = False) -> int:
+    if backend.provider_id == "ollama":
+        return (
+            OLLAMA_RETRY_PROMPT_TOKEN_BUDGET
+            if retry
+            else OLLAMA_PROMPT_TOKEN_BUDGET
+        )
+    return RETRY_PROMPT_TOKEN_BUDGET if retry else DEFAULT_PROMPT_TOKEN_BUDGET
+
+
+def chat_completion_max_tokens_for_backend(backend: BackendSpec) -> int:
+    return (
+        OLLAMA_CHAT_COMPLETIONS_MAX_TOKENS
+        if backend.provider_id == "ollama"
+        else CHAT_COMPLETIONS_MAX_TOKENS
+    )
 
 
 def _estimated_tokens(value: str) -> int:
@@ -492,7 +516,7 @@ def _parse_response(
             backend,
             messages,
             EvidenceRecord,
-            max_tokens=CHAT_COMPLETIONS_MAX_TOKENS,
+            max_tokens=chat_completion_max_tokens_for_backend(backend),
         )
     response = client.responses.parse(
         model=backend.model,
@@ -520,7 +544,7 @@ def extract_evidence(
     messages = _evidence_messages(
         candidate,
         source,
-        DEFAULT_PROMPT_TOKEN_BUDGET,
+        prompt_token_budget_for_backend(backend),
     )
     last_error: Exception | None = None
     for attempt in range(max_attempts):
@@ -544,7 +568,7 @@ def extract_evidence(
                 messages = _evidence_messages(
                     candidate,
                     source,
-                    RETRY_PROMPT_TOKEN_BUDGET,
+                    prompt_token_budget_for_backend(backend, retry=True),
                 )
     failure_message = (
         "model evidence parsing failed twice"

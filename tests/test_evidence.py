@@ -11,6 +11,8 @@ from ai_news_bot.evidence import (
     DEFAULT_PROMPT_TOKEN_BUDGET,
     EVIDENCE_SYSTEM_PROMPT,
     EvidenceExtractionError,
+    OLLAMA_CHAT_COMPLETIONS_MAX_TOKENS,
+    OLLAMA_PROMPT_TOKEN_BUDGET,
     _anchor_supports_claim,
     _estimated_tokens,
     extract_evidence,
@@ -118,6 +120,16 @@ def chat_backend(
         api_key="test-key",
         model=model,
         base_url=base_url,
+    )
+
+
+def ollama_backend() -> BackendSpec:
+    return BackendSpec(
+        provider_id="ollama",
+        provider_label="Ollama",
+        api_key="ollama",
+        model="qwen3:4b-instruct",
+        base_url="http://127.0.0.1:11434/v1",
     )
 
 
@@ -622,6 +634,18 @@ def test_extractor_bounds_the_serialized_prompt_including_json_escaping() -> Non
         _estimated_tokens(message["content"])
         for message in messages
     ) <= DEFAULT_PROMPT_TOKEN_BUDGET
+
+
+def test_ollama_extractor_uses_a_context_safe_prompt_and_completion_budget() -> None:
+    client = FakeStructuredClient([valid_record()])
+    oversized_source = fetched().model_copy(update={"text": "source text " * 4_000})
+
+    extract_evidence(candidate(), oversized_source, client, ollama_backend())
+
+    interface, request = client.requests[0]
+    assert interface == "chat"
+    assert request["max_tokens"] == OLLAMA_CHAT_COMPLETIONS_MAX_TOKENS
+    assert sum(_estimated_tokens(message["content"]) for message in request["messages"]) <= OLLAMA_PROMPT_TOKEN_BUDGET
 
 
 def test_anchor_validator_accepts_normalized_literal_quote() -> None:

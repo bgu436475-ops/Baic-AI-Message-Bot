@@ -10,6 +10,11 @@ from ai_news_bot.global_editor import (
     extract_global_event,
     validate_global_anchors,
 )
+from ai_news_bot.evidence import (
+    OLLAMA_CHAT_COMPLETIONS_MAX_TOKENS,
+    OLLAMA_PROMPT_TOKEN_BUDGET,
+    _estimated_tokens,
+)
 from ai_news_bot.model_backend import BackendSpec
 from ai_news_bot.models import (
     Candidate,
@@ -107,6 +112,16 @@ def cloudflare_backend(
     )
 
 
+def ollama_backend() -> BackendSpec:
+    return BackendSpec(
+        provider_id="ollama",
+        provider_label="Ollama",
+        api_key="ollama",
+        model="qwen3:4b-instruct",
+        base_url="http://127.0.0.1:11434/v1",
+    )
+
+
 class FakeResponses:
     def __init__(self, owner: "FakeStructuredClient") -> None:
         self.owner = owner
@@ -152,6 +167,18 @@ class FakeStructuredClient:
         if isinstance(result, Exception):
             raise result
         return result
+
+
+def test_global_editor_uses_context_safe_limits_for_ollama() -> None:
+    client = FakeStructuredClient([valid_global_record()])
+    oversized_source = fetched().model_copy(update={"text": "source text " * 4_000})
+
+    extract_global_event(candidate(), oversized_source, client, ollama_backend())
+
+    interface, request = client.requests[0]
+    assert interface == "chat"
+    assert request["max_tokens"] == OLLAMA_CHAT_COMPLETIONS_MAX_TOKENS
+    assert sum(_estimated_tokens(message["content"]) for message in request["messages"]) <= OLLAMA_PROMPT_TOKEN_BUDGET
 
 
 def test_global_editor_retries_once_for_missing_chinese() -> None:

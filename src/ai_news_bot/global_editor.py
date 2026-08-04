@@ -8,12 +8,11 @@ from openai import OpenAIError
 from pydantic import BaseModel
 
 from .evidence import (
-    CHAT_COMPLETIONS_MAX_TOKENS,
-    DEFAULT_PROMPT_TOKEN_BUDGET,
-    RETRY_PROMPT_TOKEN_BUDGET,
     _estimated_tokens,
     _is_payload_limit_error,
     _normalized,
+    chat_completion_max_tokens_for_backend,
+    prompt_token_budget_for_backend,
 )
 from .models import Candidate, GlobalEventEvidence
 from .model_backend import BackendSpec, structured_chat_parse
@@ -93,7 +92,7 @@ def _parse_global_response(
             backend,
             messages,
             GlobalEventEvidence,
-            max_tokens=CHAT_COMPLETIONS_MAX_TOKENS,
+            max_tokens=chat_completion_max_tokens_for_backend(backend),
         )
     response = client.responses.parse(
         model=backend.model,
@@ -148,7 +147,7 @@ def extract_global_event(
     messages = _global_event_messages(
         candidate,
         source,
-        DEFAULT_PROMPT_TOKEN_BUDGET,
+        prompt_token_budget_for_backend(backend),
     )
     last_error: Exception | None = None
     for attempt in range(2):
@@ -187,7 +186,7 @@ def extract_global_event(
                 messages = _global_event_messages(
                     candidate,
                     source,
-                    RETRY_PROMPT_TOKEN_BUDGET,
+                    prompt_token_budget_for_backend(backend, retry=True),
                 )
     raise GlobalEventExtractionError(
         "global event parsing failed twice"
