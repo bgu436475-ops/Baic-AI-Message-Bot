@@ -28,6 +28,8 @@ from ai_news_bot.models import (
     EvidenceAnchor,
     EvidenceRecord,
     GlobalPipelineStats,
+    GlobalEventItem,
+    GlobalEventScore,
     PipelineStats,
     ScoreBreakdown,
     TechnicalDigestSlice,
@@ -163,6 +165,57 @@ def _legal_empty_digest() -> EditorialDigest:
             source_verified_count=1,
             rejected_count=1,
             top_rejection_reasons={"missing_action": 1},
+        ),
+    )
+
+
+def _global_only_digest() -> EditorialDigest:
+    event = GlobalEventItem(
+        event_id="acme|model-x|public-release|v1|2026-07-23",
+        candidate_id="global-one",
+        category="models_products",
+        title_zh="Acme 正式发布 Model X",
+        what_happened_zh="Acme 正式发布 Model X，并向公众开放使用。",
+        why_it_matters_zh="普通用户可以直接使用该模型。",
+        affected_groups_zh=["普通用户"],
+        key_facts=["模型已经正式发布"],
+        source_name="Acme Newsroom",
+        source_url="https://example.com/global",
+        published_at=NOW,
+        primary_entity="Acme",
+        product_or_policy="Model X",
+        change_signature="public-release",
+        version_or_metric="v1",
+        effective_date="2026-07-23",
+        event_entities=["Acme", "Model X"],
+        score=GlobalEventScore(
+            impact=30,
+            global_relevance=20,
+            recency=20,
+            evidence_quality=15,
+            information_gain=10,
+            clarity=5,
+        ),
+    )
+    return EditorialDigest(
+        generated_at=NOW,
+        candidate_count=1,
+        source_count=1,
+        daily_narrative_zh="今天有一条全球 AI 重大事件通过核验。",
+        global_events=[event],
+        global_pipeline_stats=GlobalPipelineStats(
+            candidate_count=1,
+            shortlist_count=1,
+            source_verified_count=1,
+            rejected_count=0,
+        ),
+        boards=DigestBoards(),
+        items=[],
+        pipeline_stats=PipelineStats(
+            candidate_count=0,
+            shortlist_count=0,
+            source_verified_count=0,
+            rejected_count=0,
         ),
     )
 
@@ -924,6 +977,24 @@ def test_send_existing_sends_empty_card_and_records_daily_success(
     assert sent == [digest]
     assert ledger == ["no_qualifying_items"]
     assert histories == []
+
+
+def test_send_existing_records_histories_for_global_only_digest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    digest = _global_only_digest()
+    output = tmp_path / "latest.json"
+    output.write_text(digest.model_dump_json(), encoding="utf-8")
+    events: list[str] = []
+    monkeypatch.setattr(cli, "send_to_feishu", lambda *args: events.append("send"))
+    monkeypatch.setattr(cli.SendLedger, "record_success", lambda *args: events.append("ledger"))
+    monkeypatch.setattr(cli.HistoryStore, "record_digest", lambda *args: events.append("url"))
+    monkeypatch.setattr(cli.EventHistoryStore, "record_digest", lambda *args: events.append("event"))
+
+    cli.send_existing_daily_result(output, _settings(tmp_path))
+
+    assert events == ["send", "ledger", "url", "event"]
 
 
 def test_send_existing_daily_result_returns_the_persisted_digest(

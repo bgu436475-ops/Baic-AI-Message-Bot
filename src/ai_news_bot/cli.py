@@ -295,7 +295,7 @@ def send_existing_daily_result(
         digest,
         "feishu-daily",
     )
-    if digest.items:
+    if digest.global_events or digest.items:
         try:
             HistoryStore(settings.state_path).record_digest(digest)
         except Exception as error:
