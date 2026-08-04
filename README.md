@@ -1,6 +1,6 @@
 # AI 新闻 Bot
 
-每天自动采集 AI 新闻，通过原文核查、硬门槛、7 天事件去重和确定性评分，将高决策价值内容编入日报，并自动发送到飞书“AI 增长内部群”。日报由“全球 AI 重大事件”和“技术与工具”两条独立编辑流水线组成。每天北京时间 09:05 附近会发起自动运行；实际送达时间取决于平台排队以及采集、模型和飞书处理耗时。默认使用 GitHub Actions，因此不需要单独购买服务器。
+每天自动采集 AI 新闻，通过原文核查、硬门槛、7 天事件去重和确定性评分，将高决策价值内容编入日报，并自动发送到飞书“AI 增长内部群”。日报由“全球 AI 重大事件”和“技术与工具”两条独立编辑流水线组成。本机 Ollama 主任务每天北京时间 09:05 启动；实际送达时间取决于采集、模型和飞书处理耗时。GitHub Actions 仅保留手动诊断，不承担自动发送。
 
 项目同时包含 `web/` 下的 AI SIGNAL 新闻网页。网页提供分类筛选、关键词搜索、信源优先级和去重方法说明；Bot 每次生成简报时，会更新本地 `web/public/data/latest.json`，生产工作流仅在飞书发送成功后提交并发布这份数据。
 
@@ -141,9 +141,9 @@ ai-news-bot --dry-run --web-output web/public/data/latest.json
 
 Cloudflare Workers AI 是默认后端：只有 `CLOUDFLARE_ACCOUNT_ID` 和 `CLOUDFLARE_AI_API_TOKEN` 两项都存在时才会使用。两项都未配置时，才会使用显式配置的 `OPENAI_API_KEY`；只配置其中一项 Cloudflare 值会使任务失败，避免意外切换后端。ChatGPT 或 GitHub Copilot 订阅不包含 OpenAI API 额度；任何供应商都不能承诺永久免费配额，请在上线前核对当前价格、额度和账户限制。
 
-### macOS 本地 Ollama 后备（Plan 2）
+### macOS 本地 Ollama 主任务（Plan 2）
 
-当云端日报没有已确认送达时，可由用户本机的 Ollama 后备执行；默认模型是 `qwen3:8b`，仅允许回环地址 `http://127.0.0.1:11434/v1`。经无发送验证并显式激活后，LaunchAgent 在北京时间 09:35 检查云端状态，最晚只等待到 09:50；它不承诺在该时间送达，也不会因状态不确定而重复发送。完整的安装前提、受保护环境文件、Desktop 控件、状态恢复和回滚步骤见 [本地 Ollama 后备运维手册](docs/local-ollama-fallback-operations.md)。本仓库仅提供安装与验证脚本；不代表已经在任何机器上安装、激活或实际发送。
+用户本机的 Ollama 主任务使用默认模型 `qwen3:8b`，仅允许回环地址 `http://127.0.0.1:11434/v1`。经无发送验证并显式激活后，LaunchAgent 在北京时间 09:05 生成并发送日报；GitHub 与 Cloudflare 不会自动发送同一条日报。它以本地锁、日报账本和 `uncertain_delivery` 状态防止重复发送。完整的安装前提、受保护环境文件、Desktop 控件、状态恢复和回滚步骤见 [本地 Ollama 主任务运维手册](docs/local-ollama-fallback-operations.md)。本仓库仅提供安装与验证脚本；不代表已经在任何机器上安装、激活或实际发送。
 
 飞书 webhook 会把消息固定发到创建该机器人的群，因此无需在代码中保存群 ID 或群名。消息使用飞书 V2 卡片，先展示一分钟叙事和全球重大事件，再展示最多 5 条技术与工具信息；标题使用纯文本，原始来源使用单独的明确链接。
 
@@ -177,15 +177,12 @@ GET /api/summary?period=weekly&lang=zh
 
 ## 每日自动触发与发送
 
-生产环境采用双通道触发。触发时间不是送达时间承诺：
+生产环境由本机单通道触发。触发时间不是送达时间承诺：
 
-1. Cloudflare Worker 的 `repository_dispatch` 和 GitHub Actions 的第一个 `schedule` 都在北京时间 09:05 附近触发。GitHub concurrency 会串行运行它们，但不保证谁先开始或先交付。
-2. 北京时间 09:20 的第二个 `schedule` 才是明确的后备触发。
-3. 任一自动运行先成功发送并写入每日账本后，其他自动运行会跳过；实际送达可能晚于触发时间。
-4. 健康检查应确认当天是否存在任一成功的自动运行以及当天简报是否有效，不应依赖固定的 09:05 主从假设。
-5. 手动 `Run workflow` 使用 `workflow_dispatch`，仍可显式补发，但人工操作前必须先排除群消息已送达而账本写入失败的情况。
-
-Cloudflare 只保存仓库专用的 `GITHUB_DISPATCH_TOKEN`，不保存飞书、模型或网页密钥。Worker 的部署和验证步骤见 `cloudflare/ai-news-scheduler/README.md`。
+1. macOS LaunchAgent 在北京时间 09:05 启动本地主任务。
+2. 本地模型、时区、证据、日报结构和账本检查全部通过后，才会向飞书发送一次。
+3. `uncertain_delivery`、本地账本或另一实例锁定时，当天不自动重试。
+4. GitHub Actions 的 `Daily AI News` 仅允许手动诊断，不能生成或发送日报；本地确认送达后仍会使用独立工作流记录状态。
 
 ## 调整筛选
 

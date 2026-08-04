@@ -1,11 +1,6 @@
 name: Daily AI News
 
 on:
-  schedule:
-    - cron: "5 1 * * *" # 09:05 Asia/Shanghai (UTC+8)
-    - cron: "20 1 * * *" # 09:20 Asia/Shanghai (UTC+8)
-  repository_dispatch:
-    types: [daily-ai-news]
   workflow_dispatch:
 
 concurrency:
@@ -13,7 +8,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   send-digest:
@@ -22,14 +17,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-
-      - name: Restore delivery state
-        uses: actions/cache/restore@v5
-        with:
-          path: .state/
-          key: ai-news-history-${{ github.run_id }}
-          restore-keys: |
-            ai-news-history-
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -40,27 +27,14 @@ jobs:
       - name: Install
         run: python -m pip install .
 
-      - name: Check daily send guard
-        id: daily_guard
-        run: >-
-          python -m ai_news_bot.daily_guard
-          --event "${{ github.event_name }}"
-          --ledger .state/daily_sends.json
-          --timezone Asia/Shanghai
-          >> "$GITHUB_OUTPUT"
-
-      - name: Skip duplicate scheduled retry
-        if: steps.daily_guard.outputs.should_run == 'false'
-        run: echo "A digest was already delivered today; skipping this scheduled retry."
-
       - name: Run Python validation
-        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'
+        if: github.event_name == 'workflow_dispatch'
         run: |
           python -m pip install '.[dev]'
           python -m pytest -q
 
       - name: Validate AI backend without sending
-        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'
+        if: github.event_name == 'workflow_dispatch'
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_AI_API_TOKEN: ${{ secrets.CLOUDFLARE_AI_API_TOKEN }}
@@ -70,11 +44,11 @@ jobs:
         run: python scripts/validate_ai_backend.py
 
       - name: Build no-send preview
-        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'
+        if: github.event_name == 'workflow_dispatch'
         run: python scripts/build_global_events_preview.py --output-dir validation-output
 
       - name: Set up Node for web validation
-        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/setup-node@v6
         with:
           node-version: "22.13.0"
@@ -82,7 +56,7 @@ jobs:
           cache-dependency-path: web/package-lock.json
 
       - name: Validate website
-        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'
+        if: github.event_name == 'workflow_dispatch'
         working-directory: web
         run: |
           npm ci
@@ -90,63 +64,8 @@ jobs:
           npm test
 
       - name: Upload no-send preview
-        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v6
         with:
           name: global-ai-events-preview
           path: validation-output/
-
-      - name: Generate daily result
-        if: >-
-          steps.daily_guard.outputs.should_run == 'true' &&
-          github.ref == 'refs/heads/main'
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_AI_API_TOKEN: ${{ secrets.CLOUDFLARE_AI_API_TOKEN }}
-          CLOUDFLARE_AI_MODEL: ${{ vars.CLOUDFLARE_AI_MODEL || '@cf/meta/llama-3.3-70b-instruct-fp8-fast' }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-5.6-luna' }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ai-news-bot --dry-run
-
-      - name: Send persisted daily result
-        id: send_digest
-        if: >-
-          steps.daily_guard.outputs.should_run == 'true' &&
-          github.ref == 'refs/heads/main'
-        env:
-          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
-          FEISHU_SIGNING_SECRET: ${{ secrets.FEISHU_SIGNING_SECRET }}
-        run: ai-news-bot --send-existing
-
-      - name: Persist latest web digest
-        if: steps.send_digest.outcome == 'success'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add web/public/data/latest.json
-          if ! git diff --cached --quiet; then
-            git commit -m "Update daily AI news"
-            git push
-          fi
-
-      - name: Publish latest digest to private dashboard
-        if: steps.send_digest.outcome == 'success'
-        env:
-          SITE_DIGEST_ENDPOINT: ${{ secrets.SITE_DIGEST_ENDPOINT }}
-          SITE_BYPASS_TOKEN: ${{ secrets.SITE_BYPASS_TOKEN }}
-          SITE_DIGEST_UPDATE_SECRET: ${{ secrets.SITE_DIGEST_UPDATE_SECRET }}
-        run: |
-          curl --fail-with-body --retry 3 \
-            -H "OAI-Sites-Authorization: Bearer $SITE_BYPASS_TOKEN" \
-            -H "Authorization: Bearer $SITE_DIGEST_UPDATE_SECRET" \
-            -H "Content-Type: application/json" \
-            --data-binary @web/public/data/latest.json \
-            "$SITE_DIGEST_ENDPOINT"
-
-      - name: Save delivery state
-        if: always() && steps.send_digest.outcome == 'success'
-        uses: actions/cache/save@v5
-        with:
-          path: .state/
-          key: ai-news-history-${{ github.run_id }}

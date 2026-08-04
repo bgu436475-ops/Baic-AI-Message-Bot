@@ -16,42 +16,35 @@ OPERATIONS_PATH = (
 )
 
 
-def test_non_main_manual_validation_smokes_cloudflare_without_send_secrets() -> None:
+def test_daily_workflow_is_manual_no_send_diagnostics_only() -> None:
     workflow = yaml.load(WORKFLOW_PATH.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
-    assert "models" not in workflow["permissions"]
+    assert workflow["on"] == {"workflow_dispatch": ""}
+    assert workflow["permissions"] == {"contents": "read"}
 
     steps = workflow["jobs"]["send-digest"]["steps"]
-    generate_step = next(step for step in steps if step.get("name") == "Generate daily result")
     smoke_step = next(
         step
         for step in steps
         if step.get("name") == "Validate AI backend without sending"
     )
-    generate_env = generate_step["env"]
     smoke_env = smoke_step["env"]
 
-    assert generate_env["CLOUDFLARE_ACCOUNT_ID"] == (
+    assert smoke_env["CLOUDFLARE_ACCOUNT_ID"] == (
         "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}"
     )
-    assert generate_env["CLOUDFLARE_AI_API_TOKEN"] == (
+    assert smoke_env["CLOUDFLARE_AI_API_TOKEN"] == (
         "${{ secrets.CLOUDFLARE_AI_API_TOKEN }}"
     )
     expected_model = (
         "${{ vars.CLOUDFLARE_AI_MODEL || "
         "'@cf/meta/llama-3.3-70b-instruct-fp8-fast' }}"
     )
-    assert generate_env["CLOUDFLARE_AI_MODEL"] == expected_model
     assert smoke_env["CLOUDFLARE_AI_MODEL"] == expected_model
-    assert generate_env["OPENAI_API_KEY"] == "${{ secrets.OPENAI_API_KEY }}"
     expected_openai_model = "${{ vars.OPENAI_MODEL || 'gpt-5.6-luna' }}"
-    assert generate_env["OPENAI_MODEL"] == expected_openai_model
     assert smoke_env["OPENAI_API_KEY"] == "${{ secrets.OPENAI_API_KEY }}"
     assert smoke_env["OPENAI_MODEL"] == expected_openai_model
-    assert "GITHUB_MODELS_MODEL" not in generate_env
     assert smoke_step["run"] == "python scripts/validate_ai_backend.py"
-    assert smoke_step["if"] == (
-        "github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'"
-    )
+    assert smoke_step["if"] == "github.event_name == 'workflow_dispatch'"
     assert set(smoke_env) == {
         "CLOUDFLARE_ACCOUNT_ID",
         "CLOUDFLARE_AI_API_TOKEN",
@@ -60,6 +53,12 @@ def test_non_main_manual_validation_smokes_cloudflare_without_send_secrets() -> 
         "OPENAI_MODEL",
     }
     assert not any("FEISHU" in name or "SITE_" in name for name in smoke_env)
+    names = {step.get("name") for step in steps}
+    assert "Generate daily result" not in names
+    assert "Send persisted daily result" not in names
+    assert "Persist latest web digest" not in names
+    assert "Publish latest digest to private dashboard" not in names
+    assert "Save delivery state" not in names
 
 
 def test_local_delivery_workflow_records_only_a_dispatched_delivery() -> None:
@@ -95,11 +94,12 @@ def test_local_delivery_workflow_records_only_a_dispatched_delivery() -> None:
     assert "ai-news-bot --send-existing" not in workflow_text
 
 
-def test_local_ollama_operator_documentation_covers_safe_fallback_contract() -> None:
+def test_local_ollama_operator_documentation_covers_primary_delivery_contract() -> None:
     readme = README_PATH.read_text(encoding="utf-8")
     operations = OPERATIONS_PATH.read_text(encoding="utf-8")
 
-    assert "09:35" in readme
+    assert "09:05" in readme
+    assert "本地主任务" in readme
     assert "qwen3:8b" in readme
     assert "uncertain_delivery" in operations
     assert "不会自动重试发送" in operations
