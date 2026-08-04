@@ -99,6 +99,23 @@ def structured_chat_parse(
     *,
     max_tokens: int,
 ) -> BaseModel | None:
+    if backend.provider_id == "cloudflare":
+        # Workers AI may return the JSON object directly in `message.content`.
+        # The OpenAI SDK's `.parse()` path expects that field to be a string and
+        # rejects an otherwise valid Cloudflare response before exposing it.
+        response = client.chat.completions.create(
+            model=backend.model,
+            messages=messages,
+            max_tokens=max_tokens,
+            response_format={"type": "json_object"},
+            **backend.chat_options,
+        )
+        content = response.choices[0].message.content
+        if isinstance(content, str):
+            return response_format.model_validate_json(content)
+        if isinstance(content, dict):
+            return response_format.model_validate(content)
+        raise ValueError("Cloudflare response content must be JSON text or an object")
     response = client.chat.completions.parse(
         model=backend.model,
         messages=messages,

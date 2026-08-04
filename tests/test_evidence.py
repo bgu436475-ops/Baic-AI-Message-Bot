@@ -143,6 +143,15 @@ class FakeChatCompletions:
         message = SimpleNamespace(parsed=parsed)
         return SimpleNamespace(choices=[SimpleNamespace(message=message)])
 
+    def create(self, **kwargs: Any) -> SimpleNamespace:
+        self.owner.calls += 1
+        self.owner.requests.append(("chat_create", kwargs))
+        parsed = self.owner.next_result()
+        content = None if parsed is None else json.dumps(parsed.model_dump())
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
+        )
+
 
 class FakeStructuredClient:
     def __init__(self, results: list[EvidenceRecord | Exception | None]) -> None:
@@ -175,6 +184,13 @@ class FakeRawChatCompletions:
             raise result
         return result
 
+    def create(self, **kwargs: Any) -> SimpleNamespace:
+        self.owner.calls += 1
+        result = next(self.responses)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
 
 class FakeRawChatClient:
     def __init__(self, responses: list[SimpleNamespace | Exception]) -> None:
@@ -183,8 +199,30 @@ class FakeRawChatClient:
         self.chat = SimpleNamespace(completions=completions)
 
 
+class FakeCloudflareChatCompletions:
+    def __init__(self, owner: "FakeCloudflareClient", content: object) -> None:
+        self.owner = owner
+        self.content = content
+
+    def create(self, **kwargs: Any) -> SimpleNamespace:
+        self.owner.calls += 1
+        self.owner.requests.append(kwargs)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=self.content))]
+        )
+
+
+class FakeCloudflareClient:
+    def __init__(self, content: object) -> None:
+        self.calls = 0
+        self.requests: list[dict[str, Any]] = []
+        self.chat = SimpleNamespace(
+            completions=FakeCloudflareChatCompletions(self, content)
+        )
+
+
 def chat_response(record: EvidenceRecord) -> SimpleNamespace:
-    message = SimpleNamespace(parsed=record)
+    message = SimpleNamespace(content=json.dumps(record.model_dump()))
     return SimpleNamespace(choices=[SimpleNamespace(message=message)])
 
 
@@ -419,7 +457,7 @@ def test_extractor_rejects_original_source_mismatch_before_model_call() -> None:
     assert client.calls == 0
 
 
-def test_extractor_uses_cloudflare_structured_chat_parse() -> None:
+def test_extractor_uses_cloudflare_json_mode() -> None:
     client = FakeStructuredClient([valid_record()])
 
     result = extract_evidence(
@@ -435,11 +473,21 @@ def test_extractor_uses_cloudflare_structured_chat_parse() -> None:
     assert result.candidate_id == "one"
     assert client.calls == 1
     interface, request = client.requests[0]
-    assert interface == "chat"
+    assert interface == "chat_create"
     assert request["model"] == "@cf/meta/llama-3.1-8b-instruct-fast"
     assert request["max_tokens"] == 2_048
-    assert request["response_format"] is EvidenceRecord
+    assert request["response_format"] == {"type": "json_object"}
     assert request["messages"][0]["content"] == EVIDENCE_SYSTEM_PROMPT
+
+
+def test_extractor_accepts_cloudflare_json_object_content() -> None:
+    client = FakeCloudflareClient(valid_record().model_dump())
+
+    result = extract_evidence(candidate(), fetched(), client, chat_backend())
+
+    assert result.candidate_id == "one"
+    assert client.calls == 1
+    assert client.requests[0]["response_format"] == {"type": "json_object"}
 
 
 def test_ollama_structured_parse_disables_thinking() -> None:

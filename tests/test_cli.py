@@ -546,7 +546,10 @@ class _PipelineModelClient:
         self.requests: list[dict[str, Any]] = []
         self.responses = SimpleNamespace(parse=self._responses_parse)
         self.chat = SimpleNamespace(
-            completions=SimpleNamespace(parse=self._chat_parse)
+            completions=SimpleNamespace(
+                parse=self._chat_parse,
+                create=self._chat_create,
+            )
         )
 
     def _responses_parse(self, **kwargs: Any) -> SimpleNamespace:
@@ -561,6 +564,17 @@ class _PipelineModelClient:
             choices=[
                 SimpleNamespace(
                     message=SimpleNamespace(parsed=self.record)
+                )
+            ]
+        )
+
+    def _chat_create(self, **kwargs: Any) -> SimpleNamespace:
+        self.interfaces.append("chat_create")
+        self.requests.append(kwargs)
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content=self.record.model_dump())
                 )
             ]
         )
@@ -647,7 +661,7 @@ def _model_record() -> EvidenceRecord:
         (
             "cloudflare",
             "https://api.cloudflare.com/client/v4/accounts/account-123/ai/v1",
-            "chat",
+                "chat_create",
                 "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
             {},
         ),

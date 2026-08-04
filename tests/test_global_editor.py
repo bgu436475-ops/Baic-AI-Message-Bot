@@ -129,6 +129,15 @@ class FakeChatCompletions:
             choices=[SimpleNamespace(message=SimpleNamespace(parsed=result))]
         )
 
+    def create(self, **kwargs: Any) -> SimpleNamespace:
+        self.owner.calls += 1
+        self.owner.requests.append(("chat_create", kwargs))
+        result = self.owner.next_result()
+        content = None if result is None else result.model_dump_json()
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
+        )
+
 
 class FakeStructuredClient:
     def __init__(self, results: list[object]) -> None:
@@ -257,7 +266,7 @@ def test_global_editor_uses_constrained_prompt_and_expected_schema() -> None:
     assert "do not score" in prompt
 
 
-def test_global_editor_uses_chat_completions_for_cloudflare() -> None:
+def test_global_editor_uses_json_mode_for_cloudflare() -> None:
     client = FakeStructuredClient([valid_global_record()])
 
     result = extract_global_event(
@@ -269,8 +278,8 @@ def test_global_editor_uses_chat_completions_for_cloudflare() -> None:
 
     assert result.candidate_id == "global-model-x"
     interface, request = client.requests[0]
-    assert interface == "chat"
+    assert interface == "chat_create"
     assert request["model"] == "@cf/meta/llama-3.1-8b-instruct-fast"
     assert request["max_tokens"] == 2_048
-    assert request["response_format"] is GlobalEventEvidence
+    assert request["response_format"] == {"type": "json_object"}
     assert request["messages"][0]["content"] == GLOBAL_EVENT_SYSTEM_PROMPT

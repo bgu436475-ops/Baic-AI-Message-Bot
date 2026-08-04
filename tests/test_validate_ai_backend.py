@@ -60,17 +60,21 @@ def test_validate_backend_uses_cloudflare_client_and_verified_anchor() -> None:
         nonlocal calls
         captured.update(kwargs)
 
-        def parse(**_request: Any) -> SimpleNamespace:
+        def create(**_request: Any) -> SimpleNamespace:
             nonlocal calls
             calls += 1
             return SimpleNamespace(
-                choices=[SimpleNamespace(message=SimpleNamespace(parsed=_smoke_record()))]
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(content=_smoke_record().model_dump())
+                    )
+                ]
             )
 
         return SimpleNamespace(
             chat=SimpleNamespace(
                 completions=SimpleNamespace(
-                    parse=parse
+                    create=create
                 )
             )
         )
@@ -100,13 +104,13 @@ def test_validate_backend_never_retries_a_model_parse_failure() -> None:
     calls = 0
 
     def fake_factory(**_kwargs: Any) -> SimpleNamespace:
-        def parse(**_request: Any) -> SimpleNamespace:
+        def create(**_request: Any) -> SimpleNamespace:
             nonlocal calls
             calls += 1
             raise ValueError("invalid structured response")
 
         return SimpleNamespace(
-            chat=SimpleNamespace(completions=SimpleNamespace(parse=parse))
+            chat=SimpleNamespace(completions=SimpleNamespace(create=create))
         )
 
     settings = Settings(
