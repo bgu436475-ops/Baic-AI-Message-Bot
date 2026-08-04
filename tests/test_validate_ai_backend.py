@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from pydantic import BaseModel, ValidationError
 
 from ai_news_bot.config import Settings
 from ai_news_bot.evidence import EvidenceExtractionError
@@ -260,6 +261,49 @@ def test_main_reports_safe_underlying_http_diagnostics(
         "Traceback",
     ):
         assert forbidden not in captured.err
+
+
+def test_main_reports_safe_pydantic_validation_shape_without_input_values(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from scripts import validate_ai_backend
+
+    settings = Settings(
+        cloudflare_account_id="sensitive-account-id",
+        cloudflare_ai_api_token="sensitive-api-token",
+    )
+
+    class ExpectedResponse(BaseModel):
+        required_field: str
+
+    validation_error = ValidationError.from_exception_data(
+        "ExpectedResponse",
+        [
+            {
+                "type": "missing",
+                "loc": ("required_field",),
+                "input": {"secret_model_output": "must-not-appear"},
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        validate_ai_backend.Settings,
+        "from_env",
+        classmethod(lambda cls: settings),
+    )
+
+    def fail_validation(_settings: Settings) -> EvidenceRecord:
+        raise EvidenceExtractionError("hidden wrapper") from validation_error
+
+    monkeypatch.setattr(validate_ai_backend, "validate_backend", fail_validation)
+
+    assert validate_ai_backend.main() != 0
+
+    diagnostics = json.loads(capsys.readouterr().err)
+    assert diagnostics["validation_error_types"] == ["missing"]
+    assert diagnostics["validation_error_fields"] == ["required_field"]
+    assert "secret_model_output" not in json.dumps(diagnostics)
 
 
 def test_main_reports_safe_symbolic_api_error_code(

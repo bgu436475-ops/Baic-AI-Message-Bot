@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import Any, Callable
 
 from openai import OpenAI
+from pydantic import ValidationError
 
 from ai_news_bot.config import Settings
 from ai_news_bot.evidence import extract_evidence
@@ -27,6 +28,31 @@ def _safe_error_diagnostics(error: Exception) -> dict[str, str | int]:
     if cause is None:
         return diagnostics
     diagnostics["cause_class"] = type(cause).__name__
+    if isinstance(cause, ValidationError):
+        validation_errors = cause.errors(include_input=False, include_url=False)
+        error_types = sorted(
+            {
+                item["type"]
+                for item in validation_errors
+                if isinstance(item.get("type"), str)
+                and re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", item["type"])
+            }
+        )
+        error_fields = sorted(
+            {
+                ".".join(str(part) for part in item["loc"])
+                for item in validation_errors
+                if isinstance(item.get("loc"), tuple)
+                and re.fullmatch(
+                    r"[A-Za-z0-9_.\[\]-]{1,160}",
+                    ".".join(str(part) for part in item["loc"]),
+                )
+            }
+        )
+        if error_types:
+            diagnostics["validation_error_types"] = error_types[:5]
+        if error_fields:
+            diagnostics["validation_error_fields"] = error_fields[:5]
     status_code = getattr(cause, "status_code", None)
     if isinstance(status_code, int) and 100 <= status_code <= 599:
         diagnostics["http_status"] = status_code
