@@ -20,9 +20,11 @@ from install_local_fallback import (  # noqa: E402
     INSTALLER_LABEL,
     InstallerContext,
     InstallerError,
+    _build_venv,
     install_local_fallback,
     render_launch_agent,
 )
+import install_local_fallback as local_installer  # noqa: E402
 from install_ollama_macos import (  # noqa: E402
     OllamaInstallContext,
     install_ollama,
@@ -71,6 +73,37 @@ def _build_fake_venv(path: Path) -> None:
     python.parent.mkdir(parents=True, exist_ok=True)
     python.write_text("#!/bin/sh\n", encoding="utf-8")
     python.chmod(0o700)
+
+
+def test_venv_builder_prefers_user_available_uv_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A uv-created venv avoids relocatable interpreter failures on macOS."""
+    commands: list[list[str]] = []
+
+    class Result:
+        returncode = 0
+
+    def fake_run(command: list[str], **_: object) -> Result:
+        commands.append(command)
+        return Result()
+
+    monkeypatch.setattr(local_installer.shutil, "which", lambda _: "/tmp/uv")
+    monkeypatch.setattr(local_installer.subprocess, "run", fake_run)
+
+    _build_venv(tmp_path / "venv")
+
+    assert commands == [
+        [
+            "/tmp/uv",
+            "venv",
+            "--python",
+            "3.12",
+            "--seed",
+            str(tmp_path / "venv"),
+        ]
+    ]
 
 
 def _context(

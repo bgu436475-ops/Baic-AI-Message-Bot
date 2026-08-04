@@ -45,6 +45,21 @@ def _run_silently(command: Sequence[str]) -> CommandStatus:
 
 
 def _build_venv(path: Path) -> None:
+    uv_path = shutil.which("uv")
+    if uv_path is None:
+        user_uv = Path.home() / ".local/bin/uv"
+        if user_uv.is_file() and os.access(user_uv, os.X_OK):
+            uv_path = str(user_uv)
+    if uv_path is not None:
+        result = subprocess.run(
+            [uv_path, "venv", "--python", "3.12", "--seed", str(path)],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        if result.returncode == 0:
+            return
+        raise InstallerError("venv_creation_failed")
     venv.EnvBuilder(with_pip=True).create(path)
 
 
