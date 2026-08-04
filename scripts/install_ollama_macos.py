@@ -112,7 +112,15 @@ def _safe_ollama_members(archive: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
 
 
 def _extract_ollama_archive(archive_path: Path, destination: Path) -> None:
-    """Extract with ditto so macOS app-bundle symlinks survive verification."""
+    """Extract safely, preserving macOS app-bundle symlinks on Darwin."""
+    if platform.system() != "Darwin":
+        try:
+            with zipfile.ZipFile(archive_path) as archive:
+                archive.extractall(destination)
+        except (OSError, zipfile.BadZipFile) as error:
+            raise OllamaInstallError("ollama_archive_extract_failed") from error
+        return
+
     try:
         result = subprocess.run(
             [

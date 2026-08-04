@@ -870,6 +870,7 @@ def test_ollama_archive_extraction_uses_ditto_to_preserve_bundle_symlinks(
         commands.append(command)
         return Result()
 
+    monkeypatch.setattr(ollama_installer.platform, "system", lambda: "Darwin")
     monkeypatch.setattr(ollama_installer.subprocess, "run", fake_run)
 
     ollama_installer._extract_ollama_archive(
@@ -886,3 +887,31 @@ def test_ollama_archive_extraction_uses_ditto_to_preserve_bundle_symlinks(
             str(tmp_path),
         ]
     ]
+
+
+def test_ollama_archive_extraction_uses_safe_zip_fallback_off_macos(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """GitHub's Linux test runners do not provide macOS's ditto utility."""
+    extracted: list[tuple[Path, Path]] = []
+
+    class FakeArchive:
+        def __enter__(self) -> "FakeArchive":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def extractall(self, destination: Path) -> None:
+            extracted.append((tmp_path / "Ollama-darwin.zip", destination))
+
+    monkeypatch.setattr(ollama_installer.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(ollama_installer.zipfile, "ZipFile", lambda _: FakeArchive())
+
+    ollama_installer._extract_ollama_archive(
+        tmp_path / "Ollama-darwin.zip",
+        tmp_path,
+    )
+
+    assert extracted == [(tmp_path / "Ollama-darwin.zip", tmp_path)]
