@@ -136,70 +136,37 @@ def _workflow() -> str:
     ).read_text(encoding="utf-8")
 
 
-def test_workflow_accepts_external_dispatch_and_preserves_fallbacks() -> None:
+def test_workflow_is_manual_diagnostics_only() -> None:
     workflow = _workflow()
 
-    assert "repository_dispatch:" in workflow
-    assert "types: [daily-ai-news]" in workflow
-    assert 'cron: "5 1 * * *"' in workflow
-    assert 'cron: "20 1 * * *"' in workflow
     assert "workflow_dispatch:" in workflow
+    assert "repository_dispatch:" not in workflow
+    assert "schedule:" not in workflow
+    assert "ai-news-bot --dry-run" not in workflow
+    assert "ai-news-bot --send-existing" not in workflow
+    assert "FEISHU_" not in workflow
 
 
-def test_workflow_restores_whole_state_and_guards_on_delivery_ledger() -> None:
-    workflow = _workflow()
-    restore_step = workflow[
-        workflow.index("uses: actions/cache/restore@v5") :
-        workflow.index("- name: Set up Python")
-    ]
-
-    assert "path: .state/" in restore_step
-    assert "--ledger .state/daily_sends.json" in workflow
-    assert "--digest" not in workflow
-    assert "--history" not in workflow
-
-
-def test_workflow_sends_before_persisting_and_publishing_latest_digest() -> None:
+def test_workflow_has_no_cloud_delivery_state_or_dashboard_write_steps() -> None:
     workflow = _workflow()
 
-    generate_position = workflow.index("ai-news-bot --dry-run")
-    send_position = workflow.index("ai-news-bot --send-existing")
-    persist_position = workflow.index(
-        "git add web/public/data/latest.json"
-    )
-    publish_position = workflow.index(
-        "Publish latest digest to private dashboard"
-    )
-
-    assert (
-        generate_position
-        < send_position
-        < persist_position
-        < publish_position
-    )
+    assert "actions/cache/restore@v5" not in workflow
+    assert "actions/cache/save@v5" not in workflow
+    assert "daily_guard" not in workflow
+    assert "SITE_DIGEST_" not in workflow
+    assert "git push" not in workflow
 
 
-def test_branch_workflow_builds_preview_without_production_send_steps() -> None:
+def test_manual_workflow_keeps_validation_preview_and_web_checks() -> None:
     workflow = _workflow()
-    generate_step = workflow[
-        workflow.index("- name: Generate daily result") :
-        workflow.index("- name: Send persisted daily result")
-    ]
-    send_step = workflow[
-        workflow.index("- name: Send persisted daily result") :
-        workflow.index("- name: Persist latest web digest")
-    ]
 
-    assert "github.ref == 'refs/heads/main'" in generate_step
-    assert "github.ref == 'refs/heads/main'" in send_step
     assert "- name: Run Python validation" in workflow
+    assert "- name: Validate AI backend without sending" in workflow
     assert "- name: Build no-send preview" in workflow
     assert "- name: Validate website" in workflow
     assert "- name: Upload no-send preview" in workflow
-    assert (
-        "github.event_name == 'workflow_dispatch' && "
-        "github.ref != 'refs/heads/main'"
-    ) in workflow
+    assert "if: github.event_name == 'workflow_dispatch'" in workflow
+    assert "github.ref == 'refs/heads/main'" not in workflow
 
 
 def test_workflow_serializes_manual_and_automatic_runs() -> None:
@@ -214,36 +181,13 @@ def test_workflow_serializes_manual_and_automatic_runs() -> None:
     assert "cancel-in-progress: false" in concurrency
 
 
-def test_workflow_always_saves_whole_state_after_send_success() -> None:
-    workflow = _workflow()
-    publish_position = workflow.index(
-        "- name: Publish latest digest to private dashboard"
-    )
-    save_position = workflow.index("- name: Save delivery state")
-    send_step = workflow[
-        workflow.index("- name: Send persisted daily result") :
-        workflow.index("- name: Persist latest web digest")
-    ]
-    save_step = workflow[save_position:]
-
-    assert "id: send_digest" in send_step
-    assert "always()" not in send_step
-    assert publish_position < save_position
-    assert "path: .state/" in save_step
-    assert (
-        "always() && steps.send_digest.outcome == 'success'"
-        in save_step
-    )
-
-
-def test_readme_documents_external_primary_and_github_fallback() -> None:
+def test_readme_documents_local_primary_and_manual_cloud_diagnostics() -> None:
     readme = (
         Path(__file__).parents[1] / "README.md"
     ).read_text(encoding="utf-8")
 
-    assert "Cloudflare Worker" in readme
+    assert "本机单通道" in readme
+    assert "GitHub Actions 仅保留手动诊断" in readme
     assert "09:05" in readme
-    assert "09:20" in readme
-    assert "GITHUB_DISPATCH_TOKEN" in readme
-    assert 'cron: "7 9 * * *"' not in readme
-    assert 'cron: "22 9 * * *"' not in readme
+    assert "09:20" not in readme
+    assert "GitHub 与 Cloudflare 不会自动发送" in readme
