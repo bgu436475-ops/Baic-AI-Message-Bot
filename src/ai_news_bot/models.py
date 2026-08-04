@@ -182,8 +182,14 @@ class EvidenceAnchor(BaseModel):
 
 class EvidenceRecord(BaseModel):
     candidate_id: str
-    title_zh: str = Field(min_length=1)
-    summary_zh: str = Field(min_length=1)
+    title_zh: str = Field(
+        min_length=1,
+        description="A concise Simplified Chinese title; must contain Chinese characters.",
+    )
+    summary_zh: str = Field(
+        min_length=1,
+        description="A factual Simplified Chinese summary; must contain Chinese characters.",
+    )
     category: Category
     extra_categories: list[Category] = Field(default_factory=list, max_length=3)
     source_url: str

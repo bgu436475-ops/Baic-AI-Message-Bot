@@ -479,6 +479,8 @@ def test_extractor_uses_cloudflare_json_mode() -> None:
     assert request["response_format"]["type"] == "json_schema"
     assert request["response_format"]["json_schema"]["type"] == "object"
     assert "candidate_id" in request["response_format"]["json_schema"]["properties"]
+    assert "Chinese" in request["response_format"]["json_schema"]["properties"]["title_zh"]["description"]
+    assert "Chinese" in request["response_format"]["json_schema"]["properties"]["summary_zh"]["description"]
     assert request["messages"][0]["content"] == EVIDENCE_SYSTEM_PROMPT
 
 
