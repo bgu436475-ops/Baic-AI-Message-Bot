@@ -1,7 +1,5 @@
 from datetime import UTC, datetime
 
-import pytest
-
 from ai_news_bot.event_history import DuplicateAssessment
 from ai_news_bot.global_editor import GlobalEventExtractionError
 from ai_news_bot.global_pipeline import (
@@ -141,13 +139,17 @@ def test_global_pipeline_runs_all_stages_and_audits_rejection() -> None:
     assert result.stats.rejected_count == 1
 
 
-def test_all_global_extraction_failures_raise() -> None:
-    with pytest.raises(
-        GlobalEventExtractionError,
-        match="all global event extractions failed",
-    ):
-        run_global_pipeline(
-            candidates(),
-            dependencies([], fail_all=True),
-            NOW,
-        )
+def test_all_global_extraction_failures_return_an_audited_empty_lane() -> None:
+    """One malformed local-model response must not block technical news delivery."""
+    trace: list[str] = []
+
+    result = run_global_pipeline(
+        candidates(),
+        dependencies(trace, fail_all=True),
+        NOW,
+    )
+
+    assert trace == ["shortlist", "fetch", "extract", "extract", "corroborate", "select"]
+    assert result.events == []
+    assert result.stats.rejected_count == 2
+    assert result.audit.rejection_reason_counts == {"global_extraction_failed": 2}

@@ -123,13 +123,11 @@ def run_global_pipeline(
     source_by_id = {item.candidate_id: item for item in fetched}
     records: list[GlobalEventEvidence] = []
     failures: dict[str, GlobalAuditEntry] = {}
-    last_error: GlobalEventExtractionError | None = None
     for source in fetched:
         candidate = candidate_by_id[source.candidate_id]
         try:
             records.append(dependencies.extract(candidate, source))
-        except GlobalEventExtractionError as error:
-            last_error = error
+        except GlobalEventExtractionError:
             failures[candidate.id] = GlobalAuditEntry(
                 candidate_id=candidate.id,
                 source_url=source.final_url,
@@ -137,11 +135,6 @@ def run_global_pipeline(
                 corroborating_source_count=0,
                 rejection_reasons=["global_extraction_failed"],
             )
-    if fetched and not records and failures:
-        raise GlobalEventExtractionError(
-            "all global event extractions failed"
-        ) from last_error
-
     clusters = dependencies.corroborate(records)
     prepared: list[ScoredGlobalEvent] = []
     entries: list[GlobalAuditEntry] = []
