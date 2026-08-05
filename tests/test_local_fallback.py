@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from datetime import UTC, date, datetime
@@ -310,6 +311,24 @@ def test_invalid_persisted_digest_never_reaches_feishu(
     assert run_local_fallback(config, deps) == 2
 
     assert deps.send.calls == []  # type: ignore[attr-defined]
+
+
+def test_generation_failure_records_safe_exception_class(
+    deps: LocalFallbackDependencies,
+    config: LocalFallbackConfig,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Removing failure diagnostics would hide why a local run could not send."""
+    def generate_failure(_: Path) -> EditorialDigest:
+        raise RuntimeError("secret-value-must-not-be-logged")
+
+    deps.generate = generate_failure
+
+    with caplog.at_level(logging.INFO, logger="ai_news_bot.local_fallback"):
+        assert run_local_fallback(config, deps) == 2
+
+    assert "local_generation_error=RuntimeError" in caplog.messages
+    assert "secret-value-must-not-be-logged" not in caplog.text
 
 
 def test_feishu_timeout_records_uncertain_and_never_dispatches(

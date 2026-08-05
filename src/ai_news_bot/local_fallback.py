@@ -508,7 +508,8 @@ def _run_locked(
         if not digest_path.exists():
             digest_path.write_text(generated.model_dump_json(), encoding="utf-8")
         digest = _validated_digest(digest_path, day, config.timezone)
-    except Exception:
+    except Exception as error:
+        LOGGER.info("local_generation_error=%s", type(error).__name__)
         _report(dependencies, "invalid_local_digest")
         return 2
 
