@@ -1,6 +1,36 @@
 # 微信群日报
 
-在常开的电脑上用本机 Ollama 概括群消息，再由飞书自定义机器人推送日报。默认每天北京时间 00:10 开始处理前一自然日的内容。支持手动提交普通微信群的文字，也保留原有的实时采集模式。
+在常开的电脑上用本机 Ollama 概括群消息，再由飞书自定义机器人推送日报。默认每天北京时间 00:10 开始处理前一自然日的内容。支持普通微信群的本机屏幕 OCR、手动提交文字和原有的实时采集模式。
+
+## 普通微信群 · 单窗口屏幕 OCR
+
+需要 macOS 14 或更新版本、Swift 命令行工具和 Python 3.9 或更新版本。先用一个有明确授权、群名唯一的测试群。打开官方 Mac 微信，关闭多余的微信聊天窗口，并让测试群停在最新消息位置。下面的编译和权限命令在项目的 wechat-daily 目录执行。
+
+```sh
+swiftc -parse-as-library screen/ScreenReader.swift -o screen/wechat-screen
+test -f config.json || install -m 600 config.example.json config.json
+./screen/wechat-screen authorize
+```
+
+屏幕录制权限由本人确认。若系统要求，在「系统设置 → 隐私与安全性 → 屏幕与系统音频录制」为启动采集的终端授权，再重开终端。应用只处理官方微信窗口，图片仅用于内存里的 OCR。
+
+在本机 config.json 的 group 填入目标群的准确名称。打开目标群后，先检查匹配状态：
+
+```sh
+python3 daily.py --source screen screen-probe
+python3 daily.py --source screen capture
+```
+
+screen-probe 只显示群名是否匹配和识别到的行数。capture 将新文字保存在本机，按 Ctrl+C 可以结束。开始时先把屏幕上已有文字作为对照。试跑时在测试群产生几条新消息，等下一次取样，再用下面的 preview 检查日报。preview 需要启动本机 Ollama 并准备配置中指定的模型。
+
+如果有多个符合条件的微信窗口，运行 ./screen/wechat-screen list-windows 查看窗口编号和尺寸，再填入 screen.window_id。窗口编号会随窗口重开变化。裁剪区域以所选窗口左上角为原点，格式为 [左, 上, 宽, 高]，各项取 0 到 1。默认区域要按实际微信窗口排版校准。群名区域应只覆盖顶部标题，消息区域应只覆盖聊天内容。默认每 5 秒取样，实际间隔包含识别耗时。
+
+```sh
+python3 daily.py --source screen preview
+python3 daily.py --source screen serve
+```
+
+serve 在完成飞书机器人配置后开启定时发送。capture 和 serve 共用 state/screen，结束试跑进程后再启动定时服务。采集器根据相邻画面的文字重叠判断新增。群名不匹配、窗口不可用或 OCR 出错时暂停并记录间隙。画面没有可靠重叠时跳过该帧中的未知内容，以当前画面重新开始。日报日期按文字首次在屏幕上被捕捉的北京时间计算。快速刷屏、向上滚动、休眠和窗口布局变化都可能造成漏收或重复，建议用实际测试群逐条核对。
 
 ## 普通微信群 · 手动提交
 

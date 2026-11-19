@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 import daily
+from screen_frames import FrameTracker
 
 
 class DailyTest(unittest.TestCase):
@@ -76,6 +77,43 @@ class DailyTest(unittest.TestCase):
                     daily.service_loop(db, config)
         send.assert_called_once()
         self.assertIn("根据人工提交", send.call_args.args[1])
+
+    def test_screen_overlap_keeps_a_new_occurrence_of_repeated_text(self):
+        tracker = FrameTracker()
+        self.assertEqual(tracker.advance(["消息甲内容", "消息乙内容", "消息丙内容"]), ([], False))
+        self.assertEqual(tracker.advance(["消息乙内容", "消息丙内容", "消息乙内容"]), (["消息乙内容"], False))
+        self.assertEqual(tracker.advance(["消息乙内容", "消息丙内容", "消息乙内容"]), ([], False))
+        self.assertEqual(tracker.advance(["消息丙内容"]), ([], False))
+        self.assertEqual(tracker.advance(["画面全部换新", "没有可验证重叠"]), ([], True))
+
+    def test_screen_ingest_pauses_and_reports_gaps_with_observation_time(self):
+        start, _ = daily.day_window(self.day)
+        frames = [
+            {"kind": "frame", "at": start, "lines": ["开机前的旧消息"]},
+            {"kind": "frame", "at": start + 5, "lines": ["开机前的旧消息", "新消息约周五验收"]},
+            {"kind": "title-mismatch", "at": start + 10, "lines": ["别的群消息"]},
+            {"kind": "title-mismatch", "at": start + 15, "lines": ["别的群消息"]},
+            {"kind": "frame", "at": start + 20, "lines": ["重新进入群时的旧画面"]},
+            {"kind": "frame", "at": start + 25, "lines": ["重新进入群时的旧画面", "负责人待确认"]},
+            {"kind": "frame", "at": start + 30, "lines": ["脱节时不导入"]},
+        ]
+        with patch("sys.stderr"):
+            daily.persist_events((json.dumps(frame) for frame in frames), self.path, screen=True)
+        with closing(daily.open_db(self.path)) as db, patch.object(daily, "summarize_batch", return_value="日报") as model:
+            records = db.execute("SELECT body FROM messages ORDER BY at").fetchall()
+            self.assertEqual(records, [("新消息约周五验收",), ("负责人待确认",)])
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM heartbeat").fetchone()[0], 5)
+            report = daily.render_report(db, self.day, self.config, screen=True)
+        content = json.loads(model.call_args.args[1][0])
+        self.assertIsNone(content["time"])
+        self.assertEqual(content["observed_at"], "00:00")
+        self.assertIn("屏幕文字 2 批", report)
+        self.assertIn("记录到 2 次采集间隙", report)
+
+    def test_screen_regions_reject_an_overlap_between_title_and_body(self):
+        config = {**self.config, "screen": {"header_region": [0, 0, 1, 0.3]}}
+        with self.assertRaisesRegex(ValueError, "群名识别区域"):
+            daily.screen_parameters(config)
 
     def test_batches_preserve_all_source_messages(self):
         start, _ = daily.day_window(self.day)

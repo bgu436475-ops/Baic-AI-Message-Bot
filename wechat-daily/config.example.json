@@ -3,5 +3,11 @@
   "report_time": "00:10",
   "ollama_model": "qwen3:8b",
   "feishu_webhook": "",
-  "feishu_signing_secret": ""
+  "feishu_signing_secret": "",
+  "screen": {
+    "window_id": null,
+    "interval_seconds": 5,
+    "header_region": [0.31, 0.015, 0.63, 0.09],
+    "messages_region": [0.31, 0.13, 0.67, 0.66]
+  }
 }

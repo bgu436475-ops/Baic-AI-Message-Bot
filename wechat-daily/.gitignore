@@ -1,4 +1,5 @@
 /collector/wechat-collector
+/screen/wechat-screen
 /config.json
 /state/
 /.venv/
