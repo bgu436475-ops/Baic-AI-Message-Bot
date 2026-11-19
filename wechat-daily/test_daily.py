@@ -1,5 +1,5 @@
 from contextlib import closing
-from datetime import date
+from datetime import date, datetime, time, timedelta
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -44,6 +44,38 @@ class DailyTest(unittest.TestCase):
             daily.bind_group(db, "内部测试群")
             with self.assertRaises(ValueError):
                 daily.bind_group(db, "另一个群")
+
+    def test_manual_import_deduplicates_and_does_not_fabricate_source_time(self):
+        with closing(daily.open_db(self.path)) as db:
+            daily.bind_source(db, "manual")
+            self.assertTrue(daily.import_text(db, self.day, "项目周五交付"))
+            self.assertFalse(daily.import_text(db, self.day, "项目周五交付\n"))
+            self.assertTrue(daily.import_text(db, self.day + timedelta(days=1), "项目周五交付"))
+            with patch.object(daily, "summarize_batch", return_value="项目周五交付") as model:
+                report = daily.render_report(db, self.day, self.config, manual=True)
+            with self.assertRaises(ValueError):
+                daily.bind_source(db, "wechat")
+        self.assertIn("根据人工提交的 1 批文字生成", report)
+        self.assertNotIn("未覆盖", report)
+        self.assertIsNone(json.loads(model.call_args.args[1][0])["time"])
+
+    def test_manual_schedule_waits_for_input_and_sends_once(self):
+        config = {**self.config, "report_time": time(0, 10)}
+        current = datetime(2026, 11, 20, 9, 0, tzinfo=daily.SHANGHAI)
+        with closing(daily.open_db(self.path)) as db, patch.object(daily, "datetime", wraps=datetime) as clock, \
+                patch.object(daily.time, "sleep", side_effect=KeyboardInterrupt), \
+                patch.object(daily, "summarize_batch", return_value="日报内容"), \
+                patch.object(daily, "post_feishu") as send:
+            clock.now.return_value = current
+            with self.assertRaises(KeyboardInterrupt):
+                daily.service_loop(db, config)
+            send.assert_not_called()
+            daily.import_text(db, self.day, "确认周五交付")
+            for _ in range(2):
+                with self.assertRaises(KeyboardInterrupt):
+                    daily.service_loop(db, config)
+        send.assert_called_once()
+        self.assertIn("根据人工提交", send.call_args.args[1])
 
     def test_batches_preserve_all_source_messages(self):
         start, _ = daily.day_window(self.day)

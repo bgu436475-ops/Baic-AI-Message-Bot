@@ -1,8 +1,35 @@
 # 微信群日报
 
-在一台常开的电脑上收取一个指定微信群的实时文字消息，使用本机 Ollama 生成日报，再由飞书自定义机器人推送。默认每天北京时间 00:10 开始生成前一自然日的日报。支持在终端预览指定日期的日报。
+在常开的电脑上用本机 Ollama 概括群消息，再由飞书自定义机器人推送日报。默认每天北京时间 00:10 开始处理前一自然日的内容。支持手动提交普通微信群的文字，也保留原有的实时采集模式。
 
-## 本机运行
+## 普通微信群 · 手动提交
+
+需要 Python 3.9 或更新版本和本机 Ollama。在仓库根目录运行一次：
+
+```sh
+cd wechat-daily
+test -f config.json || install -m 600 config.example.json config.json
+ollama pull qwen3:8b
+```
+
+在本机的 `config.json` 中填写群名。预览可以先把飞书配置留空，定时发送需要填写飞书自定义机器人的 Webhook 和签名密钥。每天在官方微信客户端复制需要汇总的文字，在 Mac 终端中提交：
+
+```sh
+pbpaste | python3 daily.py --source manual import-text
+python3 daily.py --source manual preview
+```
+
+也可以用 `import-text --file /path/to/messages.txt` 提交 UTF-8 文本文件。导入和预览默认使用北京时间当天，补录昨天等其他日期时，可以加上 `--date YYYY-MM-DD`。日报只覆盖提交的文字，批次间完全相同的内容只存一次。
+
+飞书配置完成后，常驻运行以下命令：
+
+```sh
+python3 daily.py --source manual serve
+```
+
+服务到点后检查前一天的素材。如果暂时没有素材，就等待当天补录。已成功发送的日期只发送一次。该模式不启动微信采集器。
+
+## 实时采集 · 第三方接入
 
 支持 macOS / Linux。需要 Python 3.9 或更新版本、Go 1.20 或更新版本，以及运行在本机的 Ollama。以下命令在仓库根目录执行。
 
