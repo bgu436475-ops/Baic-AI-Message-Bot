@@ -1,0 +1,7 @@
+{
+  "group": "替换为唯一的微信群名称",
+  "report_time": "00:10",
+  "ollama_model": "qwen3:8b",
+  "feishu_webhook": "",
+  "feishu_signing_secret": ""
+}
