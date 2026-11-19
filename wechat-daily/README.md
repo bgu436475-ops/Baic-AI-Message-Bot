@@ -13,6 +13,12 @@ install -m 600 config.example.json config.json
 ollama pull qwen3:8b
 ```
 
+如果飞书或目标群尚未配置，可以先在本机终端完成微信扫码并保存会话。打开终端打印的二维码链接，用手机微信扫码确认。
+
+```sh
+./collector/wechat-collector --login-only --session ./state/wechat-session.json
+```
+
 在飞书要接收日报的群里添加自定义机器人，开启签名校验。在本机的 `config.json` 里填入目标微信群名、Webhook 地址和签名密钥。群名需要唯一，并且该群要出现在用于采集的微信会话群列表里。可以用 `report_time` 设置北京时间的推送时刻，用 `ollama_model` 换成本机已有的模型。
 
 在一个已告知成员的测试群先运行。第一次启动允许在本机显示二维码，需要账号使用者扫码。进程保持运行即可接收消息并在次日推送。

@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -25,15 +28,16 @@ func main() {
 	groupName := flag.String("group", "", "exact target group name")
 	session := flag.String("session", "", "path to the local session file")
 	login := flag.Bool("login", false, "allow an interactive QR sign-in")
+	loginOnly := flag.Bool("login-only", false, "save a session without starting group collection")
 	flag.Parse()
-	if err := run(strings.TrimSpace(*groupName), *session, *login); err != nil {
+	if err := run(strings.TrimSpace(*groupName), *session, *login || *loginOnly, *loginOnly); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func run(groupName, session string, login bool) error {
-	if groupName == "" || session == "" {
+func run(groupName, session string, login, loginOnly bool) error {
+	if session == "" || (groupName == "" && !loginOnly) {
 		return fmt.Errorf("缺少目标群或会话路径")
 	}
 	if err := os.MkdirAll(filepath.Dir(session), 0700); err != nil {
@@ -55,7 +59,9 @@ func run(groupName, session string, login bool) error {
 		}
 	}
 
-	bot := openwechat.DefaultBot(openwechat.Desktop)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	bot := openwechat.DefaultBot(openwechat.Desktop, openwechat.WithContextOption(ctx))
 	bot.UUIDCallback = func(uuid string) {
 		if login {
 			fmt.Fprintf(os.Stderr, "在本机打开登录二维码并用微信扫码：https://login.weixin.qq.com/qrcode/%s\n", uuid)
@@ -76,7 +82,7 @@ func run(groupName, session string, login bool) error {
 		}
 	}
 	bot.MessageHandler = func(message *openwechat.Message) {
-		if !message.IsSendByGroup() || !message.IsText() {
+		if loginOnly || !message.IsSendByGroup() || !message.IsText() {
 			return
 		}
 		<-ready
@@ -117,7 +123,23 @@ func run(groupName, session string, login bool) error {
 		options = append(options, openwechat.NewRetryLoginOption())
 	}
 	if err := bot.HotLogin(storage, options...); err != nil {
+		var dnsError *net.DNSError
+		switch {
+		case errors.Is(err, openwechat.ErrForbidden):
+			return fmt.Errorf("微信拒绝了本次客户端登录")
+		case errors.Is(err, openwechat.ErrLoginTimeout):
+			return fmt.Errorf("微信登录二维码已过期")
+		case errors.As(err, &dnsError):
+			return fmt.Errorf("无法解析微信登录服务的域名")
+		case openwechat.IsNetworkError(err):
+			return fmt.Errorf("无法连接微信登录服务，请检查本机网络")
+		}
 		return fmt.Errorf("微信会话登录失败，请检查账号状态或在本机手动登录")
+	}
+	if loginOnly {
+		cancel()
+		fmt.Fprintln(os.Stderr, "微信会话已保存到本机，尚未启动群消息采集。")
+		return nil
 	}
 	self, err := bot.GetCurrentUser()
 	if err != nil {
