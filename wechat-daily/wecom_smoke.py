@@ -4,8 +4,10 @@ import argparse
 import asyncio
 from getpass import getpass
 import os
+import re
 import secrets
 import sys
+from unicodedata import normalize
 
 
 class QuietLogger:
@@ -35,7 +37,8 @@ async def receive_test_message(client, chat_type, reply=False):
     authenticated = loop.create_future()
     received = loop.create_future()
     saw_text = False
-    challenge = "日报连通测试 " + secrets.token_hex(3)
+    challenge = f"{secrets.randbelow(1_000_000):06d}"
+    challenge_pattern = re.compile(rf"(?<![0-9]){challenge}(?![0-9])")
 
     @client.on("authenticated")
     def on_authenticated():
@@ -49,7 +52,7 @@ async def receive_test_message(client, chat_type, reply=False):
         content = body.get("text", {}).get("content", "")
         if isinstance(content, str) and body.get("chattype") == chat_type:
             saw_text = True
-            if not received.done() and content.strip().endswith(challenge):
+            if not received.done() and challenge_pattern.search(normalize("NFKC", content)):
                 received.set_result(frame)
 
     @client.on("error")
@@ -70,14 +73,14 @@ async def receive_test_message(client, chat_type, reply=False):
             return 1
 
         where = "在企微内部测试群里先 @ 机器人，再发送" if chat_type == "group" else "打开企微与机器人的单聊，发送"
-        print(f"认证成功。请在 90 秒内{where}下方这行文字。", flush=True)
+        print(f"认证成功。请在 90 秒内{where}下方的 6 位数字。", flush=True)
         print(challenge, flush=True)
 
         try:
             frame = await asyncio.wait_for(received, timeout=90)
         except asyncio.TimeoutError:
             if saw_text:
-                print("已收到文本，但测试码未匹配。请复制本次终端显示的整行测试文字。", file=sys.stderr)
+                print("已收到文本，但没有匹配本次的 6 位数字。请重跑脚本并使用新测试码。", file=sys.stderr)
             else:
                 print("认证通过，90 秒内未收到该会话类型的文本。检查可使用成员范围，群聊请从 @ 名单选中机器人。", file=sys.stderr)
             return 1
