@@ -22,6 +22,22 @@ python3 -m venv .venv
 
 已接入其他运行中服务的机器人，直接使用现有服务的日志做同样的收消息测试。
 
+## 飞书投递测试
+
+在飞书测试群打开「群设置 → 群机器人 → 添加机器人」，添加自定义机器人，再打开安全设置里的「签名校验」。在项目的 wechat-daily 目录准备本机配置：
+
+```sh
+test -f config.json || install -m 600 config.example.json config.json
+```
+
+在 `config.json` 中填写 `feishu_webhook` 和 `feishu_signing_secret`，然后运行：
+
+```sh
+python3 daily.py test-feishu
+```
+
+飞书群里出现「日报推送测试｜飞书机器人连接正常。」即通过。命令只发送这条固定文字。
+
 ## 普通微信群 · 单窗口屏幕 OCR
 
 需要 macOS 14 或更新版本、Swift 命令行工具和 Python 3.9 或更新版本。先用一个有明确授权、群名唯一的测试群。打开官方 Mac 微信，关闭多余的微信聊天窗口，并让测试群停在最新消息位置。下面的编译和权限命令在项目的 wechat-daily 目录执行。

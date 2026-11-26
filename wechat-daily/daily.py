@@ -491,6 +491,7 @@ def main():
     ingest.add_argument("--file", type=Path, help="UTF-8 文本路径，省略时从标准输入读取")
     commands.add_parser("screen-probe", help="验证窗口和群名，只显示状态和识别行数")
     commands.add_parser("capture", help="仅保存屏幕 OCR 文字，方便本机试跑")
+    commands.add_parser("test-feishu", help="向已配置的飞书群发送一条固定测试消息")
     args = parser.parse_args()
     manual = args.source == "manual"
     screen = args.source == "screen"
@@ -504,7 +505,11 @@ def main():
     os.umask(0o077)
 
     try:
-        config = read_config(args.config, sending=args.command == "serve")
+        config = read_config(args.config, sending=args.command in ("serve", "test-feishu"))
+        if args.command == "test-feishu":
+            post_feishu(config, "日报推送测试｜飞书机器人连接正常。")
+            print("飞书已接受测试消息，请在目标飞书群核对。")
+            return 0
         if args.command == "screen-probe":
             return probe_screen(config)
         state.mkdir(parents=True, exist_ok=True, mode=0o700)
