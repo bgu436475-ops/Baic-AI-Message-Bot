@@ -1,4 +1,4 @@
-"""Verify authentication and receipt for a dedicated WeCom test bot."""
+"""Verify authentication, receipt, and optionally replies for a WeCom test bot."""
 
 import argparse
 import asyncio
@@ -30,10 +30,11 @@ def read_credentials():
     return bot_id, secret
 
 
-async def receive_test_message(client, chat_type):
+async def receive_test_message(client, chat_type, reply=False):
     loop = asyncio.get_running_loop()
     authenticated = loop.create_future()
     received = loop.create_future()
+    saw_text = False
     challenge = "日报连通测试 " + secrets.token_hex(3)
 
     @client.on("authenticated")
@@ -43,11 +44,13 @@ async def receive_test_message(client, chat_type):
 
     @client.on("message.text")
     def on_text(frame):
+        nonlocal saw_text
         body = frame.get("body", {})
         content = body.get("text", {}).get("content", "")
         if isinstance(content, str) and body.get("chattype") == chat_type:
+            saw_text = True
             if not received.done() and content.strip().endswith(challenge):
-                received.set_result(True)
+                received.set_result(frame)
 
     @client.on("error")
     @client.on("disconnected")
@@ -71,15 +74,31 @@ async def receive_test_message(client, chat_type):
         print(challenge, flush=True)
 
         try:
-            matched = await asyncio.wait_for(received, timeout=90)
+            frame = await asyncio.wait_for(received, timeout=90)
         except asyncio.TimeoutError:
-            print("认证通过，90 秒内未收到匹配消息。检查会话类型、可使用成员范围和测试码。", file=sys.stderr)
+            if saw_text:
+                print("已收到文本，但测试码未匹配。请复制本次终端显示的整行测试文字。", file=sys.stderr)
+            else:
+                print("认证通过，90 秒内未收到该会话类型的文本。检查可使用成员范围，群聊请从 @ 名单选中机器人。", file=sys.stderr)
             return 1
-        if not matched:
+        if not frame:
             print("认证成功后连接中断。请查看机器人是否被另一进程接入。", file=sys.stderr)
             return 1
 
         print(f"收到{'群聊' if chat_type == 'group' else '单聊'}测试消息，长连接收消息正常。", flush=True)
+        if reply:
+            try:
+                await asyncio.wait_for(
+                    client.reply_stream(
+                        frame, "stream_" + secrets.token_hex(8), "已收到测试消息，企微连通正常。",
+                        finish=True,
+                    ),
+                    timeout=10,
+                )
+            except Exception as exc:
+                print(f"已收到测试消息，但回复未获确认（{type(exc).__name__}）。", file=sys.stderr)
+                return 1
+            print("企微已确认测试回复。", flush=True)
         return 0
     finally:
         client.disconnect()
@@ -88,6 +107,7 @@ async def receive_test_message(client, chat_type):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--chat", choices=("single", "group"), default="single")
+    parser.add_argument("--reply", action="store_true", help="收到匹配的测试码后，在同一会话回复一条确认。")
     args = parser.parse_args()
 
     try:
@@ -105,7 +125,7 @@ def main():
     try:
         client = WSClient(WSClientOptions(bot_id=bot_id, secret=secret, logger=QuietLogger(),
                                          max_reconnect_attempts=0))
-        return asyncio.run(receive_test_message(client, args.chat))
+        return asyncio.run(receive_test_message(client, args.chat, reply=args.reply))
     except KeyboardInterrupt:
         return 130
     except Exception as exc:
